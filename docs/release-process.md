@@ -14,3 +14,5 @@ Steps for Andrea to publish a version, for example v0.1.0. The workflow never pu
 6. **Wait for the workflow** (Actions > Release, about 20-30 minutes). It builds the Universal Release, runs the tests, checks the architectures, runs pluginval and auval, packages `NL2X-Editor-0.1.0-macOS-universal.zip` and creates a **draft** release with the zip attached.
 7. **Review the draft** under Releases: edit the notes (generated from the merged pull requests), download the zip on a clean Mac and check it installs as the README says.
 8. **Publish** the draft. To abandon a bad release, delete the draft and the tag (`git push --delete origin v0.1.0`, `git tag -d v0.1.0`) and tag again after the fix.
+
+The release workflow refuses a tag that does not match `project(NL2XEditor VERSION …)` in `CMakeLists.txt`, so bump the version first.

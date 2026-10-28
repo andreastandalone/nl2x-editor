@@ -111,11 +111,14 @@ Do this after the hardware session. Use Bank 3 as the test Bank and back it up f
 
 ## 10. Project recall
 
-- Live [ ]  Cubase [ ]  Edit sounds on Slots A-D (a knob each, one Morph Amount, one selector), save the project, close it.
-- Live [ ]  Cubase [ ]  Change the synth's sounds by hand (or switch it off and on), reopen the project: the plugin shows the saved values and the synth is brought back to the saved sounds. Expected: no unexpected notes, no Program Change storm.
-- Live [ ]  Cubase [ ]  Slot Channel overrides and the chosen ports survive the reopen.
-- [ ] Open the project with the synth switched off: the plugin loads, shows "Not answering", and does not hang the DAW.
-- [ ] Note the time recall takes for four Slots.
+Synth connected, P and C on.
+
+- Live [ ]  Cubase [ ]  Change A: Filter Cutoff, a Morph Amount on Slot B and the Split Point; save; change the sounds on the synth; close and reopen the project. Expected: the Slots and the Split Point come back; a MIDI monitor or the Probe log shows one 715-byte and four 139-byte messages and no CC on open.
+- Live [ ]  Cubase [ ]  Save a device preset (`.adv` in Live, `.vstpreset` in Cubase), change the sounds, load the preset. Expected: sent at once.
+- Live [ ]  Cubase [ ]  Slot Channel overrides and the saved Bank/Program selection survive the reopen, and no Program Change goes out on open.
+- [ ] Untick "Send the project's sounds to the synth when the project opens" and reopen. Expected: nothing is sent, the views show the synth's sounds; the setting survives a restart.
+- [ ] Open the project with the synth switched off, then switch it on. Expected: the sounds are sent as soon as the synth is found; the DAW never hangs.
+- [ ] Check whether the Performance dump alone restores the Slots (if so, set `kProjectRecallSendsSlotDumpsAfterPerformance = false`), what a Slot playing a Percussion Kit does with a Performance dump, and that no Bank changed.
 
 ## 11. Undo and redo
 
