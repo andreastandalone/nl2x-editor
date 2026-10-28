@@ -55,9 +55,7 @@ void MidiPorts::handleDeviceListChange()
         output.reset();
 
     reopenSavedPorts();
-
-    if (onPortsChanged)
-        onPortsChanged();
+    sendSynchronousChangeMessage();
 }
 
 void MidiPorts::reopenSavedPorts()
@@ -89,6 +87,7 @@ void MidiPorts::selectInput(const juce::String& identifier)
     settings.setValue(kInputIdKey, identifier);
     settings.setValue(kInputNameKey, nameOf(juce::MidiInput::getAvailableDevices(), identifier));
     settings.saveIfNeeded();
+    sendSynchronousChangeMessage();
 }
 
 void MidiPorts::selectOutput(const juce::String& identifier)
@@ -103,6 +102,7 @@ void MidiPorts::selectOutput(const juce::String& identifier)
     settings.setValue(kOutputIdKey, identifier);
     settings.setValue(kOutputNameKey, nameOf(juce::MidiOutput::getAvailableDevices(), identifier));
     settings.saveIfNeeded();
+    sendSynchronousChangeMessage();
 }
 
 void MidiPorts::send(const juce::MidiMessage& message)

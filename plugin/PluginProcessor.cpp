@@ -113,10 +113,13 @@ void NL2XEditorProcessor::deliverIncomingMidi()
     }
 
     for (const auto& message : messages) {
-        const auto* bytes = message.getRawData();
+        const std::span<const std::uint8_t> bytes { message.getRawData(),
+                                                    static_cast<std::size_t>(message.getRawDataSize()) };
         // JUCE stamps incoming messages in seconds on the same clock as getMillisecondCounterHiRes.
-        engine.handleIncomingMidi({ bytes, static_cast<std::size_t>(message.getRawDataSize()) },
-                                  static_cast<nl2x::TimeMs>(message.getTimeStamp() * 1000.0));
+        const auto timeMs = message.getTimeStamp() * 1000.0;
+        engine.handleIncomingMidi(bytes, static_cast<nl2x::TimeMs>(timeMs));
+        if (midiMonitor != nullptr)
+            midiMonitor->midiFromSynth(bytes, timeMs);
     }
 }
 
@@ -133,9 +136,11 @@ void NL2XEditorProcessor::sendChangedParameters()
     }
 }
 
-void NL2XEditorProcessor::EngineMidiOutput::send(std::span<const std::uint8_t> message)
+void NL2XEditorProcessor::sendToSynth(std::span<const std::uint8_t> message)
 {
     ports.send(juce::MidiMessage(message.data(), static_cast<int>(message.size())));
+    if (midiMonitor != nullptr)
+        midiMonitor->midiToSynth(message, juce::Time::getMillisecondCounterHiRes());
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

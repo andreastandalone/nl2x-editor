@@ -2,7 +2,8 @@
 add_library(nl2x_engine STATIC
     src/Engine.cpp
     src/ProgramParameters.cpp
-    src/Slot.cpp)
+    src/Slot.cpp
+    src/SysEx.cpp)
 
 target_include_directories(nl2x_engine PUBLIC include)
 target_compile_features(nl2x_engine PUBLIC cxx_std_20)

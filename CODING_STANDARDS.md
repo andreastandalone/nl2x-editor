@@ -8,6 +8,8 @@ Rules every change must follow. Reviewers enforce them; agents read them before 
 engine/            the engine: plain C++20, no JUCE, no GUI, no threads of its own
   include/nl2x/    the engine's public headers (the only thing the shell may include)
   src/             implementation
+probe/             the hardware discovery probe (#3): plain C++20 under the engine's rules, in
+                   namespace nl2x::probe; only the standalone app's Probe window uses it
 plugin/            the JUCE shell: AudioProcessor, editor, MIDI port handling
 tests/             automated tests (Catch2) and the simulated Nord Lead 2X
   sim/             SimulatedNordLead2X

@@ -3,14 +3,14 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>
 
-#include <functional>
 
 // The MIDI input and output ports connected to the synth, opened by the plugin itself rather than
 // through the DAW (ADR 0001). The user's choice is remembered per user, not per project, in
 // ~/Library/Application Support/NL2X Editor/, so it survives across projects.
 //
-// Message thread only.
-class MidiPorts {
+// Message thread only. Listeners hear a change message whenever a port is chosen, appears or
+// disappears.
+class MidiPorts : public juce::ChangeBroadcaster {
 public:
     // Incoming messages are delivered to `inputCallback` on the MIDI driver's thread.
     explicit MidiPorts(juce::MidiInputCallback& inputCallback);
@@ -25,9 +25,6 @@ public:
     // Ports that were chosen but cannot be opened (unplugged): reported to the user.
     juce::String missingInputName() const { return input == nullptr ? settings.getValue(kInputNameKey) : juce::String(); }
     juce::String missingOutputName() const { return output == nullptr ? settings.getValue(kOutputNameKey) : juce::String(); }
-
-    // Called on the message thread whenever ports appear or disappear.
-    std::function<void()> onPortsChanged;
 
     void send(const juce::MidiMessage& message);
 

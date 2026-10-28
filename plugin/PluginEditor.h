@@ -1,11 +1,16 @@
 #pragma once
 
+#include "MidiPortSelector.h"
 #include "PluginProcessor.h"
+#include "ProbeWindow.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <memory>
+
 // The first, functional GUI: one knob and the MIDI port settings. The panel-style layout in Nord
-// colours is #13.
+// colours is #13. In the standalone app only, a Probe button opens the hardware discovery probe
+// (#3).
 class NL2XPluginEditor final : public juce::AudioProcessorEditor {
 public:
     explicit NL2XPluginEditor(NL2XEditorProcessor& owner);
@@ -15,7 +20,7 @@ public:
     void resized() override;
 
 private:
-    void refreshPortLists();
+    void showProbe();
 
     NL2XEditorProcessor& editorProcessor;
 
@@ -25,12 +30,9 @@ private:
     juce::AudioProcessorValueTreeState::SliderAttachment cutoffAttachment;
 
     juce::Label settingsTitle { {}, "MIDI settings" };
-    juce::Label inputLabel { {}, "MIDI Input (from the synth)" };
-    juce::Label outputLabel { {}, "MIDI Output (to the synth)" };
-    juce::ComboBox inputPorts;
-    juce::ComboBox outputPorts;
-    juce::StringArray inputIdentifiers;
-    juce::StringArray outputIdentifiers;
+    MidiPortSelector portSelector;
+    juce::TextButton probeButton { "Probe" };
+    std::unique_ptr<ProbeWindow> probeWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XPluginEditor)
 };

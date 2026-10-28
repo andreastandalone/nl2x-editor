@@ -21,6 +21,7 @@ include(FetchContent)
 include(cmake/Dependencies.cmake)
 
 add_subdirectory(engine)
+add_subdirectory(probe)
 
 if(NL2X_BUILD_TESTS)
     enable_testing()
