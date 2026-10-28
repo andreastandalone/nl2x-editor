@@ -21,3 +21,4 @@ On 2026-10-28 Andrea handed the project to a coordinating agent while away (hand
 - Lesson, 2026-10-28: CMake's downloader cannot reach github.com from the agent sandbox; reuse the tarballs in the session scratchpad `deps/` with `-DNL2X_DOWNLOAD_CACHE`.
 - 2026-10-28: #3 tool built on branch `3-probe-tool` (SysEx basics, probe library and scripts, Probe window, final `docs/hardware-discovery-plan.md`); the hardware session itself awaits Andrea.
 - 2026-10-28: #3 software merged as `fbd5bbc` (PR #17); issue open, `ready-for-human`. #4 delegated on `4-read-slots`, based on pre-squash `a6ce046` (rebase with `git rebase --onto main a6ce046`).
+- 2026-10-28: #4 built on branch `4-read-slots` (worktree `.worktrees/4-read-slots`, based on `3-probe-tool`): Program codec, 66-entry parameter table, Synth model and connection with Global Channel probing, Kit recognition, generic Slot view. Awaits the hardware check (open-questions.md, "Andrea needed" 2).

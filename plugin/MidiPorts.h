@@ -3,6 +3,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_data_structures/juce_data_structures.h>
 
+#include <optional>
 
 // The MIDI input and output ports connected to the synth, opened by the plugin itself rather than
 // through the DAW (ADR 0001). The user's choice is remembered per user, not per project, in
@@ -28,11 +29,17 @@ public:
 
     void send(const juce::MidiMessage& message);
 
+    // The Global Channel (SysEx Device ID, 0–15) the synth last answered on, kept with the ports
+    // so that the next connection asks it first (spec #1, user story 5).
+    std::optional<int> rememberedGlobalChannel() const;
+    void rememberGlobalChannel(int channel);
+
 private:
     static constexpr const char* kInputIdKey = "midiInputIdentifier";
     static constexpr const char* kInputNameKey = "midiInputName";
     static constexpr const char* kOutputIdKey = "midiOutputIdentifier";
     static constexpr const char* kOutputNameKey = "midiOutputName";
+    static constexpr const char* kGlobalChannelKey = "globalChannel";
 
     static juce::PropertiesFile::Options settingsOptions();
 

@@ -110,3 +110,19 @@ void MidiPorts::send(const juce::MidiMessage& message)
     if (output != nullptr)
         output->sendMessageNow(message);
 }
+
+std::optional<int> MidiPorts::rememberedGlobalChannel() const
+{
+    const auto channel = settings.getIntValue(kGlobalChannelKey, -1);
+    if (channel < 0 || channel > 15)
+        return std::nullopt;
+    return channel;
+}
+
+void MidiPorts::rememberGlobalChannel(int channel)
+{
+    if (rememberedGlobalChannel() == channel)
+        return;
+    settings.setValue(kGlobalChannelKey, channel);
+    settings.saveIfNeeded();
+}

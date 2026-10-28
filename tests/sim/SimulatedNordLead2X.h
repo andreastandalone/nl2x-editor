@@ -19,13 +19,14 @@ namespace nl2x::test {
 // engine shows up as a disagreement.
 //
 // It understands CCs on Slot Channels, the Slot Edit Buffer request, the All Controllers Request,
-// Program dumps into Edit Buffers and Bank locations, and the Performance Edit Buffer request and
-// dump. Percussion Kits, Performance Banks and Slot Channel changes from Program Change (#5) are
-// added as those tickets land. Replies are sent at once; the misbehaviour switches below model a
+// Program dumps into Edit Buffers and Bank locations, the Performance Edit Buffer request and
+// dump, and Slots playing a Percussion Kit. Performance Banks and Slot Channel changes from
+// Program Change (#5) are added as those tickets land. Replies are sent at once; the misbehaviour switches below model a
 // synth that does not answer or cannot keep up.
 class SimulatedNordLead2X {
 public:
     using Program = std::array<std::int8_t, kProgramParameterCount>;
+    using PercussionKit = std::array<std::int8_t, kPercussionKitParameterCount>;
     using PerformanceSettings = std::array<std::int8_t, kPerformanceSettingsCount>;
 
     // The four RAM Program Banks, numbered as the synth shows them (0–3) [OFF-2X p.13].
@@ -46,9 +47,18 @@ public:
     // Buffer changes and the CC goes out on that Slot's channel [OFF-2X p.76].
     void turnPanelControl(Slot slot, std::uint8_t cc, std::uint8_t value);
 
-    // A Slot's Edit Buffer, by decoded SysEx offset [OFF-2X p.111–112].
+    // A Slot's Program Edit Buffer, by decoded SysEx offset [OFF-2X p.111–112]. Setting it makes
+    // the Slot play a Program.
     const Program& editBuffer(Slot slot) const { return slots[slotIndex(slot)].editBuffer; }
-    void setEditBuffer(Slot slot, const Program& program) { slots[slotIndex(slot)].editBuffer = program; }
+    void setEditBuffer(Slot slot, const Program& program);
+
+    // The Slot plays a Percussion Kit (8 Programs, by decoded offset) until setEditBuffer().
+    void playPercussionKit(Slot slot, const PercussionKit& kit) { slots[slotIndex(slot)].percussionKit = kit; }
+    bool playsPercussionKit(Slot slot) const { return slots[slotIndex(slot)].percussionKit.has_value(); }
+
+    // The Slot selected on the panel. It matters only if Slot Edit Buffer requests follow the
+    // active Slot (kSlotEditBufferReplyFollowsRequestedSlot in HardwareAssumptions.h).
+    void setActiveSlot(Slot slot) { activeSlot = slot; }
 
     void setSlotChannel(Slot slot, std::optional<MidiChannel> channel) { slots[slotIndex(slot)].channel = channel; }
     void setGlobalChannel(GlobalChannel channel) { globalChannel = channel; }
@@ -81,12 +91,15 @@ public:
 private:
     struct SlotState {
         Program editBuffer {};
+        // Set while the Slot plays a Percussion Kit instead of its Program.
+        std::optional<PercussionKit> percussionKit;
         std::optional<MidiChannel> channel;
     };
 
     void handleControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t value);
     void handleSysEx(std::span<const std::uint8_t> message);
     void handleRequest(std::uint8_t type, std::uint8_t spec);
+    void sendSlotEditBuffer(Slot requested);
     void handleDump(const ParsedSysEx& dump);
     void sendAllControllers(Slot slot);
     void sendPerformance();
@@ -96,6 +109,7 @@ private:
     PerformanceSettings settings {};
     std::array<std::array<Program, kProgramsPerBank>, kRamBankCount> banks {};
     int selectedBank = 0;
+    Slot activeSlot = Slot::A;
     GlobalChannel globalChannel;
     std::optional<std::uint8_t> bankRequestType;
     bool answersSysEx = true;

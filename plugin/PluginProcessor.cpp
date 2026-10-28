@@ -38,12 +38,53 @@ NL2XEditorProcessor::NL2XEditorProcessor()
         boundParameters.push_back({ slot, parameter, dawParameter, engineValue(*dawParameter) });
     }
 
+    ports.addChangeListener(this);
+    // The ports saved by the user are already open: connect at once (spec #1, user story 19).
+    connectIfPortsChanged();
     startTimer(kTimerIntervalMs);
 }
 
 NL2XEditorProcessor::~NL2XEditorProcessor()
 {
     stopTimer();
+    ports.removeChangeListener(this);
+}
+
+void NL2XEditorProcessor::changeListenerCallback(juce::ChangeBroadcaster*)
+{
+    connectIfPortsChanged();
+}
+
+void NL2XEditorProcessor::connectIfPortsChanged()
+{
+    const auto input = ports.inputIdentifier();
+    const auto output = ports.outputIdentifier();
+    if (input.isEmpty() || output.isEmpty()) {
+        // Forget the pair, so that replugging the interface connects again.
+        connectedInput = {};
+        connectedOutput = {};
+        return;
+    }
+    if (input == connectedInput && output == connectedOutput)
+        return;
+
+    connectedInput = input;
+    connectedOutput = output;
+    std::optional<nl2x::GlobalChannel> remembered;
+    if (const auto channel = ports.rememberedGlobalChannel())
+        remembered = static_cast<nl2x::GlobalChannel>(*channel);
+    engine.connect(remembered, nowMs());
+}
+
+void NL2XEditorProcessor::readSlotFromSynth(nl2x::Slot slot)
+{
+    engine.readSlot(slot, nowMs());
+}
+
+void NL2XEditorProcessor::rememberFoundGlobalChannel()
+{
+    if (const auto channel = engine.globalChannel())
+        ports.rememberGlobalChannel(*channel);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout NL2XEditorProcessor::createParameterLayout()
@@ -102,6 +143,7 @@ void NL2XEditorProcessor::timerCallback()
     deliverIncomingMidi();
     sendChangedParameters();
     engine.advanceTime(nowMs());
+    rememberFoundGlobalChannel();
 }
 
 void NL2XEditorProcessor::deliverIncomingMidi()

@@ -10,8 +10,10 @@
 // "[INF]" = our own inference; "contradicted" = a source says the documented value is wrong.
 
 #include "nl2x/Slot.h"
+#include "nl2x/SysEx.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace nl2x::hardware {
@@ -82,6 +84,37 @@ inline constexpr std::uint8_t kSlotEditBufferRequestType = 14;
 // Status: [INF] (plan step 3 records the real header).
 inline constexpr std::uint8_t kSlotEditBufferReplyType = kProgramEditBufferDumpType;
 
+// How a reply to a Slot Edit Buffer request tells a Program from a Percussion Kit: by its size
+// alone. 139 bytes (kProgramDumpSize) = the Slot plays a Program; 1063 bytes
+// (kPercussionKitDumpSize) = the Slot plays a Percussion Kit, whatever the header says [SEC-1].
+// Caveats [SEC-1]: the Kit may be the stored Kit rather than its Edit Buffer, and the reply may
+// follow the *active* Slot rather than the requested one (see the next constant).
+// Status: secondary, not verified on this synth (plan steps 3–4).
+enum class SlotEditBufferReply : std::uint8_t { Program, PercussionKit, NotAReply };
+
+constexpr SlotEditBufferReply classifySlotEditBufferReply(std::size_t messageSize)
+{
+    if (messageSize == kProgramDumpSize)
+        return SlotEditBufferReply::Program;
+    if (messageSize == kPercussionKitDumpSize)
+        return SlotEditBufferReply::PercussionKit;
+    return SlotEditBufferReply::NotAReply;
+}
+
+// Whether a Slot Edit Buffer request is answered with the requested Slot's content (true) or
+// with the active Slot's (false). [SEC-1] reports the reply depends on the active Slot: a Kit on
+// the active Slot makes every request return that Kit, and a Program reply is "empty" unless the
+// active Slot plays a Program. We assume the requested Slot answers, the only reading under
+// which four separate reads are meaningful; if plan step 3 shows otherwise, reading the Slots
+// needs the active Slot changed between requests, or the Performance dump instead (#5).
+// Status: [INF], plan step 3 ("whether the reply follows the requested Slot or the active Slot").
+inline constexpr bool kSlotEditBufferReplyFollowsRequestedSlot = true;
+
+// Header of the Kit reply to a Slot Edit Buffer request: the Kit Edit Buffer dump of the manual,
+// type 0, spec 16–19 = Slot A–D [OFF-2X p.105]. Only the simulated synth uses it: the engine
+// matches replies by size. Status: [INF] (plan step 4 records the real header).
+inline constexpr std::uint8_t kSlotEditBufferKitReplySpecOfSlotA = kPercussionKitEditBufferSpecOfSlotA;
+
 // Bank location requests as printed: types 11–14 = Bank 1–4, spec 0–98 = Program, 99–108 = Kit
 // [OFF-2X p.106]. Status: contradicted, type 14 is the Slot Edit Buffer request on a 2X [SEC-1].
 inline constexpr std::uint8_t kPrintedFirstBankRequestType = 11;
@@ -112,5 +145,16 @@ inline constexpr std::uint8_t kAllControllersRequestType = 20;
 // Spacing between consecutive Program dumps written to Bank locations: the synth stores each one,
 // so give it time. No official figure exists. Status: [INF], research §4.9 (plan steps 10–11).
 inline constexpr int kBankWriteSpacingMs = 100;
+
+// How long the editor waits for the answer to a request before giving up on it. A Kit reply is
+// 1063 bytes, about 340 ms on the wire at 31 250 baud; a Program reply about 45 ms. No official
+// figure for the synth's own reaction time exists. Probing all 16 Global Channels with no synth
+// attached takes 16 times this. Status: [INF], research §4.9 (plan steps 1 and 10 measure it).
+inline constexpr int kRequestReplyTimeoutMs = 1000;
+
+// The smallest gap between the end of one request (answered or timed out) and the next one, so
+// that the synth is never handed a request while still sending. Research §4.9 only says "wait for
+// each reply before sending the next request". Status: [INF] (plan step 10).
+inline constexpr int kRequestSpacingMs = 20;
 
 } // namespace nl2x::hardware

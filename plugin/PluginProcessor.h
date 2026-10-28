@@ -18,6 +18,7 @@
 // queued by the MIDI driver's thread and drained by the same timer.
 class NL2XEditorProcessor final : public juce::AudioProcessor,
                                   private juce::MidiInputCallback,
+                                  private juce::ChangeListener,
                                   private juce::Timer {
 public:
     NL2XEditorProcessor();
@@ -25,6 +26,12 @@ public:
 
     juce::AudioProcessorValueTreeState& parameterState() { return parameters; }
     MidiPorts& midiPorts() { return ports; }
+
+    // The engine's view of the synth, for the GUI: Slot states, Global Channel, connection status.
+    // Poll Engine::stateRevision() to notice changes. Message thread only.
+    const nl2x::Engine& synth() const { return engine; }
+    // "Read from synth" for one Slot. Message thread only.
+    void readSlotFromSynth(nl2x::Slot slot);
 
     // Sees every MIDI message exchanged with the synth (the Probe window). Message thread only.
     class MidiMonitor {
@@ -90,7 +97,11 @@ private:
 
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
     void timerCallback() override;
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     void sendChangedParameters();
+    // Connects to the synth when both ports are open and differ from the last connected pair.
+    void connectIfPortsChanged();
+    void rememberFoundGlobalChannel();
 
     juce::AudioProcessorValueTreeState parameters;
     // Declared before `ports`, so they outlive the MIDI input that writes to them.
@@ -101,6 +112,8 @@ private:
     EngineMidiOutput engineOutput { *this };
     nl2x::Engine engine { engineOutput };
     std::vector<BoundParameter> boundParameters;
+    juce::String connectedInput;
+    juce::String connectedOutput;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XEditorProcessor)
 };
