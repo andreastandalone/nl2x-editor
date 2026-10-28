@@ -154,7 +154,7 @@ private:
     void takeSelectionFromPerformance();
     std::optional<GlobalChannel> selectionGlobalChannel() const;
     // The Slots a Program Change on `channel` reaches (shared channel, Layer).
-    std::array<bool, 4> slotsReceivingOn(MidiChannel channel) const;
+    std::array<bool, 4> slotsReachedByProgramChange(MidiChannel channel) const;
     void sendSelection(MidiChannel channel, BankAndProgramChange midi);
 
     void changed() { ++revision; }

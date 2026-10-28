@@ -6,6 +6,7 @@
 #include "EditorAndSynth.h"
 
 #include "nl2x/HardwareAssumptions.h"
+#include "nl2x/Performance.h"
 #include "nl2x/Selection.h"
 #include "nl2x/SysEx.h"
 
@@ -265,9 +266,23 @@ TEST_CASE("After a Performance change the Performance and all four Slots are rea
     }
 
     rig.toSynth.clear();
-    rig.engine.setParameter(Slot::B, ProgramParameter::FilterCutoff, 77);
+    rig.engine.setParameter(Slot::B, CcParameter::FilterCutoff, 77);
     REQUIRE(rig.toSynth.messages().size() == 1);
     CHECK(rig.toSynth.messages()[0] == Bytes { 0xB0 | 10, 74, 77 });
+}
+
+TEST_CASE("A Performance edit not sent yet is dropped when another Performance is selected")
+{
+    ConnectedRig rig;
+    rig.toSynth.clear();
+    REQUIRE(rig.engine.setPerformanceSetting(PerformanceSetting::SplitPoint, Slot::A, 72)
+            == PerformanceEditResult::Accepted);
+    REQUIRE(rig.engine.selectPerformance({ 3, 42 }, rig.now) == SelectionResult::Sent);
+    settle(rig);
+    rig.runFor(1000);
+
+    for (const auto& message : rig.toSynth.messages())
+        CHECK_FALSE(parsePerformanceDump(message));
 }
 
 TEST_CASE("A Program selected on the synth is followed: that Slot is read again")

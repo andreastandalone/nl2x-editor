@@ -44,7 +44,7 @@ SelectionResult Engine::selectProgram(Slot slot, ProgramSelection selection, Tim
         return SelectionResult::RefusedSlotOnGlobalChannel;
 
     sendSelection(*channel, *midi);
-    const auto reached = slotsReceivingOn(*channel);
+    const auto reached = slotsReachedByProgramChange(*channel);
     for (auto other : kAllSlots)
         if (reached[slotIndex(other)])
             selectionTracker->state.programs[slotIndex(other)] = selection;
@@ -65,6 +65,8 @@ SelectionResult Engine::selectPerformance(PerformanceSelection selection, TimeMs
         return SelectionResult::RefusedNoGlobalChannel;
 
     sendSelection(*channel, *midi);
+    // Edits of the old Performance not sent yet must not land on the new one.
+    performanceBuffer->dropUnsentEdits();
     selectionTracker->state.performance = selection;
     // The Slots now play the new Performance's Programs; the Performance read fills them in.
     selectionTracker->state.programs = {};
@@ -128,13 +130,14 @@ void Engine::followSelectionOnSynth(std::span<const std::uint8_t> message, TimeM
         else if (tracker.state.performance)
             bank = midiSelection(*tracker.state.performance)->bankSelect;
         tracker.state.performance = bank ? performanceSelectionFromMidi(*bank, programChange) : std::nullopt;
+        performanceBuffer->dropUnsentEdits();
         tracker.state.programs = {};
         tracker.scheduleReread(timeMs, kEverySlot, true);
         changed();
         return;
     }
 
-    const auto reached = slotsReceivingOn(channel);
+    const auto reached = slotsReachedByProgramChange(channel);
     if (reached == kNoSlots)
         return;
     for (auto slot : kAllSlots) {
@@ -206,22 +209,17 @@ std::optional<GlobalChannel> Engine::selectionGlobalChannel() const
     return foundGlobalChannel ? foundGlobalChannel : manualChannel;
 }
 
-std::array<bool, 4> Engine::slotsReceivingOn(MidiChannel channel) const
+std::array<bool, 4> Engine::slotsReachedByProgramChange(MidiChannel channel) const
 {
-    std::array<bool, 4> reached {};
+    SlotChannelArray channels;
     for (auto slot : kAllSlots)
-        reached[slotIndex(slot)] = slotChannel(slot) == channel;
-
-    if (hardware::kProgramChangeReachesEverySlotReceivingOnItsChannel
-        && hardware::kLayeredSlotsAlsoReceiveOnLeftmostActiveSlotChannel) {
-        const auto layer = performanceBuffer->layer();
-        const auto leftmost = std::find(layer.begin(), layer.end(), true);
-        if (leftmost != layer.end()
-            && slotChannel(kAllSlots[static_cast<std::size_t>(leftmost - layer.begin())]) == channel)
-            for (auto slot : kAllSlots)
-                if (layer[slotIndex(slot)] && slotChannel(slot))
-                    reached[slotIndex(slot)] = true;
-    }
+        channels[slotIndex(slot)] = slotChannel(slot);
+    // Without the assumption a Program Change reaches only the Slots on exactly that channel.
+    const auto layer = hardware::kProgramChangeReachesEverySlotReceivingOnItsChannel ? performanceBuffer->layer()
+                                                                                     : SlotLayerArray {};
+    std::array<bool, 4> reached {};
+    for (auto slot : nl2x::slotsReceivingOn(channel, channels, layer))
+        reached[slotIndex(slot)] = true;
     return reached;
 }
 
