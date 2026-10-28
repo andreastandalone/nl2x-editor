@@ -130,12 +130,14 @@ Synth connected, P and C on.
 
 ## 12. Look and feel
 
-Placeholders until the panel layout is approved (issue #13). Fill in when reviewing the finished window.
+The colours are placeholders until they are sampled from a photo of the synth (issue #13); they live only in `plugin/NordLookAndFeel.h` (entries marked PLACEHOLDER).
 
-- [ ] Panel layout approved by Andrea (#13). Decision / date: ____________
-- [ ] Layout matches the hardware panel groups; every control is where the synth has it. Notes: ____________
+- [ ] Colours sampled from the photo and put into `plugin/NordLookAndFeel.h`.
+- [ ] Panel layout approved by Andrea in Ableton Live (#13). Decision / date: ____________
+- [ ] Every control sits in its section where the synth has it (LFO 1, LFO 2/Arp, Mod Env left; Oscillators centre; Amplifier, Filter right; play controls along the bottom). Notes: ____________
+- [ ] The order of the LED choices matches the synth's LEDs (it follows `HardwareAssumptions.h` until the hardware session settles it). Notes: ____________
 - [ ] Colours and violet Morph arc readable on a dark and a light DAW theme. Notes: ____________
-- [ ] Window scales/resizes acceptably in Live [ ]  Cubase [ ]  standalone [ ].
+- [ ] The fixed 1378 × 758 window fits and reads well in Live [ ]  Cubase [ ]  standalone [ ].
 - [ ] Text is legible at the default size; no clipped labels. Notes: ____________
 - [ ] About window shows the trademark notice ("Not affiliated with or endorsed by Clavia DMI AB. Nord and Nord Lead are trademarks of Clavia DMI AB.") and the version.
 
