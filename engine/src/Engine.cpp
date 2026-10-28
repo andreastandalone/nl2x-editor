@@ -75,6 +75,7 @@ void Engine::advanceTime(TimeMs timeMs)
     if (foundGlobalChannel && connection->isIdle(timeMs))
         if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
             connection->sendWithoutReply(*dump, timeMs);
+    sendDueAudition(timeMs);
     check->advanceTime(timeMs);
 }
 
@@ -104,6 +105,7 @@ void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeM
     pendingSlotReads = 0;
     slotReadFailed = false;
     performanceBuffer->forget();
+    pendingAuditions.clear();
     changed();
     setStatus(ConnectionStatus::SearchingGlobalChannel);
     probe(probeOrder(rememberedGlobalChannel, foundGlobalChannel, manualChannel), 0, Slot::A, true, timeMs);
