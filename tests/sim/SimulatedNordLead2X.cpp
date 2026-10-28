@@ -60,6 +60,13 @@ void SimulatedNordLead2X::turnPanelControl(Slot slot, std::uint8_t cc, std::uint
     transmit(message);
 }
 
+void SimulatedNordLead2X::setEditBuffer(Slot slot, const Program& program)
+{
+    auto& state = slots[slotIndex(slot)];
+    state.editBuffer = program;
+    state.percussionKit.reset();
+}
+
 const SimulatedNordLead2X::Program& SimulatedNordLead2X::bankProgram(int shownBank, int location) const
 {
     return banks.at(static_cast<std::size_t>(shownBank)).at(static_cast<std::size_t>(location));
@@ -109,8 +116,7 @@ void SimulatedNordLead2X::handleRequest(std::uint8_t type, std::uint8_t spec)
 {
     if (type == hardware::kSlotEditBufferRequestType) {
         if (const auto slot = slotFromSpec(spec))
-            transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType, spec,
-                                slots[slotIndex(*slot)].editBuffer));
+            sendSlotEditBuffer(*slot);
         return;
     }
 
@@ -134,6 +140,20 @@ void SimulatedNordLead2X::handleRequest(std::uint8_t type, std::uint8_t spec)
     }
 }
 
+void SimulatedNordLead2X::sendSlotEditBuffer(Slot requested)
+{
+    const auto slot = hardware::kSlotEditBufferReplyFollowsRequestedSlot ? requested : activeSlot;
+    const auto& state = slots[slotIndex(slot)];
+    const auto spec = static_cast<std::uint8_t>(slotIndex(slot));
+    // A Kit answers with a Kit dump, whose size is what tells it apart (HardwareAssumptions.h).
+    if (state.percussionKit)
+        transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType,
+                            static_cast<std::uint8_t>(hardware::kSlotEditBufferKitReplySpecOfSlotA + spec),
+                            *state.percussionKit));
+    else
+        transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType, spec, state.editBuffer));
+}
+
 void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
 {
     const auto& values = *dump.values;
@@ -142,13 +162,23 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
         Program program;
         std::copy(values.begin(), values.end(), program.begin());
         if (dump.type == hardware::kProgramEditBufferDumpType) {
-            if (const auto slot = slotFromSpec(dump.spec))
+            // A Program is received only into a Slot playing a Program [OFF-2X p.30].
+            if (const auto slot = slotFromSpec(dump.spec); slot && ! playsPercussionKit(*slot))
                 slots[slotIndex(*slot)].editBuffer = program;
         } else if (dump.type >= hardware::kFirstProgramBankDumpType && dump.type <= hardware::kLastProgramBankDumpType
                    && dump.spec < kProgramsPerBank) {
             // The type byte is ignored: stored in the Bank selected on the panel [OFF-2X p.78].
             setBankProgram(selectedBank, dump.spec, program);
         }
+        return;
+    }
+
+    if (dump.kind == SysExKind::PercussionKitDump && dump.type == hardware::kProgramEditBufferDumpType
+        && dump.spec >= hardware::kPercussionKitEditBufferSpecOfSlotA) {
+        // A Kit is received only into a Slot playing a Kit [OFF-2X p.30].
+        const auto slot = slotFromSpec(static_cast<std::uint8_t>(dump.spec - hardware::kPercussionKitEditBufferSpecOfSlotA));
+        if (slot && playsPercussionKit(*slot))
+            std::copy(values.begin(), values.end(), slots[slotIndex(*slot)].percussionKit->begin());
         return;
     }
 

@@ -117,6 +117,36 @@ TEST_CASE("Simulated synth: a Program dump of type 0 goes into that Slot's Edit 
     CHECK(rig.synth.editBuffer(Slot::A) == SimulatedNordLead2X::Program {});
 }
 
+TEST_CASE("Simulated synth: a Slot playing a Percussion Kit answers the Slot Edit Buffer request with its Kit")
+{
+    SynthWithCables rig;
+    SimulatedNordLead2X::PercussionKit kit {};
+    kit[kProgramParameterCount + 3] = -7; // second percussion sound's cutoff
+    rig.synth.playPercussionKit(Slot::D, kit);
+
+    rig.synth.receive(slotEditBufferRequest(hardware::kFactoryGlobalChannel, Slot::D));
+
+    REQUIRE(rig.fromSynth.messages().size() == 1);
+    const auto reply = parseSysEx(rig.fromSynth.messages().front());
+    CHECK(reply.kind == SysExKind::PercussionKitDump);
+    CHECK(hardware::classifySlotEditBufferReply(reply.size) == hardware::SlotEditBufferReply::PercussionKit);
+    CHECK(reply.spec == hardware::kSlotEditBufferKitReplySpecOfSlotA + 3);
+    CHECK(reply.values == std::vector<std::int8_t>(kit.begin(), kit.end()));
+}
+
+TEST_CASE("Simulated synth: a Program dump is ignored by a Slot playing a Percussion Kit, and back")
+{
+    SynthWithCables rig;
+    rig.synth.playPercussionKit(Slot::A, {});
+
+    rig.synth.receive(programEditBufferDump(hardware::kFactoryGlobalChannel, Slot::A, programWithCutoff(50)));
+    CHECK(rig.synth.editBuffer(Slot::A)[3] == 0);
+    CHECK(rig.synth.playsPercussionKit(Slot::A));
+
+    rig.synth.setEditBuffer(Slot::A, programWithCutoff(51));
+    CHECK_FALSE(rig.synth.playsPercussionKit(Slot::A));
+}
+
 TEST_CASE("Simulated synth: the All Controllers Request answers with the Slot's CCs on its channel")
 {
     SynthWithCables rig;
