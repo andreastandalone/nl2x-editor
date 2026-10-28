@@ -1,0 +1,17 @@
+# Third-party material we may not redistribute (see docs/adr/0002-open-source-agplv3.md)
+*.pdf
+*.dmg
+*.pkg
+docs/research/factory-bank/
+skin-examples/
+
+# macOS
+.DS_Store
+
+# Build output
+build/
+cmake-build-*/
+
+# Editors
+.vscode/
+.idea/
