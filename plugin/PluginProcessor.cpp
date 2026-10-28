@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "SavedProjectSounds.h"
 #include "SavedSelection.h"
 
 #include <array>
@@ -291,6 +292,9 @@ bool NL2XEditorProcessor::editThroughDawParameter(const juce::String& id, int va
     auto* dawParameter = parameters.getParameter(id);
     if (dawParameter == nullptr)
         return false;
+    const std::scoped_lock lock(parameterPollLock);
+    // A state restored just before this edit must not ride along with it as CCs.
+    applyRestoredState();
     dawParameter->beginChangeGesture();
     dawParameter->setValueNotifyingHost(dawParameter->convertTo0to1(static_cast<float>(value)));
     dawParameter->endChangeGesture();
@@ -346,7 +350,7 @@ void NL2XEditorProcessor::syncSavedSelection()
     const std::scoped_lock lock(selectionLock);
     if (selectionRestored) {
         selectionRestored = false;
-        // Shown only: nothing is sent to the synth (that is #8's job).
+        // Shown only: project recall sends the sounds, not the selection (#8).
         engine.restoreSelection(savedSelection);
     }
     savedSelection = engine.selection();
@@ -445,6 +449,10 @@ void NL2XEditorProcessor::getStateInformation(juce::MemoryBlock& destData)
             const std::scoped_lock lock(selectionLock);
             saved_selection::write(*xml, savedSelection);
         }
+        {
+            const std::scoped_lock lock(projectSoundsLock);
+            saved_project_sounds::write(*xml, savedProjectSounds);
+        }
         copyXmlToBinary(*xml, destData);
     }
 }
@@ -454,6 +462,13 @@ void NL2XEditorProcessor::setStateInformation(const void* data, int sizeInBytes)
     auto xml = getXmlFromBinary(data, sizeInBytes);
     if (xml == nullptr || ! xml->hasTagName(parameters.state.getType()))
         return;
+    {
+        const std::scoped_lock lock(projectSoundsLock);
+        restoredProjectSounds = saved_project_sounds::take(*xml);
+        // Saved again unchanged if the host asks before the timer has handed it to the engine.
+        savedProjectSounds = restoredProjectSounds.value_or(juce::MemoryBlock {});
+        savedProjectSoundsRevision.reset();
+    }
     for (auto slot : nl2x::kAllSlots) {
         const auto attribute = slotChannelOverrideAttribute(slot);
         savedSlotChannelOverrides[nl2x::slotIndex(slot)] = xml->getIntAttribute(attribute, -1);
@@ -466,7 +481,13 @@ void NL2XEditorProcessor::setStateInformation(const void* data, int sizeInBytes)
         savedSelection = saved_selection::take(*xml);
         selectionRestored = true;
     }
+    // A value restored from a project never goes out as a CC (#8): polling and GUI edits hold this
+    // lock, so they never compare against a half-replaced tree, and the first of them to run after
+    // the replacement takes the restored values as in sync (applyRestoredState) before anything
+    // else. replaceState updates every parameter before it returns.
+    const std::scoped_lock lock(parameterPollLock);
     parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    stateRestored = true;
 }
 
 void NL2XEditorProcessor::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)
@@ -480,10 +501,15 @@ void NL2XEditorProcessor::timerCallback()
     applySavedSlotChannelOverrides();
     syncSavedSelection();
     deliverIncomingMidi();
-    // DAW to engine first, so that a value the user just set is never overwritten by the older one
-    // the engine still holds.
-    sendChangedParameters();
+    {
+        // DAW to engine first, so that a value the user just set is never overwritten by the older
+        // one the engine still holds; a restored state first of all, since its values are no edits.
+        const std::scoped_lock lock(parameterPollLock);
+        applyRestoredState();
+        sendChangedParameters();
+    }
     followEngine();
+    keepSavedProjectSoundsCurrent();
     engine.advanceTime(nowMs());
     rememberFoundGlobalChannel();
     watchConnection();
@@ -516,11 +542,49 @@ void NL2XEditorProcessor::sendChangedParameters()
         handToEngine(bound, std::nullopt);
 }
 
+void NL2XEditorProcessor::applyRestoredState()
+{
+    // Called with parameterPollLock held.
+    if (! stateRestored)
+        return;
+    stateRestored = false;
+    // The restored DAW parameter values are never sent as CCs: the project's sounds reach the
+    // synth only as the engine's Edit Buffer dumps, and only when the user lets them (spec #1,
+    // user story 46). The engine drives the DAW parameters from here on.
+    for (auto& bound : boundParameters) {
+        bound.lastDawValue = engineValue(*bound.dawParameter);
+        bound.lastEngineValue.reset();
+    }
+    followEveryParameter = true;
+
+    std::optional<juce::MemoryBlock> blob;
+    {
+        const std::scoped_lock lock(projectSoundsLock);
+        blob.swap(restoredProjectSounds);
+    }
+    // A project saved before #8, or one the engine rejects, sends nothing: the synth is read as usual.
+    if (blob)
+        engine.loadProjectState({ static_cast<const std::uint8_t*>(blob->getData()), blob->getSize() },
+                                ports.sendsProjectSoundsOnLoad(), nowMs());
+}
+
+void NL2XEditorProcessor::keepSavedProjectSoundsCurrent()
+{
+    const std::scoped_lock lock(projectSoundsLock);
+    // A restored state not yet handed to the engine stays what is saved.
+    if (restoredProjectSounds || savedProjectSoundsRevision == engine.stateRevision())
+        return;
+    savedProjectSoundsRevision = engine.stateRevision();
+    const auto blob = engine.projectState();
+    savedProjectSounds.replaceAll(blob.data(), blob.size());
+}
+
 void NL2XEditorProcessor::followEngine()
 {
-    if (engine.stateRevision() == followedRevision)
+    if (engine.stateRevision() == followedRevision && ! followEveryParameter)
         return;
     followedRevision = engine.stateRevision();
+    followEveryParameter = false;
 
     for (auto& bound : boundParameters) {
         const auto value = bound.fromEngine();

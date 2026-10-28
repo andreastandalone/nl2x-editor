@@ -130,7 +130,8 @@ public:
     // (its pgmselect and bankselect bytes). A Performance change empties the Slots' selections
     // until the Performance is read again.
     const SelectionState& selection() const;
-    // Project load: shows `state` as selected and sends nothing (sending on load is #8's job).
+    // Project load: shows `state` as selected and sends nothing; project recall (loadProjectState)
+    // sends the sounds themselves, never a selection.
     void restoreSelection(const SelectionState& state);
 
     // The Synth model, for the GUI.

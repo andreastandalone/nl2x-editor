@@ -57,6 +57,11 @@ public:
     bool connectionCheckShown() const { return settings.getBoolValue(kConnectionCheckShownKey, false); }
     void setConnectionCheckShown();
 
+    // Whether loading a project (or a DAW preset) sends its sounds to the synth's Edit Buffers
+    // (#8, user story 46). Per user, on by default: it is about this user's synth, not the project.
+    bool sendsProjectSoundsOnLoad() const { return settings.getBoolValue(kSendProjectSoundsOnLoadKey, true); }
+    void setSendsProjectSoundsOnLoad(bool sends);
+
     // The per-user settings file itself, for other per-user settings (the Library folder, #11).
     juce::PropertiesFile& userSettings() { return settings; }
 
@@ -68,6 +73,7 @@ private:
     static constexpr const char* kGlobalChannelKey = "globalChannel";
     static constexpr const char* kManualGlobalChannelKey = "manualGlobalChannel";
     static constexpr const char* kConnectionCheckShownKey = "connectionCheckShown";
+    static constexpr const char* kSendProjectSoundsOnLoadKey = "sendProjectSoundsOnLoad";
 
     static juce::PropertiesFile::Options settingsOptions();
 

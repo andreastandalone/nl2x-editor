@@ -187,6 +187,12 @@ private:
     void applySavedSlotChannelOverrides();
     // Hands a restored selection to the engine, and keeps the copy saved with the project current.
     void syncSavedSelection();
+    // Project recall (#8). A restored state: its DAW parameter values count as already in sync
+    // with the engine (never sent as CCs), its sounds go to the engine, and the DAW parameters
+    // then follow the engine.
+    void applyRestoredState();
+    // Keeps the copy of the engine's project state that getStateInformation saves current.
+    void keepSavedProjectSoundsCurrent();
     // Connects to the synth when both ports are open and differ from the last connected pair.
     void connectIfPortsChanged();
     void rememberFoundGlobalChannel();
@@ -218,6 +224,21 @@ private:
     std::mutex selectionLock;
     nl2x::SelectionState savedSelection;
     bool selectionRestored = false;
+    // Project recall (#8). Guarded like the selection: hosts may save and restore state from other
+    // threads. `savedProjectSounds` is what getStateInformation writes; `restoredProjectSounds`
+    // waits for the timer to hand it to the engine.
+    std::mutex projectSoundsLock;
+    juce::MemoryBlock savedProjectSounds;
+    std::optional<juce::MemoryBlock> restoredProjectSounds;
+    std::optional<std::uint64_t> savedProjectSoundsRevision;
+    // Held by setStateInformation while it replaces the DAW parameters (on the host's thread) and
+    // by everything that compares DAW parameter values with what was handed to the engine, so that
+    // a value restored from a project is never taken for an edit and sent as a CC.
+    std::mutex parameterPollLock;
+    // A state was restored and its values are not yet taken as in sync. Guarded by parameterPollLock.
+    bool stateRestored = false;
+    // The next followEngine() moves every DAW parameter to the engine's value, changed or not.
+    bool followEveryParameter = false;
     juce::String connectedInput;
     juce::String connectedOutput;
     bool checkOpen = false;
