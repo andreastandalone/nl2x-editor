@@ -63,6 +63,9 @@ AuditionResult Engine::auditionProgram(Slot slot, const Program& program, TimeMs
     dropUnsentProgramEdits(oneSlot(slot));
     if (state.program != program) {
         state.program = program;
+        std::array<bool, 4> replaced {};
+        replaced[slotIndex(slot)] = true;
+        forgetEdits(replaced, false);
         changed();
     }
     const auto& bytes = program.bytes();
@@ -95,6 +98,7 @@ AuditionResult Engine::auditionPerformance(const Performance& performance, TimeM
         return AuditionResult::RefusedNotConnected;
     // The whole Performance replaces the one being edited.
     performanceBuffer->dropUnsentEdits();
+    forgetEdits({ true, true, true, true }, true);
     // It also replaces every Slot's Program: a Program Audition still waiting would be undone by it.
     std::erase_if(pendingAuditions, [](const auto& pending) { return pending.slot && ! pending.percussionKit; });
     dropUnsentProgramEdits({ true, true, true, true });

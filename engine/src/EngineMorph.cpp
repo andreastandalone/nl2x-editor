@@ -4,6 +4,7 @@
 
 #include "nl2x/Engine.h"
 
+#include "EditHistory.h"
 #include "PerformanceEditBuffer.h"
 #include "ProgramDumpThrottle.h"
 #include "SynthConnection.h"
@@ -35,8 +36,9 @@ MorphEditResult Engine::setMorphAmount(Slot slot, ProgramParameter baseParameter
 
     // Only a user value is brought into range; a byte read from the synth is never touched.
     const auto value = std::clamp(amount, kMorphAmountMin, kMorphAmountMax);
-    if (state.program->value(*morph) != value) {
+    if (const auto before = state.program->value(*morph); before != value) {
         state.program->setValue(*morph, value);
+        recordUserEdit(morphAmountTarget(slot, baseParameter), before, value);
         programDumps->edited(slot, *morph, static_cast<std::int8_t>(value));
         changed();
     }
@@ -86,6 +88,8 @@ void Engine::setRingModSyncWithoutRingModCc(Slot slot, int value)
 
     if (program && *before != newValue) {
         setCcParameterValue(*program, CcParameter::RingModSync, newValue);
+        recordUserEdit(ccParameterTarget(slot, CcParameter::RingModSync), *before,
+                       ccParameterValue(*program, CcParameter::RingModSync));
         changed();
         // The ring-mod bit has no CC: it travels with the Slot's next Program dump. A Kit Slot or
         // an unread one has no Edit Buffer to dump, so there only the sync bit reaches the synth.

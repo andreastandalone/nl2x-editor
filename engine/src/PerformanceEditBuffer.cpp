@@ -41,14 +41,23 @@ PerformanceEditResult PerformanceEditBuffer::edit(PerformanceSetting setting, Sl
     if (! current)
         return PerformanceEditResult::RefusedNotRead;
 
-    const auto clamped = std::clamp(value, info.minValue, info.maxValue);
-    if (current->setting(setting, slot) == clamped)
-        return PerformanceEditResult::Accepted;
+    store(setting, slot, std::clamp(value, info.minValue, info.maxValue));
+    return PerformanceEditResult::Accepted;
+}
 
-    current->setSetting(setting, slot, clamped);
+void PerformanceEditBuffer::restore(PerformanceSetting setting, Slot slot, int value)
+{
+    if (current && performanceSettingInfo(setting).access == PerformanceSettingAccess::Editable)
+        store(setting, slot, value);
+}
+
+void PerformanceEditBuffer::store(PerformanceSetting setting, Slot slot, int value)
+{
+    if (current->setting(setting, slot) == value)
+        return;
+    current->setSetting(setting, slot, value);
     const auto offset = performanceSettingOffset(setting, slot);
     unsentBytes[offset] = current->bytes()[offset];
-    return PerformanceEditResult::Accepted;
 }
 
 std::optional<std::vector<std::uint8_t>> PerformanceEditBuffer::takeDueDump(TimeMs timeMs, GlobalChannel globalChannel,

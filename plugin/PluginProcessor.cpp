@@ -234,38 +234,86 @@ void NL2XEditorProcessor::readPerformanceFromSynth()
 
 void NL2XEditorProcessor::editPerformanceSetting(nl2x::PerformanceSetting setting, nl2x::Slot slot, int value)
 {
+    const auto step = editStep();
     const bool perSlot = nl2x::performanceSettingInfo(setting).perSlot;
     for (const auto& [dawSetting, dawSlot] : kDawPerformanceParameters)
         if (dawSetting == setting && (! perSlot || dawSlot == slot)
-            && editThroughDawParameter(nl2x::performanceDawParameterId(dawSetting, dawSlot), value))
+            && editThroughDawParameter(nl2x::performanceDawParameterId(dawSetting, dawSlot), value, step))
             return;
+    engine.beginUserEdit(step);
     engine.setPerformanceSetting(setting, slot, value);
+    engine.endUserEdit();
 }
 
 void NL2XEditorProcessor::editSlotParameter(nl2x::Slot slot, nl2x::CcParameter parameter, int value)
 {
-    const bool bound = editThroughDawParameter(nl2x::dawParameterId(slot, parameter), value);
+    const bool bound = editThroughDawParameter(nl2x::dawParameterId(slot, parameter), value, editStep());
     jassert(bound);
     juce::ignoreUnused(bound);
 }
 
 void NL2XEditorProcessor::editSlotMorphAmount(nl2x::Slot slot, nl2x::ProgramParameter baseParameter, int amount)
 {
-    const bool bound = editThroughDawParameter(nl2x::morphDawParameterId(slot, baseParameter), amount);
+    const bool bound = editThroughDawParameter(nl2x::morphDawParameterId(slot, baseParameter), amount, editStep());
     jassert(bound);
     juce::ignoreUnused(bound);
 }
 
-bool NL2XEditorProcessor::editThroughDawParameter(const juce::String& id, int value)
+void NL2XEditorProcessor::beginEditGesture()
+{
+    gestureStep = engine.newEditStep();
+}
+
+void NL2XEditorProcessor::endEditGesture()
+{
+    gestureStep.reset();
+}
+
+nl2x::EditStepId NL2XEditorProcessor::editStep()
+{
+    return gestureStep ? *gestureStep : engine.newEditStep();
+}
+
+void NL2XEditorProcessor::undo()
+{
+    engine.undo(nowMs());
+    followEngine();
+}
+
+void NL2XEditorProcessor::redo()
+{
+    engine.redo(nowMs());
+    followEngine();
+}
+
+bool NL2XEditorProcessor::editThroughDawParameter(const juce::String& id, int value, nl2x::EditStepId step)
 {
     auto* dawParameter = parameters.getParameter(id);
     if (dawParameter == nullptr)
         return false;
-    // The timer polls the parameter and hands the value to the engine.
     dawParameter->beginChangeGesture();
     dawParameter->setValueNotifyingHost(dawParameter->convertTo0to1(static_cast<float>(value)));
     dawParameter->endChangeGesture();
+    // At once rather than on the next poll: only here is it known to be the user's edit.
+    for (auto& bound : boundParameters)
+        if (bound.dawParameter == dawParameter)
+            handToEngine(bound, step);
     return true;
+}
+
+void NL2XEditorProcessor::handToEngine(BoundParameter& bound, std::optional<nl2x::EditStepId> step)
+{
+    const auto value = engineValue(*bound.dawParameter);
+    if (value == bound.lastDawValue)
+        return;
+    bound.lastDawValue = value;
+    if (step)
+        engine.beginUserEdit(*step);
+    bound.toEngine(value);
+    if (step)
+        engine.endUserEdit();
+    // The engine now holds the DAW's value (or refused it): nothing to follow back.
+    bound.lastEngineValue = bound.fromEngine();
 }
 
 void NL2XEditorProcessor::bindParameter(const juce::String& id, std::function<void(int)> toEngine,
@@ -464,15 +512,8 @@ void NL2XEditorProcessor::sendChangedParameters()
 {
     // Polling instead of listening: the host may change parameters on any thread, the engine
     // must only be called here, and bursts of automation coalesce into one value per tick.
-    for (auto& bound : boundParameters) {
-        const auto value = engineValue(*bound.dawParameter);
-        if (value == bound.lastDawValue)
-            continue;
-        bound.lastDawValue = value;
-        bound.toEngine(value);
-        // The engine now holds the DAW's value (or refused it): nothing to follow back.
-        bound.lastEngineValue = bound.fromEngine();
-    }
+    for (auto& bound : boundParameters)
+        handToEngine(bound, std::nullopt);
 }
 
 void NL2XEditorProcessor::followEngine()

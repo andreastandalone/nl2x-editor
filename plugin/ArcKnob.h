@@ -40,6 +40,9 @@ public:
     // The user changed the value or the Morph Amount (already within its range).
     std::function<void(int)> onValueEdit;
     std::function<void(int)> onMorphAmountEdit;
+    // A press starts and its release ends one gesture: the edits between are one undo step (#14).
+    std::function<void()> onGestureStart;
+    std::function<void()> onGestureEnd;
 
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& event) override;

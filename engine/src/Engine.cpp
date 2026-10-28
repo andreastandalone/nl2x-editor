@@ -1,5 +1,6 @@
 #include "nl2x/Engine.h"
 
+#include "EditHistory.h"
 #include "PerformanceEditBuffer.h"
 #include "ProgramDumpThrottle.h"
 #include "SelectionTracker.h"
@@ -66,7 +67,8 @@ Engine::Engine(MidiOutput& midiOutput, hardware::Switches hardwareSwitches)
       programDumps(std::make_unique<ProgramDumpThrottle>()),
       switches(hardwareSwitches),
       check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); })),
-      memory(std::make_unique<MemoryWriter>(*this, *connection, hardwareSwitches, [this] { changed(); }))
+      memory(std::make_unique<MemoryWriter>(*this, *connection, hardwareSwitches, [this] { changed(); })),
+      history(std::make_unique<EditHistory>())
 {
 }
 
@@ -110,7 +112,9 @@ void Engine::setParameter(Slot slot, CcParameter parameter, int value)
     }
     auto& state = slots[slotIndex(slot)];
     if (state.program && ccParameterValue(*state.program, parameter) != value) {
+        const auto before = ccParameterValue(*state.program, parameter);
         setCcParameterValue(*state.program, parameter, value);
+        recordUserEdit(ccParameterTarget(slot, parameter), before, ccParameterValue(*state.program, parameter));
         changed();
     }
 
@@ -159,6 +163,7 @@ void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeM
     performanceBuffer->forget();
     pendingAuditions.clear();
     programDumps->dropAllUnsentEdits();
+    forgetEdits({ true, true, true, true }, true);
     changed();
     setStatus(ConnectionStatus::SearchingGlobalChannel);
     probe(probeOrder(rememberedGlobalChannel, foundGlobalChannel, manualChannel), 0, Slot::A, true, timeMs);
@@ -197,8 +202,12 @@ PerformanceEditResult Engine::setPerformanceSetting(PerformanceSetting setting, 
 {
     const auto before = performanceBuffer->performance();
     const auto result = performanceBuffer->edit(setting, slot, value);
-    if (performanceBuffer->performance() != before)
+    if (const auto& after = performanceBuffer->performance(); after != before) {
+        if (before && after)
+            recordUserEdit(performanceSettingTarget(setting, slot), before->setting(setting, slot),
+                           after->setting(setting, slot));
         changed();
+    }
     return result;
 }
 
@@ -299,7 +308,10 @@ void Engine::queuePerformanceRead(TimeMs timeMs)
                             // Its own status: a synth that answers Slot requests but not this one
                             // is still connected (the type-40 request is unverified, research §7.3).
                             if (reply) {
+                                const auto before = performanceBuffer->performance();
                                 performanceBuffer->applyReply(*reply);
+                                if (editableSettingsDiffer(before, performanceBuffer->performance()))
+                                    forgetEdits({}, true);
                                 takeSelectionFromPerformance();
                             } else
                                 performanceBuffer->readFailed();
@@ -330,6 +342,9 @@ void Engine::applySlotReply(Slot slot, std::span<const std::uint8_t> reply)
     auto& current = slots[slotIndex(slot)];
     if (current.content != state.content || current.program != state.program) {
         current = state;
+        std::array<bool, 4> replaced {};
+        replaced[slotIndex(slot)] = true;
+        forgetEdits(replaced, false);
         changed();
     }
 }

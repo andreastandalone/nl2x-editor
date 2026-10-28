@@ -5,6 +5,7 @@
 #include "nl2x/ConnectionCheck.h"
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/MemoryWriter.h"
+#include "nl2x/EditStep.h"
 #include "nl2x/MidiOutput.h"
 #include "nl2x/MorphAmounts.h"
 #include "nl2x/Performance.h"
@@ -25,7 +26,9 @@
 
 namespace nl2x {
 
+class EditHistory;
 class PerformanceEditBuffer;
+struct EditTarget;
 class ConnectionCheck;
 class ProgramDumpThrottle;
 class SynthConnection;
@@ -157,6 +160,27 @@ public:
     MemoryWriter& memoryWriter() { return *memory; }
     const MemoryWriter& memoryWriter() const { return *memory; }
 
+    // Undo/redo (#14, EngineEditHistory.cpp). Only the user's edits in the plugin are undoable: the
+    // shell hands each one in between beginUserEdit(step) and endUserEdit(), with the same step
+    // for every value of one knob drag and a new step (newEditStep) for each menu choice. Calls of
+    // setParameter, setMorphAmount and setPerformanceSetting outside that (DAW automation), CCs
+    // from the synth, reads, Audition, Selection and project load are not recorded. When the
+    // plugin's copy of an Edit Buffer is replaced (connecting, a read that finds other values, an
+    // Audition, a Selection), the edits of that Edit Buffer leave the history: undoing them would
+    // land on a different sound. At most EditHistory::kMaxSteps (200) steps are kept; a new step
+    // empties redo.
+    EditStepId newEditStep();
+    void beginUserEdit(EditStepId step);
+    void endUserEdit();
+    bool canUndo() const;
+    bool canRedo() const;
+    // Puts back the values from before the latest step (redo: after it) and sends them as an edit
+    // would: CCs on the Slot Channel, Performance settings in the next coalesced Performance dump,
+    // Morph Amounts in the Slot's next throttled Program dump. The shell moves the DAW parameters
+    // by following the engine. Ignored inside a user edit.
+    void undo(TimeMs timeMs);
+    void redo(TimeMs timeMs);
+
     // Changes whenever anything above changes: the shell polls it and redraws (or saves the
     // Global Channel) only when it moved.
     std::uint64_t stateRevision() const { return revision; }
@@ -187,6 +211,12 @@ private:
     void dropUnsentProgramEdits(const std::array<bool, 4>& slotsReplaced);
     void setRingModSyncWithoutRingModCc(Slot slot, int value);
     void applySyncOnlyControlChange(MidiChannel channel, std::uint8_t data);
+    // Undo/redo (EngineEditHistory.cpp). Every user-editable setter calls recordUserEdit with the
+    // value before and after it changed the model; applyEdit puts a value back through that setter.
+    void recordUserEdit(const EditTarget& target, int before, int after);
+    void applyEdit(const EditTarget& target, int value, TimeMs timeMs);
+    // The Edit Buffers whose copy was replaced from outside: their edits leave the history.
+    void forgetEdits(const std::array<bool, 4>& slotsReplaced, bool performanceReplaced);
 
     // An auditioned dump not sent yet; `slot` is empty for the Performance Edit Buffer.
     struct PendingAudition {
@@ -217,6 +247,10 @@ private:
     bool slotReadFailed = false;
     std::uint64_t revision = 0;
     std::vector<PendingAudition> pendingAuditions;
+    std::unique_ptr<EditHistory> history;
+    // The step of the user edit being handed in; empty outside beginUserEdit … endUserEdit.
+    std::optional<EditStepId> userEditStep;
+    EditStepId lastEditStep = 0;
 };
 
 } // namespace nl2x

@@ -16,7 +16,8 @@
 #include <cstdint>
 #include <memory>
 
-// The first, functional GUI: one knob, the MIDI settings (ports, Global Channel), the connection
+// The first, functional GUI: one knob, Undo and Redo (#14, also Cmd+Z and Cmd+Shift+Z while the
+// plugin window has keyboard focus), the MIDI settings (ports, Global Channel), the connection
 // indicator and Connection check (#9), the Slot Channel warning, and tabs with a generic list of
 // the four Slots' values read from the synth (#4) and the Performance (#5), and the Library panel at the side (#11). The panel-style layout in Nord colours is #13. In the standalone app only, a Probe
 // button opens the hardware discovery probe (#3).
@@ -27,6 +28,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress& key) override;
 
 private:
     void timerCallback() override;
@@ -44,7 +46,8 @@ private:
     juce::Label slotTitle { {}, "Slot A" };
     juce::Slider cutoffKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
     juce::Label cutoffLabel;
-    juce::AudioProcessorValueTreeState::SliderAttachment cutoffAttachment;
+    juce::TextButton undoButton { "Undo" };
+    juce::TextButton redoButton { "Redo" };
 
     juce::Label settingsTitle { {}, "MIDI settings" };
     MidiPortSelector portSelector;
