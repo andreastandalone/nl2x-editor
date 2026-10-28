@@ -40,6 +40,9 @@ public:
 
     // `value` in the setting's documented range; out-of-range user values are brought into it.
     PerformanceEditResult edit(PerformanceSetting setting, Slot slot, int value);
+    // Undo/redo: puts back a value exactly as it was, even one outside the documented range that
+    // came from the synth (never clamp values from dumps), and sends it like an edit.
+    void restore(PerformanceSetting setting, Slot slot, int value);
 
     // The Performance dump to send at `timeMs`, if an edit is waiting and the last dump went out at
     // least kPerformanceDumpIntervalMs ago. Its Programs are the Slots' Edit Buffers where a Slot
@@ -53,6 +56,8 @@ public:
     SlotLayerArray layer() const;
 
 private:
+    void store(PerformanceSetting setting, Slot slot, int value);
+
     std::optional<Performance> current;
     PerformanceStatus readStatus = PerformanceStatus::NotRead;
     // Bytes edited and not yet sent, by decoded offset.

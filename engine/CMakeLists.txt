@@ -2,7 +2,9 @@
 add_library(nl2x_engine STATIC
     src/CcParameters.cpp
     src/ConnectionCheck.cpp
+    src/EditHistory.cpp
     src/Engine.cpp
+    src/EngineEditHistory.cpp
     src/EngineAudition.cpp
     src/EngineMorph.cpp
     src/Performance.cpp

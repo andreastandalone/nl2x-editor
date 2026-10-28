@@ -20,7 +20,8 @@ add_executable(nl2x_tests
     ReadSlotsTest.cpp
     SelectionTest.cpp
     SimulatedNordLead2XTest.cpp
-    SysExTest.cpp)
+    SysExTest.cpp
+    UndoTest.cpp)
 target_link_libraries(nl2x_tests PRIVATE nl2x_sim nl2x_probe nl2x_engine Catch2::Catch2WithMain)
 # The official factory files are not in the repository (ADR 0002); FactoryBankTest skips itself
 # when they are not present here.
