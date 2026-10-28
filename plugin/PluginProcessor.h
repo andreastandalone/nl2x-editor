@@ -51,6 +51,8 @@ public:
     // The user changed a Slot's CC parameter in the GUI: it goes through its DAW parameter, so the
     // DAW records it. Message thread only.
     void editSlotParameter(nl2x::Slot slot, nl2x::CcParameter parameter, int value);
+    // The same for a Morph Amount (#7) of a morphable base parameter. Message thread only.
+    void editSlotMorphAmount(nl2x::Slot slot, nl2x::ProgramParameter baseParameter, int amount);
     // Pins a Slot's channel regardless of the Performance (empty releases it). A service setting:
     // kept in the plugin state, never a DAW parameter. Message thread only.
     void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);

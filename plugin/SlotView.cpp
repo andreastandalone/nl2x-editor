@@ -2,6 +2,7 @@
 
 #include "nl2x/CcParameters.h"
 #include "nl2x/HardwareAssumptions.h"
+#include "nl2x/MorphAmounts.h"
 #include "nl2x/ProgramParameters.h"
 
 #include <algorithm>
@@ -14,7 +15,8 @@ constexpr int kSlotButtonsGroup = 4401;
 constexpr int kRowHeight = 26;
 constexpr int kNameWidth = 220;
 constexpr int kControlWidth = 280;
-constexpr int kHeadingHeight = 32;
+constexpr int kKnobWidth = 84;
+constexpr int kKnobHeight = 104;
 
 juce::String text(std::string_view view)
 {
@@ -175,20 +177,31 @@ SlotView::SlotView(NL2XEditorProcessor& owner)
     addChildComponent(noticeLabel);
     addAndMakeVisible(statusLabel);
 
-    for (const auto& info : nl2x::ccParameters())
-        content.addAndMakeVisible(*controls.emplace_back(std::make_unique<ParameterControl>(processor, info)));
+    morphButton.setClickingTogglesState(true);
+    morphButton.setTooltip("Turn every knob into editing its Morph Amount (Option-drag a knob does it for one drag)");
+    morphButton.setColour(juce::TextButton::buttonOnColourId, ArcKnob::kMorphViolet);
+    morphButton.onClick = [this] {
+        for (auto& knob : knobs)
+            knob.component->setMorphMode(morphButton.getToggleState());
+    };
+    addAndMakeVisible(morphButton);
 
-    morphHeading.setFont(juce::FontOptions(15.0f, juce::Font::bold));
-    content.addAndMakeVisible(morphHeading);
-    for (const auto& info : nl2x::programParameters()) {
-        if (! info.morphedParameter)
+    for (const auto& info : nl2x::ccParameters()) {
+        if (info.kind != nl2x::CcParameterKind::Knob) {
+            content.addAndMakeVisible(*controls.emplace_back(std::make_unique<ParameterControl>(processor, info)));
             continue;
-        auto& row = morphRows.emplace_back();
-        row.parameter = info.id;
-        row.name = std::make_unique<juce::Label>(juce::String(), text(info.name));
-        row.value = std::make_unique<juce::Label>();
-        content.addAndMakeVisible(*row.name);
-        content.addAndMakeVisible(*row.value);
+        }
+        const bool morphable = nl2x::morphAmountOf(info.byte).has_value();
+        auto& knob = knobs.emplace_back(Knob { &info, std::make_unique<ArcKnob>(text(info.name), info.minValue,
+                                                                                info.maxValue, morphable) });
+        const auto id = info.id;
+        const auto byte = info.byte;
+        knob.component->onValueEdit = [this, id](int value) { processor.editSlotParameter(selectedSlot, id, value); };
+        if (morphable)
+            knob.component->onMorphAmountEdit = [this, byte](int amount) {
+                processor.editSlotMorphAmount(selectedSlot, byte, amount);
+            };
+        content.addAndMakeVisible(*knob.component);
     }
 
     viewport.setViewedComponent(&content, false);
@@ -215,6 +228,8 @@ void SlotView::resized()
     }
     top.removeFromLeft(12);
     readButton.setBounds(top.removeFromLeft(130));
+    top.removeFromLeft(8);
+    morphButton.setBounds(top.removeFromLeft(70));
     top.removeFromLeft(12);
     statusLabel.setBounds(top);
 
@@ -227,17 +242,17 @@ void SlotView::resized()
 void SlotView::layOutContent()
 {
     const auto width = std::max(600, viewport.getWidth() - viewport.getScrollBarThickness() - 4);
+    const auto perRow = std::max(1, width / kKnobWidth);
     int y = 0;
+    for (std::size_t i = 0; i < knobs.size(); ++i) {
+        const auto column = static_cast<int>(i) % perRow;
+        const auto row = static_cast<int>(i) / perRow;
+        knobs[i].component->setBounds(column * kKnobWidth, row * kKnobHeight, kKnobWidth, kKnobHeight);
+        y = (row + 1) * kKnobHeight;
+    }
+    y += 12;
     for (auto& control : controls) {
         control->setBounds(0, y, width, kRowHeight - 2);
-        y += kRowHeight;
-    }
-    y += 8;
-    morphHeading.setBounds(0, y, width, kHeadingHeight);
-    y += kHeadingHeight;
-    for (auto& row : morphRows) {
-        row.name->setBounds(0, y, kNameWidth + kControlWidth, kRowHeight - 2);
-        row.value->setBounds(kNameWidth + kControlWidth + 12, y, width - kNameWidth - kControlWidth - 12, kRowHeight - 2);
         y += kRowHeight;
     }
     content.setSize(width, y + 8);
@@ -276,8 +291,17 @@ void SlotView::refresh()
 
     for (auto& control : controls)
         control->show(selectedSlot, nl2x::ccParameterValue(*state.program, control->parameter()));
-    for (auto& row : morphRows) {
-        const auto value = state.program->value(row.parameter);
-        row.value->setText(juce::String(value) + "  " + rangeText(value, nl2x::programParameterInfo(row.parameter).minValue, nl2x::programParameterInfo(row.parameter).maxValue), juce::dontSendNotification);
+    for (auto& knob : knobs) {
+        const auto& info = *knob.info;
+        const auto value = nl2x::ccParameterValue(*state.program, info.id);
+        knob.component->setValue(value);
+        juce::String tip = text(info.name) + " (CC" + juce::String(info.cc) + "): " + juce::String(value) + " "
+                           + rangeText(value, info.minValue, info.maxValue);
+        if (knob.component->isMorphable()) {
+            const auto amount = nl2x::morphAmountValue(*state.program, info.byte);
+            knob.component->setMorphAmount(amount);
+            tip += "\nMorph Amount: " + juce::String(amount) + (amount == 0 ? " (off)" : "");
+        }
+        knob.component->setTooltip(tip);
     }
 }

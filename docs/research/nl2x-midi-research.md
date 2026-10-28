@@ -120,6 +120,8 @@ Notes on the table:
 
 Code cross-references (#6): the CC table is `engine/src/CcParameters.cpp` (byte 52 split into Ring Mod/Sync, bits 0–1, and Filter Distortion, bit 4); the assumed switch "on" value (127) and read threshold (≥ 1), the order of every stepped CC's options, the CC35 encoding (0–3 = bits 0–1) and the CC78 scaling (CC value = SysEx value) are in `engine/include/nl2x/HardwareAssumptions.h`. The simulator's own copy of this table is in `tests/sim/SimulatedNordLead2X.cpp`.
 
+Code cross-references (#7): Morph Amounts (and the ring-mod bit, if `kRingModReachableByCc35` turns out false) are sent as type-0 Program dumps to the Slot's Edit Buffer, throttled per Slot by `kProgramDumpIntervalMs` (`engine/src/EngineMorph.cpp`, `engine/src/ProgramDumpThrottle.*`); both constants are [INF] in `HardwareAssumptions.h`.
+
 Other controllers [OFF-2X p.74, 104]:
 
 - CC1 Mod wheel: Tx/Rx.

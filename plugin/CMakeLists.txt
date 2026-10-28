@@ -19,6 +19,7 @@ juce_add_plugin(NL2XEditor
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
 target_sources(NL2XEditor PRIVATE
+    ArcKnob.cpp
     ConnectionCheckView.cpp
     ConnectionIndicator.cpp
     LibraryPanel.cpp

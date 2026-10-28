@@ -45,7 +45,7 @@ NL2XEditorProcessor::NL2XEditorProcessor()
       parameters(*this, nullptr, "NL2XEditor", createParameterLayout()),
       ports(*this)
 {
-    // Every CC parameter of every Slot (#6); Morph Amounts follow with #7.
+    // Every CC parameter of every Slot (#6).
     for (auto slot : nl2x::kAllSlots)
         for (const auto& info : nl2x::ccParameters()) {
             const auto parameter = info.id;
@@ -56,6 +56,17 @@ NL2XEditorProcessor::NL2XEditorProcessor()
                     return program ? std::optional<int>(nl2x::ccParameterValue(*program, parameter)) : std::nullopt;
                 });
         }
+    // The Morph Amounts of every Slot (#7). They reach the synth as throttled Program dumps, so
+    // automating them is slow by design (spec #1, user story 39); a Kit or unread Slot refuses them.
+    for (auto slot : nl2x::kAllSlots)
+        for (auto parameter : nl2x::morphableParameters())
+            bindParameter(
+                nl2x::morphDawParameterId(slot, parameter),
+                [this, slot, parameter](int value) { engine.setMorphAmount(slot, parameter, value, nowMs()); },
+                [this, slot, parameter]() -> std::optional<int> {
+                    const auto& program = engine.slotState(slot).program;
+                    return program ? std::optional<int>(nl2x::morphAmountValue(*program, parameter)) : std::nullopt;
+                });
     // Refused by the engine until the Performance has been read; the value read then replaces it.
     for (const auto& dawParameter : kDawPerformanceParameters) {
         const auto [setting, slot] = dawParameter;
@@ -238,6 +249,13 @@ void NL2XEditorProcessor::editSlotParameter(nl2x::Slot slot, nl2x::CcParameter p
     juce::ignoreUnused(bound);
 }
 
+void NL2XEditorProcessor::editSlotMorphAmount(nl2x::Slot slot, nl2x::ProgramParameter baseParameter, int amount)
+{
+    const bool bound = editThroughDawParameter(nl2x::morphDawParameterId(slot, baseParameter), amount);
+    jassert(bound);
+    juce::ignoreUnused(bound);
+}
+
 bool NL2XEditorProcessor::editThroughDawParameter(const juce::String& id, int value)
 {
     auto* dawParameter = parameters.getParameter(id);
@@ -331,6 +349,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout NL2XEditorProcessor::createP
                 break;
             }
         }
+    for (auto slot : nl2x::kAllSlots)
+        for (auto parameter : nl2x::morphableParameters())
+            layout.add(std::make_unique<juce::AudioParameterInt>(
+                juce::ParameterID { nl2x::morphDawParameterId(slot, parameter), 1 },
+                nl2x::morphDawParameterName(slot, parameter), nl2x::kMorphAmountMin, nl2x::kMorphAmountMax, 0));
     for (const auto& [setting, slot] : kDawPerformanceParameters) {
         const auto& info = nl2x::performanceSettingInfo(setting);
         const juce::ParameterID id { nl2x::performanceDawParameterId(setting, slot), 1 };
