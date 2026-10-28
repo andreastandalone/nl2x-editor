@@ -63,6 +63,24 @@ std::vector<SlotChannelWarning> slotChannelWarnings(const SlotChannelArray& chan
     return warnings;
 }
 
+std::vector<Slot> slotsReceivingOn(MidiChannel channel, const SlotChannelArray& channels, const SlotLayerArray& layer)
+{
+    std::optional<Slot> leftmost;
+    for (auto slot : kAllSlots)
+        if (layer[slotIndex(slot)] && ! leftmost)
+            leftmost = slot;
+    const bool layerListens = hardware::kLayeredSlotsAlsoReceiveOnLeftmostActiveSlotChannel && leftmost
+                              && channels[slotIndex(*leftmost)] == channel;
+
+    std::vector<Slot> slots;
+    for (auto slot : kAllSlots) {
+        const auto& own = channels[slotIndex(slot)];
+        if (own == channel || (layerListens && own && layer[slotIndex(slot)]))
+            slots.push_back(slot);
+    }
+    return slots;
+}
+
 std::string slotChannelWarningText(const SlotChannelWarning& warning)
 {
     const auto channel = shownChannel(warning.channel);

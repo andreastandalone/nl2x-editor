@@ -11,11 +11,98 @@ namespace nl2x::test {
 
 namespace {
 
-// CC number → decoded Program offset, from the CC map in research §2 [OFF-2X p.103–104,
-// 111–112]. Grows with the engine's parameter table (#6).
-constexpr std::array<std::pair<std::uint8_t, std::size_t>, 1> kCcToProgramOffset { {
-    { 74, 3 }, // Filter Cutoff
+// The panel CCs, written from the CC chart in research §2 [OFF-2X p.103–104] and the patch
+// layout in research §3 [OFF-2X p.111–112], independently of the engine's table. Byte 52 holds
+// two controls: the RING MOD/SYNC button in bits 0–1 and Filter Distortion in bit 4. How a CC
+// value becomes a byte follows HardwareAssumptions.h, as on the real synth.
+struct PanelCc {
+    std::uint8_t cc;
+    std::size_t offset;
+    // The bits of the byte; 0xFF = all of it.
+    std::uint8_t bits;
+    bool isSwitch;
+};
+
+constexpr std::uint8_t kAll = 0xFF;
+
+constexpr std::array<PanelCc, 42> kPanelCcs { {
+    { 7, 17, kAll, false },  // Gain
+    { 8, 2, kAll, false },   // Osc Mix
+    { 5, 16, kAll, false },  // Portamento Time
+    { 15, 58, kAll, false }, // Poly/Legato/Mono
+    { 16, 60, kAll, true },  // Unison
+    { 17, 64, kAll, false }, // Oct Shift
+    { 18, 59, kAll, false }, // Mod Wheel Destination
+    { 19, 21, kAll, false }, // LFO1 Rate
+    { 20, 56, kAll, false }, // LFO1 Waveform
+    { 21, 57, kAll, false }, // LFO1 Destination
+    { 22, 22, kAll, false }, // LFO1 Amount
+    { 23, 23, kAll, false }, // LFO2/Arp Rate
+    { 24, 65, kAll, false }, // LFO2 Dest/Arp Mode
+    { 25, 24, kAll, false }, // LFO2 Amount/Arp Range
+    { 26, 18, kAll, false }, // Mod Env Attack
+    { 27, 19, kAll, false }, // Mod Env Decay
+    { 28, 61, kAll, false }, // Mod Env Destination
+    { 29, 20, kAll, false }, // Mod Env Amount
+    { 30, 50, kAll, false }, // Osc1 Waveform
+    { 31, 51, kAll, false }, // Osc2 Waveform
+    { 33, 1, kAll, false },  // Osc2 Fine Tune
+    { 34, 54, kAll, true },  // Osc2 Keyboard Tracking
+    { 35, 52, 0x03, false }, // Oscillator Sync (Ring Mod/Sync button)
+    { 36, 13, kAll, false }, // Amp Env Decay
+    { 37, 14, kAll, false }, // Amp Env Sustain
+    { 38, 8, kAll, false },  // Filter Env Attack
+    { 39, 9, kAll, false },  // Filter Env Decay
+    { 40, 10, kAll, false }, // Filter Env Sustain
+    { 41, 11, kAll, false }, // Filter Env Release
+    { 42, 4, kAll, false },  // Filter Resonance
+    { 43, 5, kAll, false },  // Filter Env Amount
+    { 44, 53, kAll, false }, // Filter Mode
+    { 45, 63, kAll, true },  // Filter Velocity
+    { 46, 55, kAll, false }, // Filter Keyboard Track
+    { 65, 62, kAll, true },  // Portamento Auto
+    { 70, 7, kAll, false },  // Osc FM Depth
+    { 72, 15, kAll, false }, // Amp Env Release
+    { 73, 12, kAll, false }, // Amp Env Attack
+    { 74, 3, kAll, false },  // Filter Cutoff
+    { 78, 0, kAll, false },  // Osc2 Semitones
+    { 79, 6, kAll, false },  // Osc Pulse Width
+    { 80, 52, 0x10, true },  // Filter Distortion
 } };
+
+const PanelCc* panelCc(std::uint8_t cc)
+{
+    const auto* entry = std::find_if(kPanelCcs.begin(), kPanelCcs.end(), [cc](const auto& e) { return e.cc == cc; });
+    return entry == kPanelCcs.end() ? nullptr : entry;
+}
+
+int lowestBit(std::uint8_t bits)
+{
+    int shift = 0;
+    while (((bits >> shift) & 1) == 0)
+        ++shift;
+    return shift;
+}
+
+// The control's value as stored in its byte.
+int controlValue(const SimulatedNordLead2X::Program& program, const PanelCc& control)
+{
+    const auto byte = program[control.offset];
+    if (control.bits == kAll)
+        return byte;
+    return (static_cast<std::uint8_t>(byte) & control.bits) >> lowestBit(control.bits);
+}
+
+void setControlValue(SimulatedNordLead2X::Program& program, const PanelCc& control, int value)
+{
+    if (control.bits == kAll) {
+        program[control.offset] = static_cast<std::int8_t>(value);
+        return;
+    }
+    const auto kept = static_cast<std::uint8_t>(program[control.offset]) & ~control.bits;
+    const auto field = (value << lowestBit(control.bits)) & control.bits;
+    program[control.offset] = static_cast<std::int8_t>(static_cast<std::uint8_t>(kept | field));
+}
 
 constexpr std::uint8_t kControlChange = 0xB0;
 
@@ -102,14 +189,16 @@ void SimulatedNordLead2X::setBankProgram(int shownBank, int location, const Prog
 
 void SimulatedNordLead2X::handleControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t value)
 {
-    const auto* entry = std::find_if(kCcToProgramOffset.begin(), kCcToProgramOffset.end(),
-                                     [cc](const auto& e) { return e.first == cc; });
-    if (entry == kCcToProgramOffset.end())
+    const auto* control = panelCc(cc);
+    if (control == nullptr)
+        return;
+    const auto stored = hardware::valueFromCcData(cc, control->isSwitch, value);
+    if (! stored)
         return;
 
     for (auto slot : kAllSlots)
         if (receivesOn(slot, channel))
-            slots[slotIndex(slot)].editBuffer[entry->second] = static_cast<std::int8_t>(value);
+            setControlValue(slots[slotIndex(slot)].editBuffer, *control, *stored);
 }
 
 bool SimulatedNordLead2X::layered(Slot slot) const
@@ -270,9 +359,10 @@ void SimulatedNordLead2X::sendAllControllers(Slot slot)
     if (! state.channel || (hardware::kAllControllersReplyNeedsControlChangeOn && ! transmitsCcs))
         return;
 
-    for (const auto& [cc, offset] : kCcToProgramOffset) {
-        const std::array<std::uint8_t, 3> message { static_cast<std::uint8_t>(kControlChange | *state.channel), cc,
-                                                    static_cast<std::uint8_t>(state.editBuffer[offset] & 0x7F) };
+    for (const auto& control : kPanelCcs) {
+        const auto data = hardware::ccDataFromValue(control.cc, control.isSwitch, controlValue(state.editBuffer, control));
+        const std::array<std::uint8_t, 3> message { static_cast<std::uint8_t>(kControlChange | *state.channel),
+                                                    control.cc, data };
         transmit(message);
     }
 }

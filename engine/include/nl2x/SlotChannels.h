@@ -37,6 +37,11 @@ struct SlotChannelWarning {
 // Shared channels first (by channel), then the Layer warning.
 std::vector<SlotChannelWarning> slotChannelWarnings(const SlotChannelArray& channels, const SlotLayerArray& layer);
 
+// The Slots that react to a CC on `channel`, in A–D order: every Slot set to it, and, when the
+// Slot whose channel it is leads a Layer, the other Slots of that Layer too (a Slot that is off
+// listens to nothing). The engine applies CCs from the synth by the same rule.
+std::vector<Slot> slotsReceivingOn(MidiChannel channel, const SlotChannelArray& channels, const SlotLayerArray& layer);
+
 // "Slots A and B share MIDI channel 1: a knob change affects both."
 std::string slotChannelWarningText(const SlotChannelWarning& warning);
 

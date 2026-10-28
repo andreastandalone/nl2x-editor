@@ -73,7 +73,7 @@ enum class ProgramParameter : std::uint8_t {
     Osc1Waveform,
     Osc2Waveform,
     // One byte for the Ring Mod/Sync button and Filter Distortion: bit 0 = sync, bit 1 = ring
-    // mod, bit 4 = distortion [OFF-2X p.111]. Kept as one raw value until #6 maps CC35 and CC80.
+    // mod, bit 4 = distortion [OFF-2X p.111]. Edited as two CC parameters (CcParameters.h).
     SyncRingModDistortion,
     FilterType,
     Osc2KeyboardTrack,
@@ -90,15 +90,14 @@ enum class ProgramParameter : std::uint8_t {
     Lfo2DestinationArpMode,
 };
 
+// The raw bytes of a Program. What the panel edits by CC (CC numbers, named steps, the two
+// controls sharing byte 52) is in CcParameters.h.
 struct ProgramParameterInfo {
     ProgramParameter id;
     // Never changes once released: DAW automation and saved projects refer to it.
     std::string_view key;
     // The manual's term, shown to the user.
     std::string_view name;
-    // Panel CC [OFF-2X p.103–104], or none for parameters reachable only by SysEx. Only the
-    // parameters exposed so far carry one; #6 fills in the rest from research §2.
-    std::optional<std::uint8_t> cc;
     // Position in the decoded Program dump [OFF-2X p.111–112]. Pairing it with the CC is [INF]
     // (research §2): the names match one to one.
     std::uint8_t sysExOffset;
@@ -106,9 +105,6 @@ struct ProgramParameterInfo {
     // kept as they are (research §3).
     int minValue;
     int maxValue;
-    // Named steps for stepped parameters, lowest first; empty for continuous ones and for stepped
-    // ones whose order is not yet known (research §2, plan step 9).
-    std::span<const std::string_view> choices;
     // On a base parameter that velocity or the mod wheel can morph: its Morph Amount.
     std::optional<ProgramParameter> morphAmount;
     // On a Morph Amount: the parameter it morphs.

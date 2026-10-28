@@ -4,7 +4,7 @@
 
 namespace {
 
-const auto kCutoffParameterId = nl2x::dawParameterId(nl2x::Slot::A, nl2x::ProgramParameter::FilterCutoff);
+const auto kCutoffParameterId = nl2x::dawParameterId(nl2x::Slot::A, nl2x::CcParameter::FilterCutoff);
 
 constexpr int kRefreshIntervalMs = 100;
 constexpr int kLibraryWidth = 320;
@@ -37,7 +37,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     for (auto* title : { &slotTitle, &settingsTitle, &synthTitle })
         title->setFont(juce::FontOptions(16.0f, juce::Font::bold));
 
-    cutoffLabel.setText(juce::String(std::string(nl2x::programParameterInfo(nl2x::ProgramParameter::FilterCutoff).name)),
+    cutoffLabel.setText(juce::String(std::string(nl2x::ccParameterInfo(nl2x::CcParameter::FilterCutoff).name)),
                         juce::dontSendNotification);
     cutoffLabel.setJustificationType(juce::Justification::centred);
     cutoffKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);

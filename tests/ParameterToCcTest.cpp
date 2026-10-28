@@ -40,7 +40,7 @@ TEST_CASE("Moving Slot A Filter Cutoff sends CC74 on Slot A's channel and change
 {
     EditorWiredToSynth rig;
 
-    rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 100);
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 100);
 
     const std::vector<std::vector<std::uint8_t>> expected { { controlChangeStatus(Slot::A), 74, 100 } };
     CHECK(rig.editorToSynth.messages() == expected);
@@ -53,7 +53,7 @@ TEST_CASE("Filter Cutoff of each Slot goes out on that Slot's channel only")
     const auto slot = GENERATE(Slot::A, Slot::B, Slot::C, Slot::D);
     EditorWiredToSynth rig;
 
-    rig.engine.setParameter(slot, ProgramParameter::FilterCutoff, 42);
+    rig.engine.setParameter(slot, CcParameter::FilterCutoff, 42);
 
     REQUIRE(rig.editorToSynth.messages().size() == 1);
     CHECK(rig.editorToSynth.messages().front() == std::vector<std::uint8_t> { controlChangeStatus(slot), 74, 42 });
@@ -66,7 +66,7 @@ TEST_CASE("Every movement of the knob is sent, including the ends of the range")
     EditorWiredToSynth rig;
 
     for (int value : { 0, 64, 127 })
-        rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, value);
+        rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, value);
 
     const auto status = controlChangeStatus(Slot::A);
     const std::vector<std::vector<std::uint8_t>> expected { { status, 74, 0 }, { status, 74, 64 }, { status, 74, 127 } };

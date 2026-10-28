@@ -10,11 +10,6 @@ namespace {
 // How often the shell polls parameters, delivers incoming MIDI and advances the engine's clock.
 constexpr int kTimerIntervalMs = 10;
 
-// The parameters exposed to the DAW. Grows with the engine's table (#6, #7).
-constexpr std::array kDawParameters {
-    std::pair { nl2x::Slot::A, nl2x::ProgramParameter::FilterCutoff },
-};
-
 // The Performance settings that are DAW parameters (#5): useful to automate, unlike MIDI channels
 // and global settings. The Slot is ignored for settings that are not per Slot.
 constexpr std::array kDawPerformanceParameters {
@@ -49,15 +44,27 @@ NL2XEditorProcessor::NL2XEditorProcessor()
       parameters(*this, nullptr, "NL2XEditor", createParameterLayout()),
       ports(*this)
 {
-    for (const auto& [slot, parameter] : kDawParameters) {
-        auto* dawParameter = parameters.getParameter(nl2x::dawParameterId(slot, parameter));
-        jassert(dawParameter != nullptr);
-        boundParameters.push_back({ slot, parameter, dawParameter, engineValue(*dawParameter) });
-    }
-    for (const auto& [setting, slot] : kDawPerformanceParameters) {
-        auto* dawParameter = parameters.getParameter(nl2x::performanceDawParameterId(setting, slot));
-        jassert(dawParameter != nullptr);
-        boundPerformanceParameters.push_back({ setting, slot, dawParameter, engineValue(*dawParameter) });
+    // Every CC parameter of every Slot (#6); Morph Amounts follow with #7.
+    for (auto slot : nl2x::kAllSlots)
+        for (const auto& info : nl2x::ccParameters()) {
+            const auto parameter = info.id;
+            bindParameter(
+                nl2x::dawParameterId(slot, parameter), [this, slot, parameter](int value) { engine.setParameter(slot, parameter, value); },
+                [this, slot, parameter]() -> std::optional<int> {
+                    const auto& program = engine.slotState(slot).program;
+                    return program ? std::optional<int>(nl2x::ccParameterValue(*program, parameter)) : std::nullopt;
+                });
+        }
+    // Refused by the engine until the Performance has been read; the value read then replaces it.
+    for (const auto& dawParameter : kDawPerformanceParameters) {
+        const auto [setting, slot] = dawParameter;
+        bindParameter(
+            nl2x::performanceDawParameterId(setting, slot),
+            [this, setting, slot](int value) { engine.setPerformanceSetting(setting, slot, value); },
+            [this, setting, slot]() -> std::optional<int> {
+                const auto& performance = engine.performance();
+                return performance ? std::optional<int>(performance->setting(setting, slot)) : std::nullopt;
+            });
     }
 
     if (const auto manual = ports.manualGlobalChannel())
@@ -216,16 +223,39 @@ void NL2XEditorProcessor::readPerformanceFromSynth()
 void NL2XEditorProcessor::editPerformanceSetting(nl2x::PerformanceSetting setting, nl2x::Slot slot, int value)
 {
     const bool perSlot = nl2x::performanceSettingInfo(setting).perSlot;
-    for (auto& bound : boundPerformanceParameters) {
-        if (bound.setting != setting || (perSlot && bound.slot != slot))
-            continue;
-        // The timer polls the parameter and hands the value to the engine.
-        bound.dawParameter->beginChangeGesture();
-        bound.dawParameter->setValueNotifyingHost(bound.dawParameter->convertTo0to1(static_cast<float>(value)));
-        bound.dawParameter->endChangeGesture();
-        return;
-    }
+    for (const auto& [dawSetting, dawSlot] : kDawPerformanceParameters)
+        if (dawSetting == setting && (! perSlot || dawSlot == slot)
+            && editThroughDawParameter(nl2x::performanceDawParameterId(dawSetting, dawSlot), value))
+            return;
     engine.setPerformanceSetting(setting, slot, value);
+}
+
+void NL2XEditorProcessor::editSlotParameter(nl2x::Slot slot, nl2x::CcParameter parameter, int value)
+{
+    const bool bound = editThroughDawParameter(nl2x::dawParameterId(slot, parameter), value);
+    jassert(bound);
+    juce::ignoreUnused(bound);
+}
+
+bool NL2XEditorProcessor::editThroughDawParameter(const juce::String& id, int value)
+{
+    auto* dawParameter = parameters.getParameter(id);
+    if (dawParameter == nullptr)
+        return false;
+    // The timer polls the parameter and hands the value to the engine.
+    dawParameter->beginChangeGesture();
+    dawParameter->setValueNotifyingHost(dawParameter->convertTo0to1(static_cast<float>(value)));
+    dawParameter->endChangeGesture();
+    return true;
+}
+
+void NL2XEditorProcessor::bindParameter(const juce::String& id, std::function<void(int)> toEngine,
+                                        std::function<std::optional<int>()> fromEngine)
+{
+    auto* dawParameter = parameters.getParameter(id);
+    jassert(dawParameter != nullptr);
+    boundParameters.push_back({ dawParameter, std::move(toEngine), std::move(fromEngine), engineValue(*dawParameter),
+                                std::nullopt });
 }
 
 void NL2XEditorProcessor::setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel)
@@ -258,13 +288,27 @@ void NL2XEditorProcessor::rememberFoundGlobalChannel()
 juce::AudioProcessorValueTreeState::ParameterLayout NL2XEditorProcessor::createParameterLayout()
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    for (const auto& [slot, parameter] : kDawParameters) {
-        const auto& info = nl2x::programParameterInfo(parameter);
-        const auto id = nl2x::dawParameterId(slot, parameter);
-        layout.add(std::make_unique<juce::AudioParameterInt>(
-            juce::ParameterID { id, 1 }, nl2x::dawParameterName(slot, parameter), info.minValue, info.maxValue,
-            info.minValue));
-    }
+    for (auto slot : nl2x::kAllSlots)
+        for (const auto& info : nl2x::ccParameters()) {
+            const juce::ParameterID id { nl2x::dawParameterId(slot, info.id), 1 };
+            const auto name = nl2x::dawParameterName(slot, info.id);
+            switch (info.kind) {
+            case nl2x::CcParameterKind::Knob:
+                layout.add(std::make_unique<juce::AudioParameterInt>(id, name, info.minValue, info.maxValue,
+                                                                     info.minValue));
+                break;
+            case nl2x::CcParameterKind::Stepped: {
+                juce::StringArray choices;
+                for (const auto& choice : info.choices)
+                    choices.add(juce::String(std::string(choice)));
+                layout.add(std::make_unique<juce::AudioParameterChoice>(id, name, choices, 0));
+                break;
+            }
+            case nl2x::CcParameterKind::Switch:
+                layout.add(std::make_unique<juce::AudioParameterBool>(id, name, false));
+                break;
+            }
+        }
     for (const auto& [setting, slot] : kDawPerformanceParameters) {
         const auto& info = nl2x::performanceSettingInfo(setting);
         const juce::ParameterID id { nl2x::performanceDawParameterId(setting, slot), 1 };
@@ -336,7 +380,7 @@ void NL2XEditorProcessor::timerCallback()
     // DAW to engine first, so that a value the user just set is never overwritten by the older one
     // the engine still holds.
     sendChangedParameters();
-    followPerformanceFromSynth();
+    followEngine();
     engine.advanceTime(nowMs());
     rememberFoundGlobalChannel();
     watchConnection();
@@ -367,38 +411,36 @@ void NL2XEditorProcessor::sendChangedParameters()
     // must only be called here, and bursts of automation coalesce into one value per tick.
     for (auto& bound : boundParameters) {
         const auto value = engineValue(*bound.dawParameter);
-        if (value != bound.lastSentValue) {
-            bound.lastSentValue = value;
-            engine.setParameter(bound.slot, bound.parameter, value);
-        }
-    }
-    // Refused until the Performance has been read; the value read then replaces it.
-    for (auto& bound : boundPerformanceParameters) {
-        const auto value = engineValue(*bound.dawParameter);
-        if (value != bound.lastSentValue) {
-            bound.lastSentValue = value;
-            engine.setPerformanceSetting(bound.setting, bound.slot, value);
-        }
+        if (value == bound.lastDawValue)
+            continue;
+        bound.lastDawValue = value;
+        bound.toEngine(value);
+        // The engine now holds the DAW's value (or refused it): nothing to follow back.
+        bound.lastEngineValue = bound.fromEngine();
     }
 }
 
-void NL2XEditorProcessor::followPerformanceFromSynth()
+void NL2XEditorProcessor::followEngine()
 {
     if (engine.stateRevision() == followedRevision)
         return;
     followedRevision = engine.stateRevision();
 
-    const auto& performance = engine.performance();
-    if (! performance)
-        return;
-    for (auto& bound : boundPerformanceParameters) {
-        const auto value = performance->setting(bound.setting, bound.slot);
-        if (value == engineValue(*bound.dawParameter))
+    for (auto& bound : boundParameters) {
+        const auto value = bound.fromEngine();
+        if (! value || value == bound.lastEngineValue)
             continue;
-        bound.dawParameter->setValueNotifyingHost(bound.dawParameter->convertTo0to1(static_cast<float>(value)));
-        // What the parameter now holds (a value outside its range is shown at the nearest end) counts
-        // as sent, so polling does not send it back as an edit.
-        bound.lastSentValue = engineValue(*bound.dawParameter);
+        bound.lastEngineValue = value;
+        if (*value != engineValue(*bound.dawParameter)) {
+            // As one gesture, so that a DAW writing automation records the synth's knob.
+            bound.dawParameter->beginChangeGesture();
+            const auto shown = bound.dawParameter->getNormalisableRange().getRange().clipValue(static_cast<float>(*value));
+            bound.dawParameter->setValueNotifyingHost(bound.dawParameter->convertTo0to1(shown));
+            bound.dawParameter->endChangeGesture();
+        }
+        // What the parameter now holds (a value outside its range is shown at the nearest end)
+        // counts as sent, so polling does not send it back as an edit.
+        bound.lastDawValue = engineValue(*bound.dawParameter);
     }
 }
 

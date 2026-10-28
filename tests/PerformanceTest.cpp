@@ -77,8 +77,8 @@ TEST_CASE("After connecting, a Slot's CCs go out on the Slot Channel read from t
 
     rig.connect();
     rig.toSynth.clear();
-    rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 77);
-    rig.engine.setParameter(Slot::B, ProgramParameter::FilterCutoff, 33);
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 77);
+    rig.engine.setParameter(Slot::B, CcParameter::FilterCutoff, 33);
 
     const std::vector<Bytes> expected { cutoffCc(5, 77), cutoffCc(12, 33) };
     CHECK(rig.toSynth.messages() == expected);
@@ -91,7 +91,7 @@ TEST_CASE("Before the Performance is read, CCs go out on the default Slot Channe
 {
     EditorAndSynth rig;
 
-    rig.engine.setParameter(Slot::C, ProgramParameter::FilterCutoff, 10);
+    rig.engine.setParameter(Slot::C, CcParameter::FilterCutoff, 10);
 
     const std::vector<Bytes> expected { cutoffCc(hardware::kDefaultSlotChannels[2], 10) };
     CHECK(rig.toSynth.messages() == expected);
@@ -104,7 +104,7 @@ TEST_CASE("A Slot whose channel is off (−1) in the Performance sends nothing")
 
     rig.connect();
     rig.toSynth.clear();
-    rig.engine.setParameter(Slot::B, ProgramParameter::FilterCutoff, 50);
+    rig.engine.setParameter(Slot::B, CcParameter::FilterCutoff, 50);
 
     CHECK(rig.toSynth.messages().empty());
     CHECK_FALSE(rig.engine.slotChannel(Slot::B));
@@ -120,8 +120,8 @@ TEST_CASE("A manual Slot Channel override wins over the Performance, and can be 
     rig.engine.setSlotChannelOverride(Slot::A, 9);
     rig.engine.setSlotChannelOverride(Slot::D, 2);
     rig.toSynth.clear();
-    rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 1);
-    rig.engine.setParameter(Slot::D, ProgramParameter::FilterCutoff, 2);
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 1);
+    rig.engine.setParameter(Slot::D, CcParameter::FilterCutoff, 2);
 
     std::vector<Bytes> expected { cutoffCc(9, 1), cutoffCc(2, 2) };
     CHECK(rig.toSynth.messages() == expected);
@@ -138,7 +138,7 @@ TEST_CASE("A manual Slot Channel override wins over the Performance, and can be 
     {
         rig.engine.setSlotChannelOverride(Slot::A, std::nullopt);
         rig.toSynth.clear();
-        rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 3);
+        rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 3);
         expected = { cutoffCc(0, 3) };
         CHECK(rig.toSynth.messages() == expected);
     }
@@ -211,7 +211,7 @@ TEST_CASE("Layer warning: layered Slots also receive on the leftmost active Slot
     CHECK_THAT(slotChannelWarningText(warnings[0]), ContainsSubstring("Slots B and D are layered with Slot A"));
 
     // The warning is right: a knob change on Slot A reaches B and D on the synth.
-    rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 101);
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 101);
     CHECK(rig.synth.editBuffer(Slot::B)[kFilterCutoffOffset] == 101);
     CHECK(rig.synth.editBuffer(Slot::D)[kFilterCutoffOffset] == 101);
     CHECK(rig.synth.editBuffer(Slot::C)[kFilterCutoffOffset] != 101);
@@ -293,7 +293,7 @@ TEST_CASE("A Performance dump carries the Slots' current Programs, and a Kit Slo
     rig.connect();
     const auto read = *rig.engine.performance();
 
-    rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 99);
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 99);
     rig.toSynth.clear();
     rig.engine.setPerformanceSetting(PerformanceSetting::Layer, Slot::B, 1);
     rig.runFor(500);
@@ -359,7 +359,7 @@ TEST_CASE("Editing a Slot Channel in the Performance moves that Slot's CCs and t
     rig.engine.setPerformanceSetting(PerformanceSetting::SlotChannel, Slot::B, 8);
     rig.runFor(500);
     rig.toSynth.clear();
-    rig.engine.setParameter(Slot::B, ProgramParameter::FilterCutoff, 66);
+    rig.engine.setParameter(Slot::B, CcParameter::FilterCutoff, 66);
 
     const std::vector<Bytes> expected { cutoffCc(8, 66) };
     CHECK(rig.toSynth.messages() == expected);

@@ -63,7 +63,8 @@ Engine::~Engine() = default;
 
 void Engine::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs)
 {
-    // Incoming CCs (#6) come next; for now only replies to requests count.
+    if (message.size() == 3 && (message[0] & 0xF0) == kControlChange)
+        applyControlChange(static_cast<MidiChannel>(message[0] & 0x0F), message[1], message[2]);
     check->handleIncomingMidi(message, timeMs);
     connection->handleIncomingMidi(message, timeMs);
 }
@@ -79,23 +80,43 @@ void Engine::advanceTime(TimeMs timeMs)
     check->advanceTime(timeMs);
 }
 
-void Engine::setParameter(Slot slot, ProgramParameter parameter, int value)
+void Engine::setParameter(Slot slot, CcParameter parameter, int value)
 {
     auto& state = slots[slotIndex(slot)];
-    if (state.program && state.program->value(parameter) != value) {
-        state.program->setValue(parameter, value);
+    if (state.program && ccParameterValue(*state.program, parameter) != value) {
+        setCcParameterValue(*state.program, parameter, value);
         changed();
     }
 
-    const auto& info = programParameterInfo(parameter);
     const auto channel = slotChannel(slot);
-    if (! info.cc || ! channel)
+    if (! channel)
+        return;
+    const std::array<std::uint8_t, 3> message { static_cast<std::uint8_t>(kControlChange | *channel),
+                                                ccParameterInfo(parameter).cc, ccDataOf(parameter, value) };
+    output.send(message);
+}
+
+void Engine::applyControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t data)
+{
+    const auto parameter = ccParameterOfController(cc);
+    if (! parameter)
+        return;
+    const auto value = valueOfCcData(*parameter, data);
+    if (! value)
         return;
 
-    // A CC data byte has 7 bits.
-    const auto data = static_cast<std::uint8_t>(std::clamp(value, 0, 127));
-    const std::array<std::uint8_t, 3> message { static_cast<std::uint8_t>(kControlChange | *channel), *info.cc, data };
-    output.send(message);
+    SlotChannelArray channels;
+    for (auto slot : kAllSlots)
+        channels[slotIndex(slot)] = slotChannel(slot);
+    for (auto slot : slotsReceivingOn(channel, channels, performanceBuffer->layer())) {
+        // A Kit Slot's CCs reach the percussion sound last selected on the synth [OFF-2X p.103],
+        // which the editor does not know; an unread Slot has nothing to update.
+        auto& program = slots[slotIndex(slot)].program;
+        if (program && ccParameterValue(*program, *parameter) != *value) {
+            setCcParameterValue(*program, *parameter, *value);
+            changed();
+        }
+    }
 }
 
 void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeMs timeMs)

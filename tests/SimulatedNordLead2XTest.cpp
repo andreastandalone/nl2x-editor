@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -154,10 +155,13 @@ TEST_CASE("Simulated synth: the All Controllers Request answers with the Slot's 
 
     rig.synth.receive(allControllersRequest(hardware::kFactoryGlobalChannel, Slot::A));
 
-    const std::vector<std::vector<std::uint8_t>> expected {
-        { static_cast<std::uint8_t>(0xB0 | hardware::kDefaultSlotChannels[0]), 74, 90 }
-    };
-    CHECK(rig.fromSynth.messages() == expected);
+    // One CC per panel control of the CC chart [OFF-2X p.103–104], all on Slot A's channel.
+    const auto status = static_cast<std::uint8_t>(0xB0 | hardware::kDefaultSlotChannels[0]);
+    const auto& sent = rig.fromSynth.messages();
+    CHECK(sent.size() == 42);
+    for (const auto& message : sent)
+        CHECK(message[0] == status);
+    CHECK(std::find(sent.begin(), sent.end(), std::vector<std::uint8_t> { status, 74, 90 }) != sent.end());
 }
 
 TEST_CASE("Simulated synth: the Performance Edit Buffer request returns the four Slots and the settings")
