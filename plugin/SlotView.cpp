@@ -1,12 +1,33 @@
 #include "SlotView.h"
 
+#include "nl2x/CcParameters.h"
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/ProgramParameters.h"
+
+#include <algorithm>
+#include <optional>
 
 namespace {
 
 constexpr int kRefreshIntervalMs = 50;
 constexpr int kSlotButtonsGroup = 4401;
+constexpr int kRowHeight = 26;
+constexpr int kNameWidth = 220;
+constexpr int kControlWidth = 280;
+constexpr int kHeadingHeight = 32;
+
+juce::String text(std::string_view view)
+{
+    return juce::String(std::string(view));
+}
+
+// "(0 to 127)", and a mark when the stored value lies outside it.
+juce::String rangeText(int value, int minValue, int maxValue)
+{
+    const bool outOfRange = value < minValue || value > maxValue;
+    return "(" + juce::String(minValue) + " to " + juce::String(maxValue) + ")"
+           + (outOfRange ? "  outside the documented range" : "");
+}
 
 juce::String slotName(nl2x::Slot slot)
 {
@@ -40,6 +61,98 @@ juce::String statusText(const nl2x::Engine& synth)
 
 } // namespace
 
+// A slider for knobs, a menu of named steps for stepped buttons, a toggle for on/off buttons;
+// next to it the stored value as a number, out-of-range values marked. Shows the engine's value
+// and edits through the DAW parameter.
+class SlotView::ParameterControl final : public juce::Component {
+public:
+    ParameterControl(NL2XEditorProcessor& owner, const nl2x::CcParameterInfo& parameterInfo)
+        : processor(owner),
+          info(parameterInfo)
+    {
+        name.setText(text(info.name) + "  (CC" + juce::String(info.cc) + ")", juce::dontSendNotification);
+        addAndMakeVisible(name);
+        addAndMakeVisible(number);
+
+        switch (info.kind) {
+        case nl2x::CcParameterKind::Knob:
+            slider.setSliderStyle(juce::Slider::LinearHorizontal);
+            slider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 50, kRowHeight - 4);
+            slider.setRange(info.minValue, info.maxValue, 1);
+            slider.onValueChange = [this] { edit(juce::roundToInt(slider.getValue())); };
+            addAndMakeVisible(slider);
+            break;
+        case nl2x::CcParameterKind::Stepped:
+            for (std::size_t i = 0; i < info.choices.size(); ++i)
+                box.addItem(juce::String(static_cast<int>(i)) + ": " + text(info.choices[i]), static_cast<int>(i) + 1);
+            box.onChange = [this] {
+                if (const auto id = box.getSelectedId(); id > 0)
+                    edit(info.minValue + id - 1);
+            };
+            addAndMakeVisible(box);
+            break;
+        case nl2x::CcParameterKind::Switch:
+            toggle.setButtonText("On");
+            toggle.onClick = [this] { edit(toggle.getToggleState() ? 1 : 0); };
+            addAndMakeVisible(toggle);
+            break;
+        }
+    }
+
+    nl2x::CcParameter parameter() const { return info.id; }
+
+    void show(nl2x::Slot shownSlot, int value)
+    {
+        slot = shownSlot;
+        const bool inRange = value >= info.minValue && value <= info.maxValue;
+        number.setText(juce::String(value) + "  " + rangeText(value, info.minValue, info.maxValue),
+                       juce::dontSendNotification);
+        switch (info.kind) {
+        case nl2x::CcParameterKind::Knob:
+            // Not while the user drags it: the engine catches up a tick later.
+            if (! slider.isMouseButtonDown()) {
+                // A value outside the documented range is shown as it is, not at the range's end.
+                slider.setRange(std::min(info.minValue, value), std::max(info.maxValue, value), 1);
+                slider.setValue(value, juce::dontSendNotification);
+            }
+            break;
+        case nl2x::CcParameterKind::Stepped:
+            if (inRange)
+                box.setSelectedId(value - info.minValue + 1, juce::dontSendNotification);
+            else
+                box.setText(juce::String(value) + ": outside the documented range", juce::dontSendNotification);
+            break;
+        case nl2x::CcParameterKind::Switch:
+            toggle.setToggleState(value != 0, juce::dontSendNotification);
+            break;
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        name.setBounds(area.removeFromLeft(kNameWidth));
+        auto control = area.removeFromLeft(kControlWidth).reduced(0, 1);
+        slider.setBounds(control);
+        box.setBounds(control);
+        toggle.setBounds(control);
+        area.removeFromLeft(12);
+        number.setBounds(area);
+    }
+
+private:
+    void edit(int value) { processor.editSlotParameter(slot, info.id, value); }
+
+    NL2XEditorProcessor& processor;
+    const nl2x::CcParameterInfo& info;
+    nl2x::Slot slot = nl2x::Slot::A;
+    juce::Label name;
+    juce::Label number;
+    juce::Slider slider;
+    juce::ComboBox box;
+    juce::ToggleButton toggle;
+};
+
 SlotView::SlotView(NL2XEditorProcessor& owner)
     : processor(owner)
 {
@@ -60,10 +173,27 @@ SlotView::SlotView(NL2XEditorProcessor& owner)
     noticeLabel.setJustificationType(juce::Justification::centred);
     noticeLabel.setFont(juce::FontOptions(16.0f));
     addChildComponent(noticeLabel);
-
-    valueList.setRowHeight(20);
     addAndMakeVisible(statusLabel);
-    addAndMakeVisible(valueList);
+
+    for (const auto& info : nl2x::ccParameters())
+        content.addAndMakeVisible(*controls.emplace_back(std::make_unique<ParameterControl>(processor, info)));
+
+    morphHeading.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+    content.addAndMakeVisible(morphHeading);
+    for (const auto& info : nl2x::programParameters()) {
+        if (! info.morphedParameter)
+            continue;
+        auto& row = morphRows.emplace_back();
+        row.parameter = info.id;
+        row.name = std::make_unique<juce::Label>(juce::String(), text(info.name));
+        row.value = std::make_unique<juce::Label>();
+        content.addAndMakeVisible(*row.name);
+        content.addAndMakeVisible(*row.value);
+    }
+
+    viewport.setViewedComponent(&content, false);
+    viewport.setScrollBarsShown(true, false);
+    addAndMakeVisible(viewport);
 
     refresh();
     startTimer(kRefreshIntervalMs);
@@ -89,39 +219,28 @@ void SlotView::resized()
     statusLabel.setBounds(top);
 
     area.removeFromTop(8);
-    valueList.setBounds(area);
+    viewport.setBounds(area);
     noticeLabel.setBounds(area);
+    layOutContent();
 }
 
-int SlotView::getNumRows()
+void SlotView::layOutContent()
 {
-    return static_cast<int>(nl2x::kProgramParameterCount);
-}
-
-void SlotView::paintListBoxItem(int row, juce::Graphics& g, int width, int height, bool)
-{
-    const auto& program = processor.synth().slotState(selectedSlot).program;
-    if (! program || row < 0 || row >= getNumRows())
-        return;
-
-    const auto& info = nl2x::programParameters()[static_cast<std::size_t>(row)];
-    const auto value = program->value(info.id);
-    const bool outOfRange = value < info.minValue || value > info.maxValue;
-
-    if (row % 2 != 0)
-        g.fillAll(getLookAndFeel().findColour(juce::ListBox::backgroundColourId).brighter(0.05f));
-
-    const auto text = getLookAndFeel().findColour(juce::Label::textColourId);
-    auto area = juce::Rectangle<int>(0, 0, width, height).reduced(8, 0);
-    g.setFont(juce::FontOptions(14.0f));
-    g.setColour(text);
-    g.drawText(juce::String(std::string(info.name)), area.removeFromLeft(width / 2), juce::Justification::centredLeft);
-    g.drawText(juce::String(value), area.removeFromLeft(60), juce::Justification::centredRight);
-    g.setColour(text.withAlpha(0.5f));
-    // Values outside the documented range are shown as they are, and marked.
-    g.drawText("(" + juce::String(info.minValue) + " to " + juce::String(info.maxValue) + ")"
-                   + (outOfRange ? "  outside the documented range" : ""),
-               area.reduced(12, 0), juce::Justification::centredLeft);
+    const auto width = std::max(600, viewport.getWidth() - viewport.getScrollBarThickness() - 4);
+    int y = 0;
+    for (auto& control : controls) {
+        control->setBounds(0, y, width, kRowHeight - 2);
+        y += kRowHeight;
+    }
+    y += 8;
+    morphHeading.setBounds(0, y, width, kHeadingHeight);
+    y += kHeadingHeight;
+    for (auto& row : morphRows) {
+        row.name->setBounds(0, y, kNameWidth + kControlWidth, kRowHeight - 2);
+        row.value->setBounds(kNameWidth + kControlWidth + 12, y, width - kNameWidth - kControlWidth - 12, kRowHeight - 2);
+        y += kRowHeight;
+    }
+    content.setSize(width, y + 8);
 }
 
 void SlotView::timerCallback()
@@ -151,7 +270,14 @@ void SlotView::refresh()
 
     noticeLabel.setText(notice, juce::dontSendNotification);
     noticeLabel.setVisible(notice.isNotEmpty());
-    valueList.setVisible(notice.isEmpty());
-    valueList.updateContent();
-    valueList.repaint();
+    viewport.setVisible(notice.isEmpty());
+    if (! state.program)
+        return;
+
+    for (auto& control : controls)
+        control->show(selectedSlot, nl2x::ccParameterValue(*state.program, control->parameter()));
+    for (auto& row : morphRows) {
+        const auto value = state.program->value(row.parameter);
+        row.value->setText(juce::String(value) + "  " + rangeText(value, nl2x::programParameterInfo(row.parameter).minValue, nl2x::programParameterInfo(row.parameter).maxValue), juce::dontSendNotification);
+    }
 }

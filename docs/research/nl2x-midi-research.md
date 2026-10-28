@@ -118,6 +118,8 @@ Notes on the table:
 - **CC35 (Oscillator Sync)**: the panel has one Ring Mod/Sync button that cycles through off, sync, ring and both [OFF-2X p.42]. The CC values for these states are **not documented**. [INF] Probably 0–3 matching bits 0–1 of SysEx byte 52.
 - **CC78 (Osc2 Semitones)**: the SysEx range is 0–120, but a CC can only carry 0–127. The CC scaling is **unknown**. Test on hardware.
 
+Code cross-references (#6): the CC table is `engine/src/CcParameters.cpp` (byte 52 split into Ring Mod/Sync, bits 0–1, and Filter Distortion, bit 4); the assumed switch "on" value (127) and read threshold (≥ 1), the order of every stepped CC's options, the CC35 encoding (0–3 = bits 0–1) and the CC78 scaling (CC value = SysEx value) are in `engine/include/nl2x/HardwareAssumptions.h`. The simulator's own copy of this table is in `tests/sim/SimulatedNordLead2X.cpp`.
+
 Other controllers [OFF-2X p.74, 104]:
 
 - CC1 Mod wheel: Tx/Rx.

@@ -11,6 +11,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -46,6 +47,10 @@ public:
     // Audition from the Library (#11): a Program or Kit on `slot`, a Performance on the Performance
     // Edit Buffer. Message thread only.
     nl2x::AuditionResult auditionFromLibrary(const nl2x::LibraryEntry& entry, nl2x::Slot slot);
+
+    // The user changed a Slot's CC parameter in the GUI: it goes through its DAW parameter, so the
+    // DAW records it. Message thread only.
+    void editSlotParameter(nl2x::Slot slot, nl2x::CcParameter parameter, int value);
     // Pins a Slot's channel regardless of the Performance (empty releases it). A service setting:
     // kept in the plugin state, never a DAW parameter. Message thread only.
     void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);
@@ -124,20 +129,19 @@ private:
         NL2XEditorProcessor& processor;
     };
 
-    // A DAW parameter bound to one Slot's Program parameter.
+    // A DAW parameter bound to a value in the engine (a Slot's CC parameter, a Performance
+    // setting). Both directions in one place: a DAW change goes to the engine; an engine change
+    // that did not come from the DAW (the synth, a read) moves the DAW parameter inside a change
+    // gesture, so that a DAW writing automation records it, and is not sent back.
     struct BoundParameter {
-        nl2x::Slot slot;
-        nl2x::ProgramParameter parameter;
         juce::RangedAudioParameter* dawParameter;
-        int lastSentValue;
-    };
-
-    // A DAW parameter bound to a Performance setting.
-    struct BoundPerformanceParameter {
-        nl2x::PerformanceSetting setting;
-        nl2x::Slot slot;
-        juce::RangedAudioParameter* dawParameter;
-        int lastSentValue;
+        std::function<void(int)> toEngine;
+        // Empty while the engine knows no value (the Slot or Performance not read yet).
+        std::function<std::optional<int>()> fromEngine;
+        // The DAW value last handed to the engine or taken from it.
+        int lastDawValue;
+        // The engine value last seen, so that only changes are followed.
+        std::optional<int> lastEngineValue;
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -145,10 +149,15 @@ private:
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
     void timerCallback() override;
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+    void bindParameter(const juce::String& id, std::function<void(int)> toEngine,
+                       std::function<std::optional<int>()> fromEngine);
     void sendChangedParameters();
-    // Moves the Performance DAW parameters to the values the engine read from the synth, without
-    // that move being sent back as an edit.
-    void followPerformanceFromSynth();
+    // Moves the DAW parameters to the values the engine got from the synth, without that move
+    // being sent back as an edit.
+    void followEngine();
+    // A GUI edit of a bound value: through its DAW parameter, as one gesture. False if `id` is not
+    // a DAW parameter.
+    bool editThroughDawParameter(const juce::String& id, int value);
     void applySavedSlotChannelOverrides();
     // Connects to the synth when both ports are open and differ from the last connected pair.
     void connectIfPortsChanged();
@@ -169,7 +178,6 @@ private:
     EngineMidiOutput engineOutput { *this };
     nl2x::Engine engine { engineOutput };
     std::vector<BoundParameter> boundParameters;
-    std::vector<BoundPerformanceParameter> boundPerformanceParameters;
     std::uint64_t followedRevision = 0;
     // Slot Channel overrides as saved in the plugin state, −1 = none. Atomic because hosts may
     // save and restore state from other threads; the timer hands changes to the engine.
