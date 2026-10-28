@@ -15,3 +15,7 @@ On 2026-10-28 Andrea handed the project to a coordinating agent while away (hand
 ## Log
 
 - 2026-10-28: foundations written (CODING_STANDARDS.md, this wiki, open-questions.md) on branch `2-walking-skeleton`.
+- 2026-10-28: #2 merged as `c371feb` (PR #16). CI on macos-15 (arm64) passed build, ctest, lipo, pluginval and auval; a full run takes 8–25 min. Issue #2 left open with `ready-for-human` (DAW and synth checks).
+- 2026-10-28: #3 software part delegated on branch `3-probe-tool` (worktree `.worktrees/3-probe`, based on the pre-squash #2 branch: rebase onto `main` before its PR).
+- Lesson, 2026-10-28: write "Implements #N", never "Closes #N", in PR bodies of tickets with pending human checks, or the merge closes the issue.
+- Lesson, 2026-10-28: CMake's downloader cannot reach github.com from the agent sandbox; reuse the tarballs in the session scratchpad `deps/` with `-DNL2X_DOWNLOAD_CACHE`.
