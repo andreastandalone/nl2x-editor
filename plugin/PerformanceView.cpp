@@ -1,5 +1,7 @@
 #include "PerformanceView.h"
 
+#include "NordLookAndFeel.h"
+
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/PerformanceSettings.h"
 
@@ -171,7 +173,7 @@ PerformanceView::PerformanceView(NL2XEditorProcessor& owner)
         const auto index = nl2x::slotIndex(slot);
         slotColumnLabels[index].setText("Slot " + juce::String::charToString(nl2x::slotLetter(slot)),
                                         juce::dontSendNotification);
-        slotColumnLabels[index].setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        slotColumnLabels[index].setFont(NordFonts::heading());
         content.addAndMakeVisible(slotColumnLabels[index]);
         content.addAndMakeVisible(performanceChannels[index]);
         content.addAndMakeVisible(sendChannels[index]);
@@ -216,7 +218,9 @@ PerformanceView::~PerformanceView()
 juce::Label& PerformanceView::addHeading(const juce::String& title)
 {
     auto& heading = *headings.emplace_back(std::make_unique<juce::Label>(juce::String(), title));
-    heading.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+    heading.setFont(NordFonts::sectionTitle());
+    heading.setColour(juce::Label::backgroundColourId, NordPalette::sectionTitle);
+    heading.setColour(juce::Label::textColourId, NordPalette::sectionTitleText);
     content.addAndMakeVisible(heading);
     return heading;
 }
@@ -272,7 +276,7 @@ void PerformanceView::layOutContent()
     };
 
     std::size_t heading = 0;
-    headings[heading++]->setBounds(0, y, width, kHeadingHeight);
+    headings[heading++]->setBounds(0, y + 8, width, NordMetrics::sectionTitleHeight);
     y += kHeadingHeight;
     for (std::size_t i = 0; i < 4; ++i)
         slotColumnLabels[i].setBounds(column(i));
@@ -290,7 +294,7 @@ void PerformanceView::layOutContent()
         sendChannels[i].setBounds(column(i));
     y += kRowHeight;
 
-    headings[heading++]->setBounds(0, y, width, kHeadingHeight);
+    headings[heading++]->setBounds(0, y + 8, width, NordMetrics::sectionTitleHeight);
     y += kHeadingHeight;
     for (auto& row : editableRows) {
         nextRow(row.label.get());
@@ -303,7 +307,7 @@ void PerformanceView::layOutContent()
         y += kRowHeight;
     }
 
-    headings[heading++]->setBounds(0, y, width, kHeadingHeight);
+    headings[heading++]->setBounds(0, y + 8, width, NordMetrics::sectionTitleHeight);
     y += kHeadingHeight;
     for (auto& row : shownOnlyRows) {
         nextRow(row.label.get());

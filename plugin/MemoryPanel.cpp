@@ -1,5 +1,7 @@
 #include "MemoryPanel.h"
 
+#include "NordLookAndFeel.h"
+
 #include "nl2x/HardwareAssumptions.h"
 
 #include <filesystem>
@@ -62,7 +64,6 @@ juce::String stageText(const nl2x::MemoryTaskStatus& status)
 MemoryPanel::MemoryPanel(NL2XEditorProcessor& owner, LibraryPanel& library, std::function<nl2x::Slot()> slotChoice)
     : processor(owner), libraryPanel(library), selectedSlot(std::move(slotChoice))
 {
-    title.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     lockLabel.setJustificationType(juce::Justification::topLeft);
     lockLabel.setText(processor.synthMemory().bankReadingVerified()
                           ? "Before every overwrite, the Bank is backed up automatically into "
@@ -92,7 +93,7 @@ MemoryPanel::MemoryPanel(NL2XEditorProcessor& owner, LibraryPanel& library, std:
     progressLabel.setJustificationType(juce::Justification::topLeft);
     messageLabel.setJustificationType(juce::Justification::topLeft);
 
-    for (auto* child : std::initializer_list<juce::Component*> { &title, &lockLabel, &bankLabel, &bankChoice,
+    for (auto* child : std::initializer_list<juce::Component*> { &lockLabel, &bankLabel, &bankChoice,
                                                                  &programLabel, &programChoice, &storeButton,
                                                                  &readButton, &sendButton, &cancelButton,
                                                                  &progressLabel, &messageLabel })
@@ -107,10 +108,14 @@ MemoryPanel::~MemoryPanel()
     stopTimer();
 }
 
+void MemoryPanel::paint(juce::Graphics& g)
+{
+    NordLookAndFeel::drawSection(g, getLocalBounds(), "Synth memory");
+}
+
 void MemoryPanel::resized()
 {
-    auto area = getLocalBounds().reduced(8);
-    title.setBounds(area.removeFromTop(24));
+    auto area = getLocalBounds().withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(12);
     lockLabel.setBounds(area.removeFromTop(48));
     area.removeFromTop(8);
 

@@ -1,5 +1,7 @@
 #include "ArcKnob.h"
 
+#include "NordLookAndFeel.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -13,7 +15,7 @@ constexpr float kEndAngle = 0.75f * juce::MathConstants<float>::pi;
 // Pixels of vertical drag for the whole range; Shift is this many times finer.
 constexpr double kDragPixelsForRange = 200.0;
 constexpr double kFineFactor = 5.0;
-constexpr float kNameHeight = 26.0f;
+constexpr float kNameHeight = 24.0f;
 constexpr float kValueHeight = 16.0f;
 
 juce::String signedText(int amount)
@@ -22,11 +24,6 @@ juce::String signedText(int amount)
 }
 
 } // namespace
-
-const juce::Colour ArcKnob::kNordRed { 0xffd0202e };
-const juce::Colour ArcKnob::kPanelGrey { 0xff5a5d63 };
-const juce::Colour ArcKnob::kMorphViolet { 0xff8a7cf0 };
-const juce::Colour ArcKnob::kOutOfRange { 0xffe0a020 };
 
 ArcKnob::ArcKnob(const juce::String& knobName, int minimum, int maximum, bool hasMorphAmount)
     : name(knobName),
@@ -94,10 +91,11 @@ float ArcKnob::angleOf(double position) const
 void ArcKnob::paint(juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
-    const auto text = getLookAndFeel().findColour(juce::Label::textColourId);
+    const auto text = NordPalette::text;
+    const bool enabled = isEnabled();
 
-    g.setColour(text.withAlpha(0.85f));
-    g.setFont(juce::FontOptions(11.5f));
+    g.setColour(enabled ? NordPalette::text : NordPalette::textDim);
+    g.setFont(NordFonts::controlName());
     g.drawFittedText(name, area.removeFromTop(kNameHeight).toNearestInt(), juce::Justification::centredBottom, 2,
                      0.9f);
 
@@ -116,13 +114,19 @@ void ArcKnob::paint(juce::Graphics& g)
     };
 
     // Track, then the value from the start of the range.
-    arc(kStartAngle, kEndAngle, radius, thickness, kPanelGrey);
+    arc(kStartAngle, kEndAngle, radius, thickness, NordPalette::knobTrack);
+    if (! enabled) {
+        g.setFont(NordFonts::value());
+        g.setColour(NordPalette::textDim);
+        g.drawText(juce::String::fromUTF8("\xE2\x80\x93"), valueArea, juce::Justification::centred);
+        return;
+    }
     const auto valueAngle = angleOf(positionOf(currentValue));
     const bool outOfRange = currentValue < minValue || currentValue > maxValue;
-    arc(kStartAngle, valueAngle, radius, thickness, outOfRange ? kOutOfRange : kNordRed);
+    arc(kStartAngle, valueAngle, radius, thickness, outOfRange ? NordPalette::outOfRange : NordPalette::valueArc);
 
     // The pointer: a short line from the centre towards the value.
-    g.setColour(text.withAlpha(0.8f));
+    g.setColour(text);
     const auto pointer = juce::Point<float>(std::sin(valueAngle), -std::cos(valueAngle));
     g.drawLine(juce::Line<float>(centre + pointer * (radius * 0.35f), centre + pointer * (radius * 0.75f)), 2.0f);
 
@@ -132,16 +136,16 @@ void ArcKnob::paint(juce::Graphics& g)
         const auto morphRadius = radius - thickness - 1.5f;
         const auto morphWidth = std::max(2.0f, thickness * 0.5f);
         arc(std::min(valueAngle, targetAngle), std::max(valueAngle, targetAngle), morphRadius, morphWidth,
-            kMorphViolet);
+            NordPalette::morph);
     }
 
     // Underneath: the number being edited.
-    g.setFont(juce::FontOptions(12.5f, juce::Font::bold));
+    g.setFont(NordFonts::value());
     if (showsMorph()) {
-        g.setColour(kMorphViolet);
+        g.setColour(NordPalette::morph);
         g.drawText("M " + signedText(currentMorph), valueArea, juce::Justification::centred);
     } else {
-        g.setColour(outOfRange ? kOutOfRange : text);
+        g.setColour(outOfRange ? NordPalette::outOfRange : text);
         g.drawText(juce::String(currentValue) + (outOfRange ? " !" : ""), valueArea, juce::Justification::centred);
     }
 }
@@ -168,6 +172,8 @@ void ArcKnob::edit(Target target, int newValue)
 
 void ArcKnob::mouseDown(const juce::MouseEvent& event)
 {
+    if (! isEnabled())
+        return;
     dragging = true;
     dragTarget = targetFor(event.mods);
     // A value outside the range starts from the range's nearest end.
@@ -180,6 +186,8 @@ void ArcKnob::mouseDown(const juce::MouseEvent& event)
 
 void ArcKnob::mouseDrag(const juce::MouseEvent& event)
 {
+    if (! dragging)
+        return;
     const auto y = event.getPosition().y;
     const auto range = dragTarget == Target::Value ? maxValue - minValue : kMorphMax - kMorphMin;
     auto perPixel = static_cast<double>(range) / kDragPixelsForRange;
@@ -195,6 +203,8 @@ void ArcKnob::mouseDrag(const juce::MouseEvent& event)
 
 void ArcKnob::mouseUp(const juce::MouseEvent&)
 {
+    if (! dragging)
+        return;
     dragging = false;
     if (onGestureEnd)
         onGestureEnd();
@@ -203,6 +213,8 @@ void ArcKnob::mouseUp(const juce::MouseEvent&)
 
 void ArcKnob::mouseDoubleClick(const juce::MouseEvent& event)
 {
+    if (! isEnabled())
+        return;
     if (targetFor(event.mods) == Target::MorphAmount)
         edit(Target::MorphAmount, 0);
 }

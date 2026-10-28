@@ -1,5 +1,7 @@
 #include "ProbeWindow.h"
 
+#include "NordLookAndFeel.h"
+
 #include "nl2x/HardwareAssumptions.h"
 
 using nl2x::probe::ScriptId;
@@ -65,7 +67,7 @@ ProbeComponent::ProbeComponent(NL2XEditorProcessor& owner)
         auto* button = scriptButtons.add(new juce::TextButton(fromUtf8(info.name)));
         button->setTooltip(fromUtf8(info.description));
         if (info.writesToMemory)
-            button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xffa0282d));
+            button->setColour(juce::TextButton::buttonColourId, NordPalette::casingRed.darker(0.3f));
         button->onClick = [this, id = info.id] { runScript(id); };
         addAndMakeVisible(button);
     }
@@ -74,7 +76,7 @@ ProbeComponent::ProbeComponent(NL2XEditorProcessor& owner)
     addAndMakeVisible(stopButton);
     addAndMakeVisible(statusLabel);
 
-    rawEntry.setTextToShowWhenEmpty("Raw message in hex, e.g. F0 33 0F 04 0E 00 F7", juce::Colours::grey);
+    rawEntry.setTextToShowWhenEmpty("Raw message in hex, e.g. F0 33 0F 04 0E 00 F7", NordPalette::textDim);
     rawEntry.onReturnKey = [this] { sendRawMessage(); };
     sendButton.onClick = [this] { sendRawMessage(); };
     addAndMakeVisible(rawEntry);

@@ -39,9 +39,10 @@ juce::PropertiesFile::Options MidiPorts::settingsOptions()
     return options;
 }
 
-MidiPorts::MidiPorts(juce::MidiInputCallback& callback)
+MidiPorts::MidiPorts(juce::MidiInputCallback& callback, const juce::File& settingsFile)
     : inputCallback(callback),
-      settings(settingsOptions()),
+      settings(settingsFile == juce::File() ? juce::PropertiesFile(settingsOptions())
+                                            : juce::PropertiesFile(settingsFile, settingsOptions())),
       deviceListConnection(juce::MidiDeviceListConnection::make([this] { handleDeviceListChange(); }))
 {
 }

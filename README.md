@@ -107,6 +107,16 @@ Check the VST3 with [pluginval](https://github.com/Tracktion/pluginval); the scr
 tools/run-pluginval.sh "build/plugin/NL2XEditor_artefacts/Release/VST3/NL2X Editor.vst3"
 ```
 
+To look at the editor without launching the app or a DAW, render it into a PNG. `nl2x_render_editor` (built with the plugin and the tests, never installed) builds the real editor offscreen on a simulated Nord Lead 2X that has answered the editor's reads, and paints it into a file. It touches neither your settings, your MIDI ports nor your Library: it keeps everything in `--work` (default: a folder in the system's temporary directory).
+
+```sh
+cmake --build build -j8 --target nl2x_render_editor
+build/tools/render-editor/nl2x_render_editor --out slot-a.png
+build/tools/render-editor/nl2x_render_editor --out morph.png --view B --morph
+```
+
+Options: `--view A|B|C|D|performance|memory` (the tab shown), `--morph` (Morph mode on), `--settings` (the Settings panel open), `--about` (the About panel open), `--check` (the Connection check run and shown), `--kit A|B|C|D` (that Slot plays a Percussion Kit), `--offline` (the synth answers nothing), `--edge-cases` (Slots A and B on one MIDI channel, values outside the documented ranges in Slot A), `--scale <n>` (pixel density, 1 to 4), `--work <dir>`.
+
 The code layout and the rules every change follows are in [CODING_STANDARDS.md](CODING_STANDARDS.md).
 
 ## Documentation

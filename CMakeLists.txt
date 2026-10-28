@@ -30,4 +30,8 @@ endif()
 
 if(NL2X_BUILD_PLUGIN)
     add_subdirectory(plugin)
+    # A development tool: paints the editor into a PNG (README, "Building"). It needs the simulator.
+    if(NL2X_BUILD_TESTS)
+        add_subdirectory(tools/render-editor)
+    endif()
 endif()

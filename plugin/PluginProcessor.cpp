@@ -42,9 +42,20 @@ int engineValue(const juce::RangedAudioParameter& parameter)
 } // namespace
 
 NL2XEditorProcessor::NL2XEditorProcessor()
+    : NL2XEditorProcessor(nullptr, {})
+{
+}
+
+NL2XEditorProcessor::NL2XEditorProcessor(SynthLink& link, const juce::File& settingsFile)
+    : NL2XEditorProcessor(&link, settingsFile)
+{
+}
+
+NL2XEditorProcessor::NL2XEditorProcessor(SynthLink* link, const juce::File& settingsFile)
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      synthLink(link),
       parameters(*this, nullptr, "NL2XEditor", createParameterLayout()),
-      ports(*this)
+      ports(*this, settingsFile)
 {
     // Every CC parameter of every Slot (#6).
     for (auto slot : nl2x::kAllSlots)
@@ -83,6 +94,14 @@ NL2XEditorProcessor::NL2XEditorProcessor()
     if (const auto manual = ports.manualGlobalChannel())
         engine.setManualGlobalChannel(static_cast<nl2x::GlobalChannel>(*manual));
 
+    if (synthLink != nullptr) {
+        std::optional<nl2x::GlobalChannel> remembered;
+        if (const auto channel = ports.rememberedGlobalChannel())
+            remembered = static_cast<nl2x::GlobalChannel>(*channel);
+        engine.connect(remembered, nowMs());
+        startTimer(kTimerIntervalMs);
+        return;
+    }
     ports.addChangeListener(this);
     // Only the instance that controls the synth opens the ports; the saved ones open at once and
     // it connects (spec #1, user stories 11 and 19).
@@ -134,7 +153,7 @@ void NL2XEditorProcessor::openConnectionCheck()
     const auto state = engine.connectionCheck().state;
     if (state == nl2x::ConnectionCheckState::Running || state == nl2x::ConnectionCheckState::WaitingForUser)
         return;
-    if (! controlsSynth() || ports.inputIdentifier().isEmpty() || ports.outputIdentifier().isEmpty())
+    if (! controlsSynth() || ! midiPortsChosen())
         return;
     engine.startConnectionCheck(nowMs());
     checkAwaitingResult = engine.connectionCheck().state != nl2x::ConnectionCheckState::Idle;
@@ -194,6 +213,8 @@ void NL2XEditorProcessor::watchConnection()
 
 void NL2XEditorProcessor::changeListenerCallback(juce::ChangeBroadcaster*)
 {
+    if (synthLink != nullptr)
+        return;
     connectIfPortsChanged();
 }
 
@@ -604,9 +625,24 @@ void NL2XEditorProcessor::followEngine()
     }
 }
 
+void NL2XEditorProcessor::fromSynth(std::span<const std::uint8_t> message)
+{
+    juce::MidiMessage midi(message.data(), static_cast<int>(message.size()));
+    midi.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+    handleIncomingMidiMessage(nullptr, midi);
+}
+
+bool NL2XEditorProcessor::midiPortsChosen() const
+{
+    return synthLink != nullptr || (ports.inputIdentifier().isNotEmpty() && ports.outputIdentifier().isNotEmpty());
+}
+
 void NL2XEditorProcessor::sendToSynth(std::span<const std::uint8_t> message)
 {
-    ports.send(juce::MidiMessage(message.data(), static_cast<int>(message.size())));
+    if (synthLink != nullptr)
+        synthLink->toSynth(message);
+    else
+        ports.send(juce::MidiMessage(message.data(), static_cast<int>(message.size())));
     if (midiMonitor != nullptr)
         midiMonitor->midiToSynth(message, juce::Time::getMillisecondCounterHiRes());
 }

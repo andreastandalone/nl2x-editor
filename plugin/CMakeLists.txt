@@ -20,20 +20,26 @@ juce_add_plugin(NL2XEditor
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
 target_sources(NL2XEditor PRIVATE
+    AboutPanel.cpp
     ArcKnob.cpp
     ConnectionCheckView.cpp
     ConnectionIndicator.cpp
+    LedSwitch.cpp
     LibraryPanel.cpp
     MemoryPanel.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
+    NordLookAndFeel.cpp
+    OptionList.cpp
     PerformanceView.cpp
     PluginEditor.cpp
     PluginProcessor.cpp
     ProbeWindow.cpp
+    ProgramPanel.cpp
     SavedProjectSounds.cpp
     SavedSelection.cpp
     SelectorBar.cpp
+    SettingsPanel.cpp
     SlotView.cpp
     SynthControl.cpp)
 

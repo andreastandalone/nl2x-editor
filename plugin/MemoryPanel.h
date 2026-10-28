@@ -11,7 +11,7 @@
 #include <functional>
 #include <memory>
 
-// The "Synth memory" tab (#12), plain until #13: store the selected Slot's Program into a Bank
+// The "Synth memory" tab (#12): store the selected Slot's Program into a Bank
 // location, read a Bank into a .syx file, send the Bank file selected in the Library. Every write
 // is the engine's MemoryWriter plan, confirmed in an AlertWindow (and, without a backup, in a
 // second one); progress, the backup path and the outcome are shown below the buttons.
@@ -20,6 +20,7 @@ public:
     MemoryPanel(NL2XEditorProcessor& owner, LibraryPanel& library, std::function<nl2x::Slot()> selectedSlot);
     ~MemoryPanel() override;
 
+    void paint(juce::Graphics& g) override;
     void resized() override;
 
 private:
@@ -37,7 +38,6 @@ private:
     LibraryPanel& libraryPanel;
     std::function<nl2x::Slot()> selectedSlot;
 
-    juce::Label title { {}, "Synth memory" };
     juce::Label lockLabel;
     juce::Label bankLabel { {}, "Bank" };
     juce::ComboBox bankChoice;
