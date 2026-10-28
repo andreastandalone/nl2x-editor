@@ -29,3 +29,4 @@ Kept by the agents working while Andrea is away. Two lists: decisions taken on h
 Do these in order; each item names its issue.
 
 1. **#2, DAW check.** Load NL2X Editor (VST3) on a MIDI track in Ableton Live and in Cubase; choose the Fireface MIDI ports in its settings; turn and automate "A: Filter Cutoff" and hear the synth follow; reopen the plugin and check the ports are remembered. The AU passes `auval` in CI; optionally load it in Logic or Live too.
+2. **#3, hardware session (about two hours, the most important item).** Follow `docs/hardware-discovery-plan.md` with the Probe window of the standalone app (`build/.../Standalone/NL2X Editor.app`, button **Probe**). Save the log after each step and commit the logs under `docs/research/hardware-logs/`. Everything after #3 rests on assumptions in `engine/include/nl2x/HardwareAssumptions.h` until this is done.
