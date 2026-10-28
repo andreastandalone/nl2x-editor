@@ -1,0 +1,122 @@
+name: Release
+
+# A tag v* builds, checks and packages the Universal build and creates a DRAFT GitHub release.
+# A manual run (workflow_dispatch) is a dry run: it only uploads the zip as a workflow artifact.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      ARTEFACTS: build/plugin/NL2XEditor_artefacts/Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            # The tag must name the version the binaries carry (project VERSION in CMakeLists.txt).
+            cmake_version="$(sed -nE 's/^project\(NL2XEditor VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+            if [[ "$version" != "$cmake_version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match project VERSION $cmake_version in CMakeLists.txt"
+              exit 1
+            fi
+          else
+            version="dry-run-$(git rev-parse --short HEAD)"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "ZIP=NL2X-Editor-$version-macOS-universal.zip" >> "$GITHUB_ENV"
+
+      - name: Cache FetchContent downloads and pluginval
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/downloads
+            .ci-cache/pluginval
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'tools/run-pluginval.sh') }}
+
+      - name: Configure (Universal)
+        run: >
+          cmake -S . -B build -G "Unix Makefiles"
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DNL2X_DOWNLOAD_CACHE="$PWD/.ci-cache/downloads"
+
+      - name: Build
+        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Check the binaries are Universal
+        run: |
+          for binary in \
+            "$ARTEFACTS/VST3/NL2X Editor.vst3/Contents/MacOS/NL2X Editor" \
+            "$ARTEFACTS/AU/NL2X Editor.component/Contents/MacOS/NL2X Editor" \
+            "$ARTEFACTS/Standalone/NL2X Editor.app/Contents/MacOS/NL2X Editor"; do
+            lipo -info "$binary"
+            lipo "$binary" -verify_arch arm64 x86_64
+          done
+
+      - name: pluginval (VST3)
+        run: tools/run-pluginval.sh "$ARTEFACTS/VST3/NL2X Editor.vst3" .ci-cache/pluginval
+
+      - name: auval (AU)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ARTEFACTS/AU/NL2X Editor.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v aumu Nl2x Astd
+
+      - name: Package
+        run: |
+          stage="dist/NL2X-Editor-$VERSION"
+          mkdir -p "$stage"
+          cp -R "$ARTEFACTS/VST3/NL2X Editor.vst3" "$stage/"
+          cp -R "$ARTEFACTS/AU/NL2X Editor.component" "$stage/"
+          cp -R "$ARTEFACTS/Standalone/NL2X Editor.app" "$stage/"
+          cp README.md LICENSE "$stage/"
+          cat > "$stage/INSTALL.txt" <<'TXT'
+          NL2X Editor: installation
+
+          1. Copy "NL2X Editor.vst3" to  ~/Library/Audio/Plug-Ins/VST3/
+          2. Copy "NL2X Editor.component" to  ~/Library/Audio/Plug-Ins/Components/
+          3. Copy "NL2X Editor.app" to  /Applications
+          4. Restart your DAW so that it rescans its plugins.
+
+          This build is not notarized, so macOS blocks it the first time. To open it anyway:
+          System Settings > Privacy & Security > Open Anyway, or in Terminal:
+            xattr -dr com.apple.quarantine "<path to the file you copied>"
+
+          MIDI setup, the synth settings (Shift + PROG/CTRL: P on, C on, A off) and DAW notes
+          are in README.md.
+
+          Not affiliated with or endorsed by Clavia DMI AB. Nord and Nord Lead are trademarks
+          of Clavia DMI AB.
+          TXT
+          (cd dist && ditto -c -k --keepParent "NL2X-Editor-$VERSION" "../$ZIP")
+          unzip -l "$ZIP"
+
+      - name: Upload the zip as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP }}
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+
+      - name: Create the draft GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP" \
+            --draft \
+            --title "NL2X Editor $VERSION" \
+            --generate-notes

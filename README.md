@@ -2,7 +2,7 @@
 
 An editor for the Nord Lead 2X: a free, open-source VST3/AU plugin for macOS that lets you edit every parameter of all four Slots from your DAW, automate them, and manage Programs, Performances and Banks as `.syx` files.
 
-**Status:** early development, not usable yet.
+**Status:** early development. Version 0.1, the first release, is in preparation: it is being checked on a real Nord Lead 2X and has not been published yet.
 
 ## Planned features
 
@@ -16,6 +16,58 @@ An editor for the Nord Lead 2X: a free, open-source VST3/AU plugin for macOS tha
 
 - macOS (Intel or Apple Silicon).
 - A Nord Lead 2X or Nord Rack 2X connected through a MIDI interface, with both MIDI In and Out cabled.
+
+## Installation
+
+Once version 0.1 is published, download `NL2X-Editor-<version>-macOS-universal.zip` from the [GitHub Releases page](https://github.com/andreastandalone/nl2x-editor/releases) and unzip it. It contains:
+
+- `NL2X Editor.vst3`: copy it to `~/Library/Audio/Plug-Ins/VST3/`.
+- `NL2X Editor.component` (the Audio Unit): copy it to `~/Library/Audio/Plug-Ins/Components/`.
+- `NL2X Editor.app` (the standalone app): copy it to `/Applications`.
+
+(`~` is your home folder. In the Finder, choose Go > Go to Folder... and type the path.) Restart your DAW so that it rescans its plugins.
+
+**Opening it the first time.** The build is not signed with an Apple Developer certificate and not notarized, so macOS blocks it with a message saying it cannot check it for malicious software. This is expected for a free, open-source build; the source code is public and you can build it yourself (see Building). To open it anyway:
+
+1. Try to open the app (or load the plugin in your DAW) once, so that macOS shows the message and records the block.
+2. Open System Settings > Privacy & Security, scroll down to the Security section and click **Open Anyway** next to "NL2X Editor". Confirm with your password. For a plugin, load it again in the DAW and repeat if macOS asks again.
+
+Alternatively, in Terminal, remove the quarantine mark macOS put on the files you downloaded. This only affects the files you name, so check the path before pressing Return:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/NL2X Editor.app"
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/NL2X Editor.vst3"
+xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/Components/NL2X Editor.component"
+```
+
+Only do this for a file you downloaded from this project's Releases page.
+
+## MIDI setup
+
+The plugin talks to the synth directly, in both directions, so it needs both MIDI cables:
+
+- the interface's MIDI Out to the synth's MIDI In, and
+- the synth's MIDI Out to the interface's MIDI In.
+
+Choose the MIDI input and output ports inside the plugin (its settings), not in the DAW. The plugin remembers them. Only one editor at a time should control the synth: if a second instance or application is open, the plugin warns you.
+
+The plugin produces no audio: its single stereo output is silent. Notes still come from a normal MIDI track in your DAW sent to the synth, as you would do without the plugin. Play the synth's own sound through your audio interface as usual.
+
+When the synth is connected, the plugin runs a Connection check and shows the result. If something is wrong (a missing cable, a setting on the synth), it says what to change.
+
+## Synth settings
+
+On the synth, press **Shift + PROG/CTRL** and set:
+
+- **P** (Program Change) on,
+- **C** (Control Change) on: the plugin edits parameters with control changes, so nothing works with C off,
+- **A** (Arp MIDI Out) off.
+
+The plugin also needs the synth's **Global Channel** (shown as `G.x` when you press **Shift + MIDI CH** twice). By default the plugin finds it automatically; if it cannot, choose it by hand in the plugin's settings. **Local** is always On after power-up, which is the right setting unless you route the synth's MIDI through your DAW with Local Off.
+
+## Using it in Ableton Live and Cubase
+
+Insert NL2X Editor on a MIDI track as an instrument (in Live: drag it from Plug-Ins > VST3 or Audio Units onto a MIDI track; in Cubase: Add Instrument Track or Rack Instrument, then choose it). Open its window and choose the MIDI ports. Then set that track's MIDI output to the synth's port, or use a second MIDI track for the notes, so the notes reach the synth. The parameters appear in the DAW's automation lists with names such as "A: Filter Cutoff", and your project remembers the synth's sounds.
 
 ## Building
 
@@ -61,6 +113,7 @@ The code layout and the rules every change follows are in [CODING_STANDARDS.md](
 
 - [Glossary](GLOSSARY.md): the terms used throughout the project.
 - [Decisions](docs/adr/): why the project is built the way it is.
+- [Hardware checklist](docs/hardware-checklist.md) and [release process](docs/release-process.md): how a release is checked and published.
 - [MIDI/SysEx research](docs/research/nl2x-midi-research.md): what we know about the synth's protocol, with sources.
 
 The official Nord Lead 2X manual and factory banks are not included; download them from the [Nord legacy downloads page](https://www.nordkeyboards.com/legacy-products/nord-lead-2x/downloads/).
