@@ -19,3 +19,4 @@ On 2026-10-28 Andrea handed the project to a coordinating agent while away (hand
 - 2026-10-28: #3 software part delegated on branch `3-probe-tool` (worktree `.worktrees/3-probe`, based on the pre-squash #2 branch: rebase onto `main` before its PR).
 - Lesson, 2026-10-28: write "Implements #N", never "Closes #N", in PR bodies of tickets with pending human checks, or the merge closes the issue.
 - Lesson, 2026-10-28: CMake's downloader cannot reach github.com from the agent sandbox; reuse the tarballs in the session scratchpad `deps/` with `-DNL2X_DOWNLOAD_CACHE`.
+- 2026-10-28: #3 tool built on branch `3-probe-tool` (SysEx basics, probe library and scripts, Probe window, final `docs/hardware-discovery-plan.md`); the hardware session itself awaits Andrea.

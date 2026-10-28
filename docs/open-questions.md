@@ -14,6 +14,14 @@ Kept by the agents working while Andrea is away. Two lists: decisions taken on h
 | #2 | Plugin identity | Manufacturer code `Astd`, plugin code `Nl2x`, company "andreastandalone", bundle ID `io.github.andreastandalone.nl2x-editor` | Other codes | High after release: hosts identify the plugin by these codes |
 | #2 | Minimum macOS | macOS 11 | 10.15 (JUCE allows 10.11) | Low |
 | #2 | DAW parameter IDs | `A_filterCutoff` (Slot letter + stable key) | Numeric IDs | High after release: automation refers to them |
+| #3 | Where the probe code lives | `probe/`, a plain C++20 library (`nl2x::probe`) under the engine's rules; the JUCE window only wires it up | Inside `engine/`; logic in the JUCE window | Low: move a folder |
+| #3 | Probe in the shipped plugin | Compiled into every format, Probe button shown only when the wrapper is Standalone | A separate debug-only app target | Low |
+| #3 | Classifying incoming SysEx | By message size only (139 / 1063 / 715); the type byte is reported but never trusted | Classify by type byte | Medium once #4 builds on it |
+| #3 | Global Channel display | The synth shows dev 0 as Global Channel 1 (`kShownGlobalChannelOfDev0`, from [SEC-3]); plan step 2 checks it | Display 0–15 | Low: one constant |
+| #3 | Bank numbering | Manual's SysEx Bank 1–4 = Banks shown as 0–3 (`kShownBankOfSysExBank1`, inference); destructive test on the Bank shown as 3 | Manual Bank N = shown Bank N | Low: one constant, checked in plan step 5 |
+| #3 | Bank write safety in the probe | Write and Restore refuse without a complete backup of the same Bank (same request type) from this app session; the backup is saved at once as `.syx` in `~/Documents/Nord Lead 2X/Backups/`; Restore rewrites all 99 Programs and verifies them | Restore only Program 99 | Low |
+| #3 | Simulated Bank requests | The simulator answers Bank requests only when a test chooses the request type, since the real one is unknown | Assume the printed types 11–14 | Low |
+| #3 | Probe timing | A 1 ms message-thread timer drives the probe; the pacing test reports the spacing it actually achieved | A high-resolution timer thread (would break the single-thread rule) | Low |
 | — | Where the agents keep their notes | `docs/agents/wiki/` in the repository | Outside the repo | Low: move the folder |
 
 ## Andrea needed
