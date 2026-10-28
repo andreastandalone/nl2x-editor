@@ -12,6 +12,7 @@
 #include "SynthConnection.h"
 
 #include "nl2x/HardwareAssumptions.h"
+#include "nl2x/MemoryWriter.h"
 
 namespace nl2x {
 
@@ -32,7 +33,9 @@ ProjectLoadResult Engine::loadProjectState(std::span<const std::uint8_t> state, 
     // (recall or reads) is decided when it is found.
     const bool searching = status == ConnectionStatus::SearchingGlobalChannel;
     const bool connected = foundGlobalChannel.has_value() && ! searching;
-    if (connected)
+    // The memory writer's own requests must survive: while it is busy nothing is dropped, and the
+    // recall waits until it is idle (startProjectRecall).
+    if (connected && ! memory->busy())
         // Reads still pending would overwrite the project's sounds, or be overwritten by them.
         dropPendingReads();
     *recall = {};
@@ -41,6 +44,9 @@ ProjectLoadResult Engine::loadProjectState(std::span<const std::uint8_t> state, 
 
     slots = sounds->slots;
     performanceBuffer->restore(sounds->performance);
+    // Every Edit Buffer was replaced from outside: undoing an edit made before would land on
+    // another sound. Project load itself is no user edit and is never recorded (#14).
+    forgetEdits({ true, true, true, true }, true);
     changed();
 
     if (! sendToSynth) {
@@ -58,7 +64,7 @@ ProjectLoadResult Engine::loadProjectState(std::span<const std::uint8_t> state, 
         return ProjectLoadResult::HeldUntilConnected;
     }
     startProjectRecall(timeMs);
-    return ProjectLoadResult::Sending;
+    return recall->waitingForMemoryWriter ? ProjectLoadResult::HeldUntilMemoryWriterIdle : ProjectLoadResult::Sending;
 }
 
 bool Engine::projectRecallHeld() const
@@ -68,7 +74,7 @@ bool Engine::projectRecallHeld() const
 
 void Engine::holdUnfinishedProjectRecall()
 {
-    if (recall && ! recall->dumps.empty()) {
+    if (recall && (! recall->dumps.empty() || recall->waitingForMemoryWriter)) {
         // Rebuilt from the Synth model on the next connection, on its Global Channel.
         *recall = {};
         recall->held = true;
@@ -91,6 +97,13 @@ void Engine::dropPendingReads()
 void Engine::startProjectRecall(TimeMs timeMs)
 {
     *recall = {};
+    // Nothing may reach the synth's Edit Buffers while the memory writer stores or reads (#12):
+    // the recall starts once it is idle (sendDueProjectRecall).
+    if (memory->busy()) {
+        recall->waitingForMemoryWriter = true;
+        setStatus(ConnectionStatus::Connected);
+        return;
+    }
     // The dumps carry every edit: none must follow them as a separate dump.
     performanceBuffer->dropUnsentEdits();
     programDumps->dropAllUnsentEdits();
@@ -130,7 +143,15 @@ void Engine::sendDueProjectRecall(TimeMs timeMs)
 {
     // Dumps wait while another tool talks to the synth, and until no reply is expected; each one
     // keeps the usual gap after it, so the next goes out on a later tick.
-    if (! recall || recall->dumps.empty() || ! foundGlobalChannel || suspended || ! connection->isIdle(timeMs))
+    if (recall && recall->waitingForMemoryWriter && foundGlobalChannel
+        && status != ConnectionStatus::SearchingGlobalChannel && ! memory->busy()) {
+        // Reads queued meanwhile would overwrite the project's sounds.
+        dropPendingReads();
+        startProjectRecall(timeMs);
+        return;
+    }
+    if (! recall || recall->dumps.empty() || ! foundGlobalChannel || suspended || memory->holdsEditBufferDumps()
+        || ! connection->isIdle(timeMs))
         return;
 
     connection->sendWithoutReply(recall->dumps.front(), timeMs);

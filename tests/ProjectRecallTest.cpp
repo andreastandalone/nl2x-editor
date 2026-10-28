@@ -6,6 +6,7 @@
 #include "EditorAndSynth.h"
 
 #include "nl2x/HardwareAssumptions.h"
+#include "nl2x/MemoryWriter.h"
 #include "nl2x/ProjectState.h"
 #include "nl2x/SysEx.h"
 
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <vector>
 
 using namespace nl2x;
@@ -360,4 +362,55 @@ TEST_CASE("Loading a project never sends a CC, so restored DAW parameters reach 
         rig.runFor(kRecallTimeMs);
         CHECK(countIf(sentSince(rig, sentBefore), isControlChange) == 0);
     }
+}
+
+TEST_CASE("Loading a project empties the undo history and is not itself undoable")
+{
+    const auto project = savedProject();
+    EditorAndSynth rig;
+    rig.connect();
+    rig.engine.beginUserEdit(rig.engine.newEditStep());
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 10);
+    rig.engine.endUserEdit();
+    REQUIRE(rig.engine.canUndo());
+
+    rig.engine.loadProjectState(project, true, rig.now);
+    rig.runFor(kRecallTimeMs);
+
+    CHECK_FALSE(rig.engine.canUndo());
+    CHECK_FALSE(rig.engine.canRedo());
+    const auto sentBefore = messagesSent(rig);
+    rig.engine.undo(rig.now);
+    rig.runFor(500);
+    CHECK(messagesSent(rig) == sentBefore);
+    CHECK(rig.engine.projectState() == project);
+}
+
+TEST_CASE("A project loaded while the memory writer is busy is sent once it is idle")
+{
+    const auto project = savedProject();
+    EditorAndSynth rig;
+    rig.connect();
+    const auto folder = std::filesystem::path(NL2X_TEST_OUTPUT_DIR) / "project-recall" / "memory-busy";
+    std::filesystem::remove_all(folder);
+    REQUIRE(rig.engine.memoryWriter().prepareStoreProgram(Slot::B, 2, 17, folder, WallClockTime { 2026, 10, 28, 14, 3, 7 },
+                                                          rig.now)
+            == MemoryRefusal::None);
+    rig.runFor(200);
+    REQUIRE(rig.engine.memoryWriter().busy());
+    const auto dumpsBefore = rig.synth.receivedDumps().size();
+
+    CHECK(rig.engine.loadProjectState(project, true, rig.now) == ProjectLoadResult::HeldUntilMemoryWriterIdle);
+    rig.runFor(kRecallTimeMs);
+    // Held: nothing reached the synth, and the writer's task is still there.
+    CHECK(rig.synth.receivedDumps().size() == dumpsBefore);
+    CHECK(rig.engine.memoryWriter().busy());
+    CHECK(rig.engine.projectState() == project);
+
+    rig.engine.memoryWriter().cancel();
+    rig.runFor(kRecallTimeMs);
+    CHECK(rig.synth.receivedDumps().size() == dumpsBefore + 5);
+    CHECK(rig.synth.receivedDumpCount(DumpDestination::Bank) == 0);
+    requireSynthHoldsProject(rig, project);
+    CHECK(rig.engine.projectState() == project);
 }

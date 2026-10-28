@@ -49,6 +49,9 @@ enum class ProjectLoadResult : std::uint8_t {
     // Not connected yet: the sounds are sent right after the Global Channel is found, instead of
     // reading the Slots from the synth.
     HeldUntilConnected,
+    // Connected, but the memory writer is storing or reading (#12): the sounds are sent once it
+    // is idle (its task finished, failed or was cancelled).
+    HeldUntilMemoryWriterIdle,
     // Automatic sending is off: the sounds are shown until the synth is read, which happens at
     // once when connected and otherwise on connecting.
     NotSent,

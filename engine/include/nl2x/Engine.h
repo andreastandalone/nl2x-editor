@@ -193,7 +193,9 @@ public:
     // (type 30, if the project has a Performance) then one Program dump (type 0) per Slot playing
     // a Program, paced like every other dump; Kit Slots are not sent (a Performance holds Kits by
     // reference only). Connected: at once, dropping reads still pending. Not connected: held, and
-    // sent right after the Global Channel is found instead of reading the Slots. Afterwards only
+    // sent right after the Global Channel is found instead of reading the Slots. While the memory
+    // writer is busy: held until it is idle. The undo history of every Edit Buffer is forgotten;
+    // the load itself is never recorded as an edit. Afterwards only
     // what the project does not hold (Kit or unknown Slots, a missing Performance) is read. Without
     // `sendToSynth` nothing is sent and the synth is read (at once when connected), so that its
     // sounds replace the project's. A rejected blob changes and sends nothing. Never sends a CC.
