@@ -23,6 +23,7 @@ target_sources(NL2XEditor PRIVATE
     ConnectionCheckView.cpp
     ConnectionIndicator.cpp
     LibraryPanel.cpp
+    MemoryPanel.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
     PerformanceView.cpp

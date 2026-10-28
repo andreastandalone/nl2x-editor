@@ -112,6 +112,8 @@ constexpr std::array<std::size_t, 8> kNotReceivedPerformanceOffsets { 315, 316, 
 
 // Decoded offset of Slot A's layer flag ("channel_actived") [OFF-2X p.112].
 constexpr std::size_t kLayerOffset = 324;
+// Decoded offset of the active Slot (selected_channel) [OFF-2X p.112].
+constexpr std::size_t kSelectedSlotOffset = 322;
 // Decoded offsets of Slot A's pgmselect and bankselect [OFF-2X p.112].
 constexpr std::size_t kProgramNumberOffset = 328;
 constexpr std::size_t kProgramBankOffset = 332;
@@ -199,6 +201,7 @@ void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message, TimeMs 
 
 void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message)
 {
+    received.push_back({ { message.begin(), message.end() }, now });
     const auto channel = message.empty() ? MidiChannel {} : static_cast<MidiChannel>(message[0] & 0x0F);
     if (message.size() == 3 && (message[0] & 0xF0) == kControlChange && message[1] == hardware::kBankSelectController
         && hardware::kBankSelectFollowsProgramChangeSetting) {
@@ -254,6 +257,28 @@ const SimulatedNordLead2X::Program& SimulatedNordLead2X::bankProgram(int shownBa
 void SimulatedNordLead2X::setBankProgram(int shownBank, int location, const Program& program)
 {
     banks.at(static_cast<std::size_t>(shownBank)).at(static_cast<std::size_t>(location)) = program;
+}
+
+void SimulatedNordLead2X::setActiveSlot(Slot slot)
+{
+    settings[kSelectedSlotOffset - kPerformanceSlotChannelOffset] = static_cast<std::int8_t>(slotIndex(slot));
+}
+
+Slot SimulatedNordLead2X::activeSlot() const
+{
+    const auto value = settings[kSelectedSlotOffset - kPerformanceSlotChannelOffset];
+    return value >= 0 && value < 4 ? kAllSlots[static_cast<std::size_t>(value)] : Slot::A;
+}
+
+void SimulatedNordLead2X::selectBank(int shownBank)
+{
+    settings[kProgramBankOffset - kPerformanceSlotChannelOffset + slotIndex(activeSlot())]
+        = static_cast<std::int8_t>(shownBank);
+}
+
+int SimulatedNordLead2X::selectedBank() const
+{
+    return settings[kProgramBankOffset - kPerformanceSlotChannelOffset + slotIndex(activeSlot())];
 }
 
 void SimulatedNordLead2X::handleControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t value)
@@ -359,7 +384,7 @@ void SimulatedNordLead2X::handleRequest(std::uint8_t type, std::uint8_t spec)
 
 void SimulatedNordLead2X::sendSlotEditBuffer(Slot requested)
 {
-    const auto slot = hardware::kSlotEditBufferReplyFollowsRequestedSlot ? requested : activeSlot;
+    const auto slot = hardware::kSlotEditBufferReplyFollowsRequestedSlot ? requested : activeSlot();
     const auto& state = slots[slotIndex(slot)];
     const auto spec = static_cast<std::uint8_t>(slotIndex(slot));
     // A Kit answers with a Kit dump, whose size is what tells it apart (HardwareAssumptions.h).
@@ -407,7 +432,8 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
         } else if (dump.type >= hardware::kFirstProgramBankDumpType && dump.type <= hardware::kLastProgramBankDumpType
                    && dump.spec < kProgramsPerBank) {
             // The type byte is ignored: stored in the Bank selected on the panel [OFF-2X p.78].
-            setBankProgram(selectedBank, dump.spec, program);
+            if (selectedBank() >= 0 && selectedBank() < kRamBankCount)
+                setBankProgram(selectedBank(), dump.spec, program);
         }
         return;
     }
@@ -527,7 +553,8 @@ void SimulatedNordLead2X::selectProgramOnPanel(Slot slot, int shownBank, int loc
     const auto channel = slots[slotIndex(slot)].channel;
     if (! channel)
         return;
-    // The panel changes the active Slot only.
+    // The panel changes the active Slot only: selecting on it makes `slot` the active one.
+    setActiveSlot(slot);
     loadStoredProgram(slot, shownBank, location);
     if (! programChangeOn)
         return;

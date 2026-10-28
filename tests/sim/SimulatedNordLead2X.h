@@ -78,7 +78,9 @@ public:
 
     // The Slot selected on the panel. It matters only if Slot Edit Buffer requests follow the
     // active Slot (kSlotEditBufferReplyFollowsRequestedSlot in HardwareAssumptions.h).
-    void setActiveSlot(Slot slot) { activeSlot = slot; }
+    // Kept, as on the synth, in the Performance Edit Buffer (offset 322, selected_channel).
+    void setActiveSlot(Slot slot);
+    Slot activeSlot() const;
 
     void setSlotChannel(Slot slot, std::optional<MidiChannel> channel) { slots[slotIndex(slot)].channel = channel; }
     void setGlobalChannel(GlobalChannel channel) { globalChannel = channel; }
@@ -117,8 +119,21 @@ public:
     // Every location starts with a distinct test Program (byte 0 = Bank, byte 1 = location).
     const Program& bankProgram(int shownBank, int location) const;
     void setBankProgram(int shownBank, int location, const Program& program);
-    // The Bank selected on the synth's panel: Bank dumps are stored there [OFF-2X p.78].
-    void selectBank(int shownBank) { selectedBank = shownBank; }
+    // The Bank selected on the synth's panel: Bank dumps are stored there [OFF-2X p.78]. It is the
+    // active Slot's Bank, which the Performance Edit Buffer names (offset 332 + Slot;
+    // kPerformanceNamesSelectedBank in HardwareAssumptions.h). It is the only notion of the selected
+    // Bank: loading a Program into the active Slot (panel, or Bank Select + Program Change on its
+    // channel) or loading a Performance changes it too. A dump arriving while a ROM Bank is selected
+    // is not stored. selectBank() changes only the number, not the Slot's sound.
+    void selectBank(int shownBank);
+    int selectedBank() const;
+
+    // Every message that arrived, in order, with its arrival time (the time given to receive()).
+    struct ReceivedMessage {
+        std::vector<std::uint8_t> bytes;
+        TimeMs timeMs;
+    };
+    const std::vector<ReceivedMessage>& receivedMessages() const { return received; }
 
     // Stored Percussion Kits P0–P9 (0–9) of Banks 0–3; each starts distinct (Program 0's byte 0 =
     // 100 + Bank, byte 1 = Kit).
@@ -204,8 +219,7 @@ private:
     int performanceBank = 1;
     bool programChangeOn = true;
     int receivedProgramChanges = 0;
-    int selectedBank = 0;
-    Slot activeSlot = Slot::A;
+    std::vector<ReceivedMessage> received;
     GlobalChannel globalChannel;
     std::optional<std::uint8_t> bankRequestType;
     bool answersSysEx = true;

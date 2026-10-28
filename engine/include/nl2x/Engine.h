@@ -4,6 +4,7 @@
 #include "nl2x/CcParameters.h"
 #include "nl2x/ConnectionCheck.h"
 #include "nl2x/HardwareAssumptions.h"
+#include "nl2x/MemoryWriter.h"
 #include "nl2x/MidiOutput.h"
 #include "nl2x/MorphAmounts.h"
 #include "nl2x/Performance.h"
@@ -151,6 +152,11 @@ public:
     AuditionResult auditionPercussionKit(Slot slot, const PercussionKit& kit, TimeMs timeMs);
     AuditionResult auditionPerformance(const Performance& performance, TimeMs timeMs);
 
+    // Writing to the synth's memory and reading Banks (#12, MemoryWriter.h). Connecting again
+    // aborts whatever it is doing.
+    MemoryWriter& memoryWriter() { return *memory; }
+    const MemoryWriter& memoryWriter() const { return *memory; }
+
     // Changes whenever anything above changes: the shell polls it and redraws (or saves the
     // Global Channel) only when it moved.
     std::uint64_t stateRevision() const { return revision; }
@@ -200,6 +206,7 @@ private:
     std::array<std::optional<MidiChannel>, 4> channelOverrides;
     // Declared after `connection`, which holds callbacks into it, so that it goes first.
     std::unique_ptr<ConnectionCheck> check;
+    std::unique_ptr<MemoryWriter> memory;
     std::array<SlotState, 4> slots;
     std::optional<GlobalChannel> foundGlobalChannel;
     std::optional<GlobalChannel> manualChannel;

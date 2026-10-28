@@ -46,8 +46,9 @@ MorphEditResult Engine::setMorphAmount(Slot slot, ProgramParameter baseParameter
 
 void Engine::sendDueProgramDumps(TimeMs timeMs)
 {
-    // Dumps wait while another tool talks to the synth, and until no reply is expected.
-    if (! foundGlobalChannel || suspended)
+    // Dumps wait while another tool talks to the synth, while the synth's memory is being written,
+    // and until no reply is expected.
+    if (! foundGlobalChannel || suspended || memory->holdsEditBufferDumps())
         return;
     for (auto slot : kAllSlots) {
         if (! programDumps->isDue(slot, timeMs))

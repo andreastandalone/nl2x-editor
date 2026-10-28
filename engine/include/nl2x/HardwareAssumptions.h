@@ -146,6 +146,48 @@ inline constexpr std::uint8_t kPrintedFirstBankRequestType = 11;
 inline constexpr std::uint8_t kFirstBankRequestTypeCandidate = 11;
 inline constexpr std::uint8_t kLastBankRequestTypeCandidate = 24;
 
+// ---------------------------------------------------------------------------------------------
+// Writing to the synth's memory (#12, MemoryWriter.h)
+
+// THE LOCK. Set to true only after hardware discovery step 5 has confirmed the request type that
+// reads a Bank location (kBankRequestTypeOfSysExBank1 below), and step 11 has shown that a Bank
+// read that way restores correctly. While false, the editor cannot back up a Bank: sending a whole
+// Bank or storing a Program then needs the user's explicit "no backup possible" confirmation,
+// and reading a Bank is offered as experimental only. While true, every overwrite is preceded by
+// an automatic backup of the target Bank.
+// Status: not verified (research §3, "the bank-location request type codes on the 2X are unknown").
+inline constexpr bool kBankReadingVerified = false;
+
+// The request type that reads SysEx Bank 1 (the Bank shown as 0); SysEx Banks 2–4 follow.
+// Choice: as printed (11) [OFF-2X p.106]. Known to be wrong for SysEx Bank 4, whose printed type
+// 14 is the Slot Edit Buffer request on a 2X [SEC-1]; reading a Bank whose type collides with it
+// is refused. Plan step 5 finds the real one: write it here, together with kBankReadingVerified.
+// Status: contradicted in part, not verified.
+inline constexpr std::uint8_t kBankRequestTypeOfSysExBank1 = kPrintedFirstBankRequestType;
+
+// The writable Program Banks, as the synth shows them: Banks 0–3 are RAM, 4–9 ROM [OFF-2X p.13].
+// Status: documented.
+inline constexpr int kFirstRamProgramBank = 0;
+inline constexpr int kLastRamProgramBank = 3;
+inline constexpr int kProgramsPerRamBank = 99;
+
+// The manual's SysEx Bank number (1–4) of a Bank shown as `shownBank`, following
+// kShownBankOfSysExBank1. Program Bank dumps use it as their type byte (which the synth ignores
+// on receive, [OFF-2X p.78]); Bank requests add it to the request type of SysEx Bank 1.
+constexpr int sysExBankOfShownBank(int shownBank)
+{
+    return shownBank - kShownBankOfSysExBank1 + 1;
+}
+
+// The Bank a received Bank dump is stored in ("the Bank currently selected", [OFF-2X p.78]) is the
+// Bank of the active Slot, and the Performance Edit Buffer names both: offset 322 (selected_channel,
+// the active Slot, 0–3) and offset 332 + Slot (bankselect, the Bank shown) [OFF-2X p.112]. The
+// memory writer reads the Performance Edit Buffer just before writing and refuses unless it names
+// the target Bank. If plan step 11 shows the Performance does not follow the panel, set this to
+// false: the writer then relies on the user having selected the Bank, as its confirmation asks.
+// Status: [INF], not verified (plan steps 6 and 11).
+inline constexpr bool kPerformanceNamesSelectedBank = true;
+
 // Performance dumps: type 30 = Edit Buffer, 31–34 = Performance Bank 1–4, spec 0 or 0–99
 // [OFF-2X p.107]. Status: documented; Bank dumps match [OFF-FB]; the Edit Buffer dump and whether
 // it applies immediately are unverified (research §7.3, plan steps 6 and 8).
@@ -214,6 +256,9 @@ constexpr std::uint8_t ringModSyncCcBits(bool ringModReachableByCc35)
 // an Engine or the simulated synth with other values.
 struct Switches {
     bool ringModReachableByCc35 = kRingModReachableByCc35;
+    // The memory writer's lock and Bank request type (#12).
+    bool bankReadingVerified = kBankReadingVerified;
+    std::uint8_t bankRequestTypeOfSysExBank1 = kBankRequestTypeOfSysExBank1;
 };
 
 // Filter Distortion (CC80, an on/off button) is bit 4 of byte 52 [OFF-2X p.111]; the other bits

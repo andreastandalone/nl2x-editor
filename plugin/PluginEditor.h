@@ -3,6 +3,7 @@
 #include "ConnectionCheckView.h"
 #include "ConnectionIndicator.h"
 #include "LibraryPanel.h"
+#include "MemoryPanel.h"
 #include "MidiPortSelector.h"
 #include "PerformanceView.h"
 #include "PluginProcessor.h"
@@ -60,6 +61,8 @@ private:
     ConnectionCheckView checkView;
     // The Library panel at the side (#11); it auditions on the Slot chosen in slotView.
     LibraryPanel libraryPanel;
+    // The "Synth memory" tab (#12): writes to the synth's Banks, after confirmation.
+    MemoryPanel memoryPanel;
     std::unique_ptr<ProbeWindow> probeWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XPluginEditor)

@@ -33,7 +33,8 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
       slotView(owner),
       performanceView(owner),
       checkView(owner),
-      libraryPanel(owner, [this] { return slotView.selected(); })
+      libraryPanel(owner, [this] { return slotView.selected(); }),
+      memoryPanel(owner, libraryPanel, [this] { return slotView.selected(); })
 {
     for (auto* title : { &slotTitle, &settingsTitle, &synthTitle })
         title->setFont(juce::FontOptions(16.0f, juce::Font::bold));
@@ -46,6 +47,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     const auto background = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
     tabs.addTab("Slots", background, &slotView, false);
     tabs.addTab("Performance", background, &performanceView, false);
+    tabs.addTab("Synth memory", background, &memoryPanel, false);
 
     warningLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
     warningLabel.setJustificationType(juce::Justification::topLeft);

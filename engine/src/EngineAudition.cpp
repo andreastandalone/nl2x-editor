@@ -115,7 +115,8 @@ void Engine::queueAudition(PendingAudition audition, TimeMs timeMs)
 void Engine::sendDueAudition(TimeMs timeMs)
 {
     // Dumps wait while another tool talks to the synth, and until no reply is expected.
-    if (pendingAuditions.empty() || ! foundGlobalChannel || suspended || ! connection->isIdle(timeMs))
+    if (pendingAuditions.empty() || ! foundGlobalChannel || suspended || memory->holdsEditBufferDumps()
+        || ! connection->isIdle(timeMs))
         return;
 
     const auto audition = std::move(pendingAuditions.front());

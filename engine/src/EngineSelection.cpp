@@ -34,6 +34,8 @@ void SelectionTracker::scheduleReread(TimeMs timeMs, const std::array<bool, 4>& 
 
 SelectionResult Engine::selectProgram(Slot slot, ProgramSelection selection, TimeMs timeMs)
 {
+    if (memory->busy())
+        return SelectionResult::RefusedMemoryBusy;
     const auto midi = midiSelection(selection);
     if (! midi)
         return SelectionResult::RefusedInvalid;
@@ -59,6 +61,8 @@ SelectionResult Engine::selectProgram(Slot slot, ProgramSelection selection, Tim
 
 SelectionResult Engine::selectPerformance(PerformanceSelection selection, TimeMs timeMs)
 {
+    if (memory->busy())
+        return SelectionResult::RefusedMemoryBusy;
     const auto midi = midiSelection(selection);
     if (! midi)
         return SelectionResult::RefusedInvalid;
