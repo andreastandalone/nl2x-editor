@@ -18,6 +18,13 @@ void PerformanceEditBuffer::forget()
     unsentBytes.clear();
 }
 
+void PerformanceEditBuffer::restore(const std::optional<Performance>& performance)
+{
+    current = performance;
+    readStatus = performance ? PerformanceStatus::Read : PerformanceStatus::NotRead;
+    unsentBytes.clear();
+}
+
 void PerformanceEditBuffer::applyReply(std::span<const std::uint8_t> reply)
 {
     const auto dump = parsePerformanceDump(reply);

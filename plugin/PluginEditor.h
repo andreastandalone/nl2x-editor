@@ -53,6 +53,8 @@ private:
     MidiPortSelector portSelector;
     juce::Label globalChannelLabel { {}, "Global Channel" };
     juce::ComboBox globalChannelChoice;
+    // Project recall (#8): per user, so the editor's MidiPorts settings hold it.
+    juce::ToggleButton sendProjectSoundsToggle { "Send the project's sounds to the synth when the project opens" };
     juce::TextButton probeButton { "Probe" };
     juce::Label synthTitle { {}, "Read from the synth" };
     juce::Label warningLabel;

@@ -88,9 +88,18 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     globalChannelChoice.onChange = [this] { globalChannelChosen(); };
     refreshGlobalChannelChoice();
 
+    sendProjectSoundsToggle.setTooltip("When on, opening a project or loading a preset sends its four Slots and its "
+                                       "Performance to the synth's Edit Buffers (never to a Bank). When off, "
+                                       "nothing is sent and the synth's sounds replace the project's.");
+    sendProjectSoundsToggle.setToggleState(owner.midiPorts().sendsProjectSoundsOnLoad(), juce::dontSendNotification);
+    sendProjectSoundsToggle.onClick = [this] {
+        editorProcessor.midiPorts().setSendsProjectSoundsOnLoad(sendProjectSoundsToggle.getToggleState());
+    };
+
     for (auto* child : std::initializer_list<juce::Component*> {
-             &indicator, &checkButton, &undoButton, &redoButton, &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle, &portSelector,
-             &globalChannelLabel, &globalChannelChoice, &warningLabel, &synthTitle, &selectorBar, &tabs,
+             &indicator, &checkButton, &undoButton, &redoButton, &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle,
+             &portSelector, &globalChannelLabel, &globalChannelChoice, &sendProjectSoundsToggle, &warningLabel,
+             &synthTitle, &selectorBar, &tabs,
              &libraryPanel })
         addAndMakeVisible(child);
     addChildComponent(instanceWarning);
@@ -236,6 +245,8 @@ void NL2XPluginEditor::resized()
     auto channelRow = top.removeFromTop(26);
     globalChannelLabel.setBounds(channelRow.removeFromLeft(120));
     globalChannelChoice.setBounds(channelRow.removeFromLeft(140));
-    top.removeFromTop(16);
+    top.removeFromTop(8);
+    sendProjectSoundsToggle.setBounds(top.removeFromTop(24));
+    top.removeFromTop(8);
     probeButton.setBounds(top.removeFromTop(26).removeFromLeft(100));
 }

@@ -168,3 +168,11 @@ void MidiPorts::setConnectionCheckShown()
     settings.setValue(kConnectionCheckShownKey, true);
     settings.saveIfNeeded();
 }
+
+void MidiPorts::setSendsProjectSoundsOnLoad(bool sends)
+{
+    if (sendsProjectSoundsOnLoad() == sends)
+        return;
+    settings.setValue(kSendProjectSoundsOnLoadKey, sends);
+    settings.saveIfNeeded();
+}
