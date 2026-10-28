@@ -2,6 +2,53 @@
 
 Kept by the agents working while Andrea is away. Two lists: decisions taken on his behalf, and things only he can do.
 
+## Riepilogo per Andrea (28 ottobre 2026)
+
+Tutti i ticket di codice da #2 a #14 sono implementati, con test e CI verdi, e integrati su `main` con merge squash. #15 è preparato fino al punto in cui servi tu. Nessuna issue è chiusa: ognuna ha verifiche che solo tu puoi fare, quindi è aperta con l'etichetta `ready-for-human` e un commento "Implemented in #PR, awaiting verification". La release non è stata pubblicata e la specifica #1 non è stata toccata.
+
+Su `main`: 231 test automatici al confine MIDI contro il Nord simulato, tutti verdi; build Universal (arm64 + x86_64); pluginval (strictness 10) e auval passano in CI su un Mac Apple Silicon a ogni PR.
+
+**Attenzione:** tutto ciò che dipende dalla sessione hardware (#3) poggia su ipotesi. Sono tutte in un solo file, `engine/include/nl2x/HardwareAssumptions.h`, ognuna con fonte e stato. Dopo la sessione si corregge lì, e il simulatore segue.
+
+### Ticket per ticket
+
+| Issue | PR | Cosa c'è |
+|---|---|---|
+| #2 Scheletro | #16 | Progetto CMake con JUCE 9.0.4 e Catch2, engine in C++20 senza JUCE dietro un'unica interfaccia MIDI, Nord simulato, plugin VST3/AU/Standalone, porte MIDI scelte nel plugin, CI |
+| #3 Sessione hardware | #17 | Solo la parte software: finestra **Probe** nell'app standalone (21 script di prova, log con timestamp, salvataggio) e la procedura passo-passo `docs/hardware-discovery-plan.md`. **La sessione va fatta da te** |
+| #4 Lettura degli Slot | #18 | Codec dei Program, ricerca automatica del Global Channel, lettura dei quattro Slot, "Read from synth", avviso Percussion Kit |
+| #5 Performance | #19 | Codec della Performance, Slot Channel letti dal synth con override manuale, avvisi per canali condivisi e Layer, scheda Performance, parametri DAW split/layer |
+| #9 Connection check | #20 | Diagnosi in inglese semplice (cavo di ritorno, SysEx, C spento, Global Channel sbagliato), indicatore di connessione, Global Channel manuale, una sola istanza alla volta |
+| #11 Library | #21 | Cartella di `.syx` con riconoscimento di Program, Kit, Performance e Bank, Audition senza mai scrivere nei Bank, salvataggio in `.syx` standard |
+| #6 Tutti i CC | #22 | 42 parametri CC per Slot, sincronizzazione nei due sensi, parametri DAW "A: …" registrabili come automazione |
+| #10 Selettori | #23 | Bank/Program per Slot e selettore di Performance, rilettura dopo un cambio, segue i cambi fatti sul synth |
+| #7 Morph Amount | #24 | I 25 Morph Amount via dump di Program limitati a 10 al secondo per Slot, secondo arco viola, pulsante Morph e trascinamento con Option |
+| #12 Scrittura in memoria | #25 | Store di un Program, lettura e invio di un Bank, sempre con conferma; backup automatico prima di sovrascrivere. **Bloccato** finché la lettura dei Bank non è verificata (`kBankReadingVerified = false`) |
+| #14 Undo/redo | #27 | Undo/redo delle modifiche fatte nel plugin (CC, Morph, Performance), pulsanti e Cmd+Z |
+| #8 Project recall | #28 | Il progetto salva i suoni e all'apertura li manda solo agli Edit Buffer, mai ai Bank; si può disattivare |
+| #13 Layout | #30 | Interfaccia piatta come il pannello frontale, colori provvisori in un solo file, pannello Settings, finestra About con l'avviso sui marchi, strumento che fa gli screenshot dell'editor senza schermo |
+| #15 Release v0.1 | #29, #30 | README (installazione, MIDI, impostazioni del synth), `docs/hardware-checklist.md`, workflow che crea una release **in bozza** al push di un tag, `docs/release-process.md`, finestra About. **Non pubblicata** |
+
+### Cosa resta
+
+- La sessione hardware (#3) e, dopo, le correzioni in `HardwareAssumptions.h` e nel simulatore.
+- I colori veri e la tua approvazione del look (#13).
+- Tutte le verifiche in Live, in Cubase e sul synth, elencate sotto.
+- La release v0.1 (#15).
+- Fuori da questa specifica: editing dei Percussion Kit; Kit e Performance Bank nelle operazioni di scrittura in memoria.
+
+### Cosa devi fare tu, in ordine
+
+1. **Sessione hardware (#3)**, circa due ore: è la cosa più importante, perché sblocca quasi tutte le altre. Segui `docs/hardware-discovery-plan.md` con la finestra Probe dell'app standalone. Poi passami i log (o mettili in `docs/research/hardware-logs/`).
+2. **Foto del pannello (#13)**: frontale, luce uniforme, più i primi piani indicati al punto 13 della lista sotto.
+3. **Verifiche in DAW e sul synth**: i punti da 1 a 13 della sezione "Andrea needed" qui sotto. Sono raccolti anche, per funzione, in `docs/hardware-checklist.md`.
+4. **Scrittura in memoria (#12)**: solo dopo la sessione hardware, con un Bank di prova (punto 10).
+5. **Release (#15)**: `docs/release-process.md`.
+
+Le decisioni che ho preso al posto tuo sono nella tabella "Decisions taken on Andrea's behalf". Quelle che costano di più da cambiare dopo la release sono gli **identificatori del plugin e dei parametri DAW** (`Astd`/`Nl2x`, `A_filterCutoff` …), perché i progetti salvati vi fanno riferimento: meglio guardarle prima della v0.1.
+
+Fuori dal progetto, sul tuo Mac, è rimasto solo un file di lock vuoto creato da pluginval: `~/Library/Caches/com.juce.locks/io.github.andreastandalone.nl2x-editor.synth-control`. È innocuo e lo puoi cancellare.
+
 ## Decisions taken on Andrea's behalf
 
 | Issue | Question | Choice | Alternatives | Cost of changing |
