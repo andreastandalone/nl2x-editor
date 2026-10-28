@@ -115,7 +115,7 @@ build/tools/render-editor/nl2x_render_editor --out slot-a.png
 build/tools/render-editor/nl2x_render_editor --out morph.png --view B --morph
 ```
 
-Options: `--view A|B|C|D|performance|memory` (the tab shown), `--morph` (Morph mode on), `--settings` (the Settings panel open), `--check` (the Connection check run and shown), `--kit A|B|C|D` (that Slot plays a Percussion Kit), `--offline` (the synth answers nothing), `--edge-cases` (Slots A and B on one MIDI channel, values outside the documented ranges in Slot A), `--scale <n>` (pixel density, 1 to 4), `--work <dir>`.
+Options: `--view A|B|C|D|performance|memory` (the tab shown), `--morph` (Morph mode on), `--settings` (the Settings panel open), `--about` (the About panel open), `--check` (the Connection check run and shown), `--kit A|B|C|D` (that Slot plays a Percussion Kit), `--offline` (the synth answers nothing), `--edge-cases` (Slots A and B on one MIDI channel, values outside the documented ranges in Slot A), `--scale <n>` (pixel density, 1 to 4), `--work <dir>`.
 
 The code layout and the rules every change follows are in [CODING_STANDARDS.md](CODING_STANDARDS.md).
 

@@ -5,7 +5,7 @@
 // Nothing touches the user's settings, MIDI ports or Library: everything goes to --work.
 //
 //   nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]
-//                      [--settings] [--check] [--kit A|B|C|D] [--offline] [--edge-cases]
+//                      [--settings] [--about] [--check] [--kit A|B|C|D] [--offline] [--edge-cases]
 //                      [--scale <n>] [--work <dir>]
 //
 // --kit makes that Slot play a Percussion Kit; --offline lets the synth answer nothing;
@@ -40,6 +40,7 @@ struct Options {
     juce::String view = "A";
     bool morph = false;
     bool settings = false;
+    bool about = false;
     bool check = false;
     bool offline = false;
     bool edgeCases = false;
@@ -71,6 +72,8 @@ std::optional<Options> parse(const juce::StringArray& args)
             options.morph = true;
         else if (arg == "--settings")
             options.settings = true;
+        else if (arg == "--about")
+            options.about = true;
         else if (arg == "--check")
             options.check = true;
         else if (arg == "--offline")
@@ -239,6 +242,8 @@ int render(const Options& options)
         click(*editor, "morph");
     if (options.settings)
         click(*editor, "settings");
+    if (options.about)
+        click(*editor, "about");
     if (options.check)
         processor.openConnectionCheck();
     pump(600);
@@ -268,7 +273,7 @@ int main(int argc, char* argv[])
     const auto options = parse(args);
     if (! options) {
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]\n"
-                     "                          [--settings] [--check] [--kit A|B|C|D] [--offline]\n"
+                     "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
                      "                          [--edge-cases] [--scale <n>] [--work <dir>]\n";
         return 2;
     }

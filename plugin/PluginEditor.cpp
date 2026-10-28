@@ -51,8 +51,13 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     settingsButton.setTooltip("MIDI ports, Global Channel and Library folder");
     settingsButton.onClick = [this] { showSettings(! settingsPanel.isVisible()); };
     settingsPanel.onClose = [this] { showSettings(false); };
+    aboutButton.setComponentID("about");
+    aboutButton.setTooltip("Version, licence and credits");
+    aboutButton.onClick = [this] { showAbout(! aboutPanel.isVisible()); };
+    aboutPanel.onClose = [this] { showAbout(false); };
     // The header buttons are on the red casing: darker fills.
-    for (auto* button : { &checkButton, &undoButton, &redoButton, &settingsButton, &probeButton })
+    for (auto* button : { &checkButton, &undoButton, &redoButton, &settingsButton, &aboutButton,
+                          &probeButton })
         button->setColour(juce::TextButton::buttonColourId, NordPalette::casingRed.darker(0.45f));
 
     tabs.setComponentID("viewTabs");
@@ -77,12 +82,12 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     };
 
     for (auto* child : std::initializer_list<juce::Component*> { &indicator, &checkButton, &undoButton, &redoButton,
-                                                                 &settingsButton, &tabs, &selectorBar, &warningLabel,
+                                                                 &settingsButton, &aboutButton, &tabs, &selectorBar, &warningLabel,
                                                                  &slotView, &libraryPanel })
         addAndMakeVisible(child);
     for (auto* child : std::initializer_list<juce::Component*> { &instanceWarning, &takeControlButton,
                                                                  &performanceView, &memoryPanel, &checkView,
-                                                                 &settingsPanel })
+                                                                 &settingsPanel, &aboutPanel })
         addChildComponent(child);
 
     // The probe sends raw requests and dumps: a developer tool, never shown inside a DAW.
@@ -115,8 +120,20 @@ void NL2XPluginEditor::showTab(int index)
     memoryPanel.setVisible(index == kMemoryTab);
 }
 
+void NL2XPluginEditor::showAbout(bool show)
+{
+    if (show)
+        showSettings(false);
+    aboutPanel.setVisible(show);
+    aboutButton.setToggleState(show, juce::dontSendNotification);
+    if (show)
+        aboutPanel.toFront(false);
+}
+
 void NL2XPluginEditor::showSettings(bool show)
 {
+    if (show)
+        showAbout(false);
     settingsPanel.setVisible(show);
     settingsButton.setToggleState(show, juce::dontSendNotification);
     if (show)
@@ -200,6 +217,7 @@ void NL2XPluginEditor::resized()
     };
     if (probeButton.isVisible())
         headerButton(probeButton, 70);
+    headerButton(aboutButton, 70);
     headerButton(settingsButton, 90);
     headerButton(checkButton, 140);
     header.removeFromRight(12);
@@ -211,6 +229,7 @@ void NL2XPluginEditor::resized()
     // The overlays cover everything below the header.
     checkView.setBounds(area);
     settingsPanel.setBounds(area);
+    aboutPanel.setBounds(area);
 
     area.removeFromBottom(kMargin);
     area.removeFromLeft(kMargin);

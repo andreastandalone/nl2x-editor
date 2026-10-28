@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AboutPanel.h"
 #include "ConnectionCheckView.h"
 #include "ConnectionIndicator.h"
 #include "LibraryPanel.h"
@@ -21,14 +22,14 @@
 // The editor window (docs/design/visual-style.md), fixed in size:
 //
 // - a red header bar: the connection indicator (#9), Connection check, Undo and Redo (#14, also
-//   Cmd+Z and Cmd+Shift+Z while the plugin window has keyboard focus), Settings, and in the
+//   Cmd+Z and Cmd+Shift+Z while the plugin window has keyboard focus), Settings, About, and in the
 //   standalone app only the Probe button (#3);
 // - tabs for Slots A–D (the front panel of the Slot's Program, SlotView), the Performance (#5) and
 //   the Synth memory (#12), with the Bank/Program and Performance selectors (#10) and the Slot
 //   Channel warnings (or the single-instance warning) above the view;
 // - the Library panel at the side (#11);
-// - over the tabs when open: the Connection check, or the Settings panel (ports, Global Channel,
-//   Library folder).
+// - over the tabs when open: the Connection check, the Settings panel (ports, Global Channel,
+//   Library folder, project recall) or the About panel.
 class NL2XPluginEditor final : public juce::AudioProcessorEditor, private juce::Timer {
 public:
     explicit NL2XPluginEditor(NL2XEditorProcessor& owner);
@@ -58,6 +59,7 @@ private:
     void timerCallback() override;
     void showTab(int index);
     void showSettings(bool show);
+    void showAbout(bool show);
     void showProbe();
 
     NL2XEditorProcessor& editorProcessor;
@@ -69,6 +71,7 @@ private:
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
     juce::TextButton settingsButton { "Settings" };
+    juce::TextButton aboutButton { "About" };
     juce::TextButton probeButton { "Probe" };
 
     ViewTabs tabs;
@@ -86,6 +89,7 @@ private:
     MemoryPanel memoryPanel;
     ConnectionCheckView checkView;
     SettingsPanel settingsPanel;
+    AboutPanel aboutPanel;
     std::unique_ptr<ProbeWindow> probeWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XPluginEditor)
