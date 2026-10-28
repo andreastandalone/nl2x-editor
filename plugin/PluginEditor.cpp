@@ -27,7 +27,6 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     : AudioProcessorEditor(owner),
       editorProcessor(owner),
       indicator(owner),
-      cutoffAttachment(owner.parameterState(), kCutoffParameterId, cutoffKnob),
       portSelector(owner.midiPorts()),
       selectorBar(owner),
       slotView(owner),
@@ -43,6 +42,23 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
                         juce::dontSendNotification);
     cutoffLabel.setJustificationType(juce::Justification::centred);
     cutoffKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+    // Through the processor rather than a parameter attachment, so that its edits are the user's
+    // and undoable (#14); it shows the DAW parameter.
+    const auto& cutoffInfo = nl2x::ccParameterInfo(nl2x::CcParameter::FilterCutoff);
+    cutoffKnob.setRange(cutoffInfo.minValue, cutoffInfo.maxValue, 1);
+    cutoffKnob.onDragStart = [this] { editorProcessor.beginEditGesture(); };
+    cutoffKnob.onDragEnd = [this] { editorProcessor.endEditGesture(); };
+    cutoffKnob.onValueChange = [this] {
+        editorProcessor.editSlotParameter(nl2x::Slot::A, nl2x::CcParameter::FilterCutoff,
+                                          juce::roundToInt(cutoffKnob.getValue()));
+    };
+
+    undoButton.setTooltip("Undo the last edit made in the plugin (Cmd+Z)");
+    undoButton.onClick = [this] { editorProcessor.undo(); };
+    redoButton.setTooltip("Redo the edit undone last (Cmd+Shift+Z)");
+    redoButton.onClick = [this] { editorProcessor.redo(); };
+    // Cmd+Z and Cmd+Shift+Z reach keyPressed when the host lets the plugin window have them.
+    setWantsKeyboardFocus(true);
 
     const auto background = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
     tabs.addTab("Slots", background, &slotView, false);
@@ -73,7 +89,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     refreshGlobalChannelChoice();
 
     for (auto* child : std::initializer_list<juce::Component*> {
-             &indicator, &checkButton, &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle, &portSelector,
+             &indicator, &checkButton, &undoButton, &redoButton, &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle, &portSelector,
              &globalChannelLabel, &globalChannelChoice, &warningLabel, &synthTitle, &selectorBar, &tabs,
              &libraryPanel })
         addAndMakeVisible(child);
@@ -110,6 +126,11 @@ void NL2XPluginEditor::timerCallback()
         instanceWarning.setText(instanceWarningText(editorProcessor.controlRefusal()), juce::dontSendNotification);
     globalChannelChoice.setEnabled(controls);
     checkButton.setEnabled(controls);
+    undoButton.setEnabled(editorProcessor.canUndo());
+    redoButton.setEnabled(editorProcessor.canRedo());
+    if (! cutoffKnob.isMouseButtonDown())
+        if (auto* cutoff = editorProcessor.parameterState().getParameter(kCutoffParameterId))
+            cutoffKnob.setValue(cutoff->convertFrom0to1(cutoff->getValue()), juce::dontSendNotification);
 
     const bool checkOpen = editorProcessor.connectionCheckOpen();
     if (checkView.isVisible() != checkOpen) {
@@ -126,6 +147,19 @@ void NL2XPluginEditor::timerCallback()
             lines.add(juce::String(nl2x::slotChannelWarningText(warning)));
         warningLabel.setText(lines.joinIntoString("\n"), juce::dontSendNotification);
     }
+}
+
+bool NL2XPluginEditor::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier, 0)) {
+        editorProcessor.undo();
+        return true;
+    }
+    if (key == juce::KeyPress('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) {
+        editorProcessor.redo();
+        return true;
+    }
+    return false;
 }
 
 void NL2XPluginEditor::refreshGlobalChannelChoice()
@@ -164,6 +198,10 @@ void NL2XPluginEditor::resized()
 
     auto header = area.removeFromTop(30);
     checkButton.setBounds(header.removeFromRight(150));
+    header.removeFromRight(12);
+    redoButton.setBounds(header.removeFromRight(60));
+    header.removeFromRight(4);
+    undoButton.setBounds(header.removeFromRight(60));
     header.removeFromRight(12);
     indicator.setBounds(header);
     area.removeFromTop(8);

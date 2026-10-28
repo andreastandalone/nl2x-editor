@@ -14,7 +14,8 @@ juce_add_plugin(NL2XEditor
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
-    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    # For Cmd+Z / Cmd+Shift+Z (#14); many hosts still keep those for their own undo.
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     # Never install into ~/Library during a build; tools/ and CI copy the bundles explicitly.
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
