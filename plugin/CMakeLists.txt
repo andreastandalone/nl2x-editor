@@ -21,6 +21,7 @@ juce_add_plugin(NL2XEditor
 target_sources(NL2XEditor PRIVATE
     ConnectionCheckView.cpp
     ConnectionIndicator.cpp
+    LibraryPanel.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
     PerformanceView.cpp

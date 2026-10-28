@@ -35,6 +35,9 @@ public:
     void applyReply(std::span<const std::uint8_t> reply);
     void readFailed() { readStatus = PerformanceStatus::NoAnswer; }
 
+    // A whole Performance is being sent (Audition): edits not sent yet no longer apply.
+    void dropUnsentEdits() { unsentBytes.clear(); }
+
     // `value` in the setting's documented range; out-of-range user values are brought into it.
     PerformanceEditResult edit(PerformanceSetting setting, Slot slot, int value);
 

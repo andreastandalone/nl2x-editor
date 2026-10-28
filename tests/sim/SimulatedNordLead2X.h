@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace nl2x::test {
 
@@ -21,7 +22,9 @@ namespace nl2x::test {
 // It understands CCs on Slot Channels, the Slot Edit Buffer request, the All Controllers Request,
 // Program dumps into Edit Buffers and Bank locations, the Performance Edit Buffer request and
 // dump (ignoring the settings the synth does not receive), Slots listening on their Slot Channels
-// and, when layered, on the leftmost active Slot's channel, and Slots playing a Percussion Kit.
+// and, when layered, on the leftmost active Slot's channel, and Slots playing a Percussion Kit
+// (a Kit Edit Buffer dump reaches only a Slot playing a Kit, a Program only one playing a Program).
+// It records every dump it receives by destination, so tests can prove nothing writes to Banks.
 // Performance Banks and Performance changes by Program Change are added as those tickets land.
 // Replies are sent at once; the misbehaviour switches below model a synth that does not answer or
 // cannot keep up.
@@ -79,6 +82,22 @@ public:
     std::optional<MidiChannel> slotChannel(Slot slot) const { return slots[slotIndex(slot)].channel; }
     // How many Performance dumps to the Edit Buffer arrived.
     int receivedPerformanceDumpCount() const { return receivedPerformanceDumps; }
+
+    // Every dump that arrived (and was not lost to a misbehaviour), by destination as its type byte
+    // names it: an Edit Buffer (Program/Kit type 0, Performance type 30) or a Bank (any other
+    // type), whether or not the synth applied it. Tests assert on it that nothing writes to Banks.
+    enum class DumpDestination : std::uint8_t { EditBuffer, Bank };
+    struct ReceivedDump {
+        SysExKind kind;
+        DumpDestination destination;
+        std::uint8_t type;
+        std::uint8_t spec;
+    };
+    const std::vector<ReceivedDump>& receivedDumps() const { return dumpLog; }
+    int receivedDumpCount(DumpDestination destination) const;
+
+    // The Percussion Kit a Slot plays (8 Programs, by decoded offset); empty while it plays a Program.
+    const std::optional<PercussionKit>& percussionKit(Slot slot) const { return slots[slotIndex(slot)].percussionKit; }
 
     // Bank locations, numbered as the synth shows Banks (0–3) and as Programs are sent (0–98).
     const Program& bankProgram(int shownBank, int location) const;
@@ -140,6 +159,7 @@ private:
     bool answersSysEx = true;
     bool answersPerformanceRequests = true;
     int receivedPerformanceDumps = 0;
+    std::vector<ReceivedDump> dumpLog;
     bool transmitsCcs = true;
     bool receivesCcs = true;
     TimeMs sysExRecoveryMs = 0;

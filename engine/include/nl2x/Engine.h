@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nl2x/Audition.h"
 #include "nl2x/ConnectionCheck.h"
 #include "nl2x/MidiOutput.h"
 #include "nl2x/Performance.h"
@@ -101,6 +102,16 @@ public:
     // Slots that an edit of one Slot also reaches (shared channels, Layer), for the GUI.
     std::vector<SlotChannelWarning> slotChannelWarnings() const;
 
+    // Audition (#11, EngineAudition.cpp): a Program or Percussion Kit into a Slot's Edit Buffer, a
+    // Performance into the Performance Edit Buffer; never into a Bank. An accepted dump goes out
+    // when no request is waiting for its reply; a later Audition for the same Edit Buffer replaces
+    // one not sent yet. An auditioned Program becomes the Slot's Edit Buffer in the Synth model at
+    // once; after a Performance has gone out, the Slots and the Performance are read again, since
+    // the synth decides what it keeps (Kit references, settings it does not receive).
+    AuditionResult auditionProgram(Slot slot, const Program& program, TimeMs timeMs);
+    AuditionResult auditionPercussionKit(Slot slot, const PercussionKit& kit, TimeMs timeMs);
+    AuditionResult auditionPerformance(const Performance& performance, TimeMs timeMs);
+
     // Changes whenever anything above changes: the shell polls it and redraws (or saves the
     // Global Channel) only when it moved.
     std::uint64_t stateRevision() const { return revision; }
@@ -115,6 +126,15 @@ private:
     void applySlotReply(Slot slot, std::span<const std::uint8_t> reply);
     void setStatus(ConnectionStatus newStatus);
     void changed() { ++revision; }
+
+    // An auditioned dump not sent yet; `slot` is empty for the Performance Edit Buffer.
+    struct PendingAudition {
+        std::optional<Slot> slot;
+        bool percussionKit = false;
+        std::vector<std::int8_t> values;
+    };
+    void queueAudition(PendingAudition audition, TimeMs timeMs);
+    void sendDueAudition(TimeMs timeMs);
 
     MidiOutput& output;
     std::unique_ptr<SynthConnection> connection;
@@ -131,6 +151,7 @@ private:
     int pendingSlotReads = 0;
     bool slotReadFailed = false;
     std::uint64_t revision = 0;
+    std::vector<PendingAudition> pendingAuditions;
 };
 
 } // namespace nl2x

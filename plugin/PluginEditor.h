@@ -2,6 +2,7 @@
 
 #include "ConnectionCheckView.h"
 #include "ConnectionIndicator.h"
+#include "LibraryPanel.h"
 #include "MidiPortSelector.h"
 #include "PerformanceView.h"
 #include "PluginProcessor.h"
@@ -15,7 +16,7 @@
 
 // The first, functional GUI: one knob, the MIDI settings (ports, Global Channel), the connection
 // indicator and Connection check (#9), the Slot Channel warning, and tabs with a generic list of
-// the four Slots' values read from the synth (#4) and the Performance (#5). The panel-style layout in Nord colours is #13. In the standalone app only, a Probe
+// the four Slots' values read from the synth (#4) and the Performance (#5), and the Library panel at the side (#11). The panel-style layout in Nord colours is #13. In the standalone app only, a Probe
 // button opens the hardware discovery probe (#3).
 class NL2XPluginEditor final : public juce::AudioProcessorEditor, private juce::Timer {
 public:
@@ -55,6 +56,8 @@ private:
     SlotView slotView;
     PerformanceView performanceView;
     ConnectionCheckView checkView;
+    // The Library panel at the side (#11); it auditions on the Slot chosen in slotView.
+    LibraryPanel libraryPanel;
     std::unique_ptr<ProbeWindow> probeWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XPluginEditor)

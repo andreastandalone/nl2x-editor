@@ -2,10 +2,12 @@
 add_library(nl2x_engine STATIC
     src/ConnectionCheck.cpp
     src/Engine.cpp
+    src/EngineAudition.cpp
     src/Performance.cpp
     src/PerformanceEditBuffer.cpp
     src/PerformanceSettings.cpp
     src/EngineConnectionCheck.cpp
+    src/Library.cpp
     src/Program.cpp
     src/ProgramParameters.cpp
     src/Slot.cpp

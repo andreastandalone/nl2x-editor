@@ -201,9 +201,21 @@ void SimulatedNordLead2X::sendSlotEditBuffer(Slot requested)
         transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType, spec, state.editBuffer));
 }
 
+int SimulatedNordLead2X::receivedDumpCount(DumpDestination destination) const
+{
+    return static_cast<int>(std::count_if(dumpLog.begin(), dumpLog.end(),
+                                          [destination](const auto& dump) { return dump.destination == destination; }));
+}
+
 void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
 {
     const auto& values = *dump.values;
+
+    const bool toEditBuffer = dump.kind == SysExKind::PerformanceDump
+                                  ? dump.type == hardware::kPerformanceEditBufferDumpType
+                                  : dump.type == hardware::kProgramEditBufferDumpType;
+    dumpLog.push_back({ dump.kind, toEditBuffer ? DumpDestination::EditBuffer : DumpDestination::Bank, dump.type,
+                        dump.spec });
 
     if (dump.kind == SysExKind::ProgramDump) {
         Program program;

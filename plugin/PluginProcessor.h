@@ -4,6 +4,7 @@
 #include "SynthControl.h"
 
 #include "nl2x/Engine.h"
+#include "nl2x/Library.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -42,6 +43,9 @@ public:
     // through their parameter (so the DAW records it); the others go to the engine directly.
     // Message thread only.
     void editPerformanceSetting(nl2x::PerformanceSetting setting, nl2x::Slot slot, int value);
+    // Audition from the Library (#11): a Program or Kit on `slot`, a Performance on the Performance
+    // Edit Buffer. Message thread only.
+    nl2x::AuditionResult auditionFromLibrary(const nl2x::LibraryEntry& entry, nl2x::Slot slot);
     // Pins a Slot's channel regardless of the Performance (empty releases it). A service setting:
     // kept in the plugin state, never a DAW parameter. Message thread only.
     void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);

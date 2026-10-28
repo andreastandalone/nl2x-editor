@@ -18,6 +18,9 @@ public:
 
     void resized() override;
 
+    // The Slot chosen with the Slot buttons: the Library auditions on it (#11).
+    nl2x::Slot selected() const { return selectedSlot; }
+
 private:
     // ListBoxModel
     int getNumRows() override;
