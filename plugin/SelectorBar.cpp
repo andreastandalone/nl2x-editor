@@ -1,5 +1,7 @@
 #include "SelectorBar.h"
 
+#include "NordLookAndFeel.h"
+
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Selection.h"
 
@@ -44,14 +46,17 @@ SelectorBar::SelectorBar(NL2XEditorProcessor& owner)
         box->onChange = [this] { performanceChosen(); };
         addAndMakeVisible(box);
     }
+    performanceLabel.setFont(NordFonts::heading());
     addAndMakeVisible(performanceLabel);
-    resultLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    resultLabel.setColour(juce::Label::textColourId, NordPalette::warning);
+    resultLabel.setFont(NordFonts::small());
     addAndMakeVisible(resultLabel);
 
     for (auto slot : nl2x::kAllSlots) {
         auto& selector = slotSelectors[nl2x::slotIndex(slot)];
         selector.name.setText(juce::String::charToString(nl2x::slotLetter(slot)), juce::dontSendNotification);
         selector.name.setJustificationType(juce::Justification::centredRight);
+        selector.name.setFont(NordFonts::heading());
         for (int bank = 0; bank < nl2x::hardware::kProgramBankCount; ++bank)
             selector.bank.addItem("Bank " + juce::String(bank), bank + kBankIdOffset);
         for (int number = 1; number <= nl2x::hardware::kProgramsPerProgramBank; ++number)
@@ -81,24 +86,23 @@ SelectorBar::~SelectorBar()
 
 void SelectorBar::resized()
 {
+    // One row: the Performance, then Slots A–D; refusals below.
     auto area = getLocalBounds();
+    auto row = area.removeFromTop(kRowHeight);
+    resultLabel.setBounds(area.withTrimmedTop(2));
 
-    auto performanceRow = area.removeFromTop(kRowHeight);
-    performanceLabel.setBounds(performanceRow.removeFromLeft(90));
-    performanceBank.setBounds(performanceRow.removeFromLeft(90));
-    performanceRow.removeFromLeft(4);
-    performanceNumber.setBounds(performanceRow.removeFromLeft(70));
-    performanceRow.removeFromLeft(12);
-    resultLabel.setBounds(performanceRow);
+    performanceLabel.setBounds(row.removeFromLeft(88));
+    performanceBank.setBounds(row.removeFromLeft(82));
+    row.removeFromLeft(4);
+    performanceNumber.setBounds(row.removeFromLeft(64));
+    row.removeFromLeft(24);
 
-    area.removeFromTop(8);
-    auto slotRow = area.removeFromTop(kRowHeight);
-    const int width = slotRow.getWidth() / static_cast<int>(slotSelectors.size());
+    const int width = row.getWidth() / static_cast<int>(slotSelectors.size());
     for (auto& selector : slotSelectors) {
-        auto cell = slotRow.removeFromLeft(width).withTrimmedRight(8);
-        selector.name.setBounds(cell.removeFromLeft(24));
+        auto cell = row.removeFromLeft(width).withTrimmedRight(12);
+        selector.name.setBounds(cell.removeFromLeft(20));
         cell.removeFromLeft(4);
-        selector.bank.setBounds(cell.removeFromLeft(cell.getWidth() / 2));
+        selector.bank.setBounds(cell.removeFromLeft(cell.getWidth() * 11 / 20));
         cell.removeFromLeft(4);
         selector.program.setBounds(cell);
     }

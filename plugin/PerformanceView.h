@@ -12,7 +12,7 @@
 // A plain view of the synth's Performance (#5): "Read from synth", the Slot Channels read from the
 // Performance with a manual override per Slot, the Performance settings the synth receives as
 // plain controls (named choices where the manual gives them), and the settings it does not
-// receive, shown only. The panel layout comes with #13. It polls the engine's state revision.
+// receive, shown only. Styled by NordLookAndFeel. It polls the engine's state revision.
 class PerformanceView final : public juce::Component, private juce::Timer {
 public:
     explicit PerformanceView(NL2XEditorProcessor& owner);

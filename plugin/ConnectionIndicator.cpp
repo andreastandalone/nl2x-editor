@@ -1,15 +1,17 @@
 #include "ConnectionIndicator.h"
 
+#include "NordLookAndFeel.h"
+
 #include "nl2x/HardwareAssumptions.h"
 
 namespace {
 
 constexpr int kRefreshIntervalMs = 100;
 
-const juce::Colour kGrey { 0xff8a8a8a };
-const juce::Colour kAmber { 0xffe0a020 };
-const juce::Colour kGreen { 0xff3cb043 };
-const juce::Colour kRed { 0xffd83a2e };
+const auto& kGrey = NordPalette::statusOff;
+const auto& kAmber = NordPalette::statusBusy;
+const auto& kGreen = NordPalette::statusGood;
+const auto& kRed = NordPalette::statusBad;
 
 juce::String globalChannelText(nl2x::GlobalChannel channel)
 {
@@ -21,8 +23,7 @@ std::pair<juce::Colour, juce::String> describe(NL2XEditorProcessor& processor)
     if (! processor.controlsSynth())
         return { kGrey, "Not connected: another instance controls the synth" };
 
-    auto& ports = processor.midiPorts();
-    if (ports.inputIdentifier().isEmpty() || ports.outputIdentifier().isEmpty())
+    if (! processor.midiPortsChosen())
         return { kGrey, "Not connected" };
 
     const auto& synth = processor.synth();
@@ -75,11 +76,14 @@ void ConnectionIndicator::timerCallback()
 void ConnectionIndicator::paint(juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
-    const auto dotSize = 12.0f;
-    const auto dot = area.removeFromLeft(dotSize + 8.0f).withSizeKeepingCentre(dotSize, dotSize);
+    const auto dotSize = 10.0f;
+    const auto dot = area.removeFromLeft(dotSize + 14.0f).withSizeKeepingCentre(dotSize, dotSize);
+    // On a dark disc, so that every state shows on the red header.
+    g.setColour(NordPalette::background);
+    g.fillEllipse(dot.expanded(3.0f));
     g.setColour(colour);
     g.fillEllipse(dot);
-    g.setColour(getLookAndFeel().findColour(juce::Label::textColourId));
-    g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+    g.setColour(NordPalette::textOnRed);
+    g.setFont(NordFonts::heading());
     g.drawText(text, area, juce::Justification::centredLeft, true);
 }

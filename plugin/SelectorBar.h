@@ -8,15 +8,15 @@
 #include <cstdint>
 
 // The Bank/Program selector of each Slot and the Performance selector (#10), shown above the
-// Slot and Performance tabs. Choosing a Bank or a Program (or Performance) sends the selection at
-// once; the menus show what the engine reports as selected, blank when nothing is known. Plain
-// look; styling is #13. It polls the engine's state revision.
+// Slot and Performance tabs, in one row. Choosing a Bank or a Program (or Performance) sends the
+// selection at once; the menus show what the engine reports as selected, blank when nothing is
+// known. It polls the engine's state revision.
 class SelectorBar final : public juce::Component, private juce::Timer {
 public:
     explicit SelectorBar(NL2XEditorProcessor& owner);
     ~SelectorBar() override;
 
-    static constexpr int kPreferredHeight = 62;
+    static constexpr int kPreferredHeight = 44;
 
     void resized() override;
 

@@ -1,5 +1,7 @@
 #include "ConnectionCheckView.h"
 
+#include "NordLookAndFeel.h"
+
 namespace {
 
 constexpr int kRefreshIntervalMs = 200;
@@ -19,13 +21,13 @@ juce::String outcomeText(nl2x::ConnectionCheckOutcome outcome)
 juce::Colour outcomeColour(nl2x::ConnectionCheckOutcome outcome)
 {
     switch (outcome) {
-    case nl2x::ConnectionCheckOutcome::Passed: return juce::Colour(0xff3cb043);
-    case nl2x::ConnectionCheckOutcome::Failed: return juce::Colour(0xffd83a2e);
-    case nl2x::ConnectionCheckOutcome::Running: return juce::Colour(0xffe0a020);
+    case nl2x::ConnectionCheckOutcome::Passed: return NordPalette::statusGood;
+    case nl2x::ConnectionCheckOutcome::Failed: return NordPalette::statusBad;
+    case nl2x::ConnectionCheckOutcome::Running: return NordPalette::statusBusy;
     case nl2x::ConnectionCheckOutcome::Pending:
-    case nl2x::ConnectionCheckOutcome::NotTested: return juce::Colour(0xff8a8a8a);
+    case nl2x::ConnectionCheckOutcome::NotTested: return NordPalette::statusOff;
     }
-    return juce::Colours::grey;
+    return NordPalette::statusOff;
 }
 
 juce::String fromUtf8(const std::string& text)
@@ -38,7 +40,7 @@ juce::String fromUtf8(const std::string& text)
 ConnectionCheckView::ConnectionCheckView(NL2XEditorProcessor& owner)
     : processor(owner)
 {
-    title.setFont(juce::FontOptions(18.0f, juce::Font::bold));
+    title.setFont(NordFonts::header());
     intro.setText("Tests the MIDI link with the synth in both directions. To test CCs, the editor moves the Filter "
                   "Cutoff of one Slot briefly and puts it back.",
                   juce::dontSendNotification);
@@ -49,8 +51,8 @@ ConnectionCheckView::ConnectionCheckView(NL2XEditorProcessor& owner)
     results.setCaretVisible(false);
     results.setScrollbarsShown(true);
 
-    prompt.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    prompt.setColour(juce::Label::backgroundColourId, juce::Colour(0xffe0a020).withAlpha(0.25f));
+    prompt.setFont(NordFonts::heading());
+    prompt.setColour(juce::Label::backgroundColourId, NordPalette::statusBusy.withAlpha(0.25f));
     prompt.setJustificationType(juce::Justification::centredLeft);
 
     skipButton.setTooltip("Go on without this step; its test is reported as not tested");
@@ -78,14 +80,13 @@ ConnectionCheckView::~ConnectionCheckView()
 
 void ConnectionCheckView::paint(juce::Graphics& g)
 {
-    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId).brighter(0.08f));
-    g.setColour(getLookAndFeel().findColour(juce::Label::textColourId).withAlpha(0.3f));
-    g.drawRect(getLocalBounds());
+    g.fillAll(NordPalette::background);
+    NordLookAndFeel::drawSection(g, getLocalBounds().reduced(NordMetrics::gap), "Connection check");
 }
 
 void ConnectionCheckView::resized()
 {
-    auto area = getLocalBounds().reduced(12);
+    auto area = getLocalBounds().reduced(NordMetrics::gap).withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(16);
     title.setBounds(area.removeFromTop(26));
     intro.setBounds(area.removeFromTop(40));
 
@@ -141,7 +142,7 @@ void ConnectionCheckView::refresh()
 void ConnectionCheckView::showResults()
 {
     const auto& report = processor.synth().connectionCheck();
-    const auto text = getLookAndFeel().findColour(juce::Label::textColourId);
+    const auto text = NordPalette::text;
     results.clear();
 
     const auto add = [this](const juce::String& line, juce::Colour colour, float size, bool bold) {

@@ -14,7 +14,8 @@ plugin/            the JUCE shell: AudioProcessor, editor, MIDI port handling
 tests/             automated tests (Catch2) and the simulated Nord Lead 2X
   sim/             SimulatedNordLead2X
   fixtures/        our own .syx fixtures with known values
-tools/             developer scripts (pluginval, fixtures generation)
+tools/             developer scripts (pluginval, fixtures generation) and render-editor/, the
+                   offscreen editor screenshot tool (built with the plugin, never shipped)
 ```
 
 ## The engine
@@ -39,6 +40,11 @@ tools/             developer scripts (pluginval, fixtures generation)
 - Headers carry short comments that explain *why*; no comments restating the code.
 - Use the terms of [GLOSSARY.md](GLOSSARY.md) in names: `Slot`, `Program`, `PercussionKit`, `Performance`, `Bank`, `EditBuffer`, `MorphAmount`, `SlotChannel`, `GlobalChannel`, `Library`, `Audition`. Avoid the synonyms the glossary lists.
 - User-visible strings in English, with the manual's terms.
+
+## GUI
+
+- Every colour, font and size comes from `plugin/NordLookAndFeel.h` (`NordPalette`, `NordFonts`, `NordMetrics`); no component hard-codes one. The look follows [docs/design/visual-style.md](docs/design/visual-style.md).
+- The GUI is not unit-tested: check changes by eye with `nl2x_render_editor` (README, "Building").
 
 ## Third-party material
 

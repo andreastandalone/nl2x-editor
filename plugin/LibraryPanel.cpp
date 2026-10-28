@@ -1,5 +1,7 @@
 #include "LibraryPanel.h"
 
+#include "NordLookAndFeel.h"
+
 #include <filesystem>
 
 namespace {
@@ -38,9 +40,8 @@ juce::String kindSuffix(nl2x::LibraryEntryKind kind)
 
 void paintRow(juce::Graphics& g, const juce::String& text, int width, int height, bool dimmed)
 {
-    auto colour = juce::LookAndFeel::getDefaultLookAndFeel().findColour(juce::Label::textColourId);
-    g.setColour(dimmed ? colour.withAlpha(0.45f) : colour);
-    g.setFont(juce::FontOptions(14.0f));
+    g.setColour(dimmed ? NordPalette::textDim : NordPalette::text);
+    g.setFont(NordFonts::body());
     g.drawText(text, 4, 0, width - 4, height, juce::Justification::centredLeft, true);
 }
 
@@ -137,11 +138,9 @@ public:
 LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot()> slotChoice)
     : processor(owner), selectedSlot(std::move(slotChoice))
 {
-    title.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    folderLabel.setFont(juce::FontOptions(12.0f));
+    folderLabel.setFont(NordFonts::small());
+    folderLabel.setColour(juce::Label::textColourId, NordPalette::textDim);
     folderLabel.setMinimumHorizontalScale(0.6f);
-    chooseButton.setTooltip("Choose the folder of .syx files the Library shows");
-    chooseButton.onClick = [this] { chooseFolder(); };
     refreshButton.setTooltip("Read the Library folder again");
     refreshButton.onClick = [this] { rescan(); };
 
@@ -160,9 +159,10 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     saveEntryButton.setEnabled(false);
 
     statusLabel.setJustificationType(juce::Justification::topLeft);
-    statusLabel.setFont(juce::FontOptions(13.0f));
+    statusLabel.setFont(NordFonts::small());
+    slotLabel.setFont(NordFonts::small());
 
-    for (auto* child : std::initializer_list<juce::Component*> { &title, &folderLabel, &chooseButton, &refreshButton,
+    for (auto* child : std::initializer_list<juce::Component*> { &folderLabel, &refreshButton,
                                                                  &slotLabel, &tree, &saveSlotButton,
                                                                  &savePerformanceButton, &saveEntryButton, &statusLabel })
         addAndMakeVisible(child);
@@ -178,14 +178,16 @@ LibraryPanel::~LibraryPanel()
     tree.setRootItem(nullptr);
 }
 
+void LibraryPanel::paint(juce::Graphics& g)
+{
+    NordLookAndFeel::drawSection(g, getLocalBounds(), "Library");
+}
+
 void LibraryPanel::resized()
 {
-    auto area = getLocalBounds();
-    title.setBounds(area.removeFromTop(24));
+    auto area = getLocalBounds().withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(8, 6);
     auto folderRow = area.removeFromTop(26);
     refreshButton.setBounds(folderRow.removeFromRight(70));
-    folderRow.removeFromRight(4);
-    chooseButton.setBounds(folderRow.removeFromRight(80));
     folderRow.removeFromRight(4);
     folderLabel.setBounds(folderRow);
     area.removeFromTop(4);
@@ -204,7 +206,7 @@ void LibraryPanel::resized()
 
 void LibraryPanel::timerCallback()
 {
-    slotLabel.setText("Audition on " + slotName(selectedSlot()) + " (chosen in the Slots tab)",
+    slotLabel.setText("Audition on " + slotName(selectedSlot()) + " (the Slot tab last shown)",
                       juce::dontSendNotification);
 }
 

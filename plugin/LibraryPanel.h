@@ -11,16 +11,17 @@
 #include <optional>
 #include <vector>
 
-// The Library panel (#11), plain until #13: the Library folder with "Choose…", the .syx files in
-// it (Bank files open into numbered entries), Audition by clicking a Program or Percussion Kit
+// The Library panel (#11) at the side of the editor: the Library folder (chosen in the Settings
+// panel), the .syx files in it (Bank files open into numbered entries), Audition by clicking a Program or Percussion Kit
 // (double-clicking a Performance, which replaces all four Slots), and saving the selected Slot,
 // the Performance or a selected entry as a new .syx file. Refusals and results go to a status line.
 class LibraryPanel final : public juce::Component, private juce::Timer {
 public:
-    // `selectedSlot` names the Slot that Audition and "Save Slot" use: the Slots tab's choice.
+    // `selectedSlot` names the Slot that Audition and "Save Slot" use: the Slot tab last shown.
     LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot()> selectedSlot);
     ~LibraryPanel() override;
 
+    void paint(juce::Graphics& g) override;
     void resized() override;
 
     // Called by the tree's items.
@@ -35,11 +36,12 @@ public:
     juce::File folder() const;
     // Reads the Library folder again.
     void rescan();
+    // Asks for another Library folder (the Settings panel's "Choose…"), then shows it.
+    void chooseFolder();
 
 private:
     void timerCallback() override;
     void setFolder(const juce::File& newFolder);
-    void chooseFolder();
     void auditionEntry(const nl2x::LibraryEntry& entry);
     void saveSlot();
     void savePerformance();
@@ -52,9 +54,7 @@ private:
     NL2XEditorProcessor& processor;
     std::function<nl2x::Slot()> selectedSlot;
 
-    juce::Label title { {}, "Library" };
     juce::Label folderLabel;
-    juce::TextButton chooseButton { juce::String::fromUTF8("Choose\xE2\x80\xA6") };
     juce::TextButton refreshButton { "Refresh" };
     juce::Label slotLabel;
     juce::TreeView tree;

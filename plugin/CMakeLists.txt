@@ -23,17 +23,22 @@ target_sources(NL2XEditor PRIVATE
     ArcKnob.cpp
     ConnectionCheckView.cpp
     ConnectionIndicator.cpp
+    LedSwitch.cpp
     LibraryPanel.cpp
     MemoryPanel.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
+    NordLookAndFeel.cpp
+    OptionList.cpp
     PerformanceView.cpp
     PluginEditor.cpp
     PluginProcessor.cpp
     ProbeWindow.cpp
+    ProgramPanel.cpp
     SavedProjectSounds.cpp
     SavedSelection.cpp
     SelectorBar.cpp
+    SettingsPanel.cpp
     SlotView.cpp
     SynthControl.cpp)
 

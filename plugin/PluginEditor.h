@@ -4,23 +4,31 @@
 #include "ConnectionIndicator.h"
 #include "LibraryPanel.h"
 #include "MemoryPanel.h"
-#include "MidiPortSelector.h"
+#include "NordLookAndFeel.h"
 #include "PerformanceView.h"
 #include "PluginProcessor.h"
 #include "ProbeWindow.h"
 #include "SelectorBar.h"
+#include "SettingsPanel.h"
 #include "SlotView.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 
-// The first, functional GUI: one knob, Undo and Redo (#14, also Cmd+Z and Cmd+Shift+Z while the
-// plugin window has keyboard focus), the MIDI settings (ports, Global Channel), the connection
-// indicator and Connection check (#9), the Slot Channel warning, and tabs with a generic list of
-// the four Slots' values read from the synth (#4) and the Performance (#5), and the Library panel at the side (#11). The panel-style layout in Nord colours is #13. In the standalone app only, a Probe
-// button opens the hardware discovery probe (#3).
+// The editor window (docs/design/visual-style.md), fixed in size:
+//
+// - a red header bar: the connection indicator (#9), Connection check, Undo and Redo (#14, also
+//   Cmd+Z and Cmd+Shift+Z while the plugin window has keyboard focus), Settings, and in the
+//   standalone app only the Probe button (#3);
+// - tabs for Slots A–D (the front panel of the Slot's Program, SlotView), the Performance (#5) and
+//   the Synth memory (#12), with the Bank/Program and Performance selectors (#10) and the Slot
+//   Channel warnings (or the single-instance warning) above the view;
+// - the Library panel at the side (#11);
+// - over the tabs when open: the Connection check, or the Settings panel (ports, Global Channel,
+//   Library folder).
 class NL2XPluginEditor final : public juce::AudioProcessorEditor, private juce::Timer {
 public:
     explicit NL2XPluginEditor(NL2XEditorProcessor& owner);
@@ -31,43 +39,53 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
 private:
+    // The tabs: Slots A–D, then these.
+    static constexpr int kPerformanceTab = 4;
+    static constexpr int kMemoryTab = 5;
+
+    // A tab bar that reports the user's choice.
+    class ViewTabs final : public juce::TabbedButtonBar {
+    public:
+        ViewTabs() : juce::TabbedButtonBar(juce::TabbedButtonBar::TabsAtTop) {}
+        std::function<void(int)> onTabChosen;
+        void currentTabChanged(int index, const juce::String&) override
+        {
+            if (onTabChosen)
+                onTabChosen(index);
+        }
+    };
+
     void timerCallback() override;
+    void showTab(int index);
+    void showSettings(bool show);
     void showProbe();
-    void refreshGlobalChannelChoice();
-    void globalChannelChosen();
 
     NL2XEditorProcessor& editorProcessor;
+    // Before every component that uses it.
+    NordLookAndFeel lookAndFeel;
 
     ConnectionIndicator indicator;
     juce::TextButton checkButton { "Connection check" };
-    juce::Label instanceWarning;
-    juce::TextButton takeControlButton { "Take control" };
-
-    juce::Label slotTitle { {}, "Slot A" };
-    juce::Slider cutoffKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-    juce::Label cutoffLabel;
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
-
-    juce::Label settingsTitle { {}, "MIDI settings" };
-    MidiPortSelector portSelector;
-    juce::Label globalChannelLabel { {}, "Global Channel" };
-    juce::ComboBox globalChannelChoice;
-    // Project recall (#8): per user, so the editor's MidiPorts settings hold it.
-    juce::ToggleButton sendProjectSoundsToggle { "Send the project's sounds to the synth when the project opens" };
+    juce::TextButton settingsButton { "Settings" };
     juce::TextButton probeButton { "Probe" };
-    juce::Label synthTitle { {}, "Read from the synth" };
-    juce::Label warningLabel;
-    std::uint64_t shownRevision = 0;
+
+    ViewTabs tabs;
     SelectorBar selectorBar;
-    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
+    juce::Label warningLabel;
+    juce::Label instanceWarning;
+    juce::TextButton takeControlButton { "Take control" };
+    std::uint64_t shownRevision = 0;
+
     SlotView slotView;
     PerformanceView performanceView;
-    ConnectionCheckView checkView;
-    // The Library panel at the side (#11); it auditions on the Slot chosen in slotView.
+    // The Library panel at the side (#11); it auditions on the Slot shown in slotView.
     LibraryPanel libraryPanel;
     // The "Synth memory" tab (#12): writes to the synth's Banks, after confirmation.
     MemoryPanel memoryPanel;
+    ConnectionCheckView checkView;
+    SettingsPanel settingsPanel;
     std::unique_ptr<ProbeWindow> probeWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XPluginEditor)
