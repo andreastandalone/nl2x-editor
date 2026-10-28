@@ -18,4 +18,6 @@ Kept by the agents working while Andrea is away. Two lists: decisions taken on h
 
 ## Andrea needed
 
-(none yet)
+Do these in order; each item names its issue.
+
+1. **#2, DAW check.** Load NL2X Editor (VST3) on a MIDI track in Ableton Live and in Cubase; choose the Fireface MIDI ports in its settings; turn and automate "A: Filter Cutoff" and hear the synth follow; reopen the plugin and check the ports are remembered. The AU passes `auval` in CI; optionally load it in Logic or Live too.
