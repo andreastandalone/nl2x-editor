@@ -434,7 +434,8 @@ void NL2XEditorProcessor::followEngine()
         if (*value != engineValue(*bound.dawParameter)) {
             // As one gesture, so that a DAW writing automation records the synth's knob.
             bound.dawParameter->beginChangeGesture();
-            bound.dawParameter->setValueNotifyingHost(bound.dawParameter->convertTo0to1(static_cast<float>(*value)));
+            const auto shown = bound.dawParameter->getNormalisableRange().getRange().clipValue(static_cast<float>(*value));
+            bound.dawParameter->setValueNotifyingHost(bound.dawParameter->convertTo0to1(shown));
             bound.dawParameter->endChangeGesture();
         }
         // What the parameter now holds (a value outside its range is shown at the nearest end)
