@@ -11,9 +11,10 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
       editorProcessor(owner),
       cutoffAttachment(owner.parameterState(), kCutoffParameterId, cutoffKnob),
       portSelector(owner.midiPorts()),
-      slotView(owner)
+      slotView(owner),
+      performanceView(owner)
 {
-    for (auto* title : { &slotTitle, &settingsTitle, &synthTitle })
+    for (auto* title : { &slotTitle, &settingsTitle })
         title->setFont(juce::FontOptions(16.0f, juce::Font::bold));
 
     cutoffLabel.setText(juce::String(std::string(nl2x::programParameterInfo(nl2x::ProgramParameter::FilterCutoff).name)),
@@ -21,8 +22,15 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     cutoffLabel.setJustificationType(juce::Justification::centred);
     cutoffKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
 
+    const auto background = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
+    tabs.addTab("Slots", background, &slotView, false);
+    tabs.addTab("Performance", background, &performanceView, false);
+
+    warningLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    warningLabel.setJustificationType(juce::Justification::topLeft);
+
     for (auto* child : std::initializer_list<juce::Component*> { &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle,
-                                                                 &portSelector, &synthTitle, &slotView })
+                                                                 &portSelector, &warningLabel, &tabs })
         addAndMakeVisible(child);
 
     // The probe sends raw requests and dumps: a developer tool, never shown inside a DAW.
@@ -32,10 +40,28 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
         addAndMakeVisible(probeButton);
     }
 
-    setSize(720, 760);
+    setSize(760, 800);
+    timerCallback();
+    startTimer(50);
 }
 
-NL2XPluginEditor::~NL2XPluginEditor() = default;
+NL2XPluginEditor::~NL2XPluginEditor()
+{
+    stopTimer();
+}
+
+void NL2XPluginEditor::timerCallback()
+{
+    const auto& synth = editorProcessor.synth();
+    if (synth.stateRevision() == shownRevision)
+        return;
+    shownRevision = synth.stateRevision();
+
+    juce::StringArray lines;
+    for (const auto& warning : synth.slotChannelWarnings())
+        lines.add(juce::String(nl2x::slotChannelWarningText(warning)));
+    warningLabel.setText(lines.joinIntoString("\n"), juce::dontSendNotification);
+}
 
 void NL2XPluginEditor::showProbe()
 {
@@ -55,8 +81,8 @@ void NL2XPluginEditor::resized()
     auto area = getLocalBounds().reduced(16);
 
     auto synthArea = area.removeFromBottom(getHeight() - 300);
-    synthTitle.setBounds(synthArea.removeFromTop(24));
-    slotView.setBounds(synthArea);
+    warningLabel.setBounds(synthArea.removeFromTop(44));
+    tabs.setBounds(synthArea);
 
     auto slotArea = area.removeFromLeft(160);
     slotTitle.setBounds(slotArea.removeFromTop(24));
