@@ -3,6 +3,7 @@
 #include "EditHistory.h"
 #include "PerformanceEditBuffer.h"
 #include "ProgramDumpThrottle.h"
+#include "ProjectRecall.h"
 #include "SelectionTracker.h"
 #include "ConnectionCheck.h"
 #include "SynthConnection.h"
@@ -100,6 +101,7 @@ void Engine::advanceTime(TimeMs timeMs)
         if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
             connection->sendWithoutReply(*dump, timeMs);
     sendDueAudition(timeMs);
+    sendDueProjectRecall(timeMs);
     sendDueProgramDumps(timeMs);
     check->advanceTime(timeMs);
 }
@@ -157,10 +159,13 @@ void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeM
 {
     check->cancel();
     memory->abort("The connection to the synth was reset.");
+    holdUnfinishedProjectRecall();
     connection->clear();
     pendingSlotReads = 0;
     slotReadFailed = false;
-    performanceBuffer->forget();
+    // A held project recall keeps the project's Performance: it is sent, not read.
+    if (! projectRecallHeld())
+        performanceBuffer->forget();
     pendingAuditions.clear();
     programDumps->dropAllUnsentEdits();
     forgetEdits({ true, true, true, true }, true);
@@ -266,6 +271,11 @@ void Engine::probe(std::vector<GlobalChannel> candidates, std::size_t index, Slo
             if (foundGlobalChannel != channel) {
                 foundGlobalChannel = channel;
                 changed();
+            }
+            // Project recall (#8): the project's sounds go to the synth instead of being read.
+            if (projectRecallHeld()) {
+                startProjectRecall(doneMs);
+                return;
             }
             applySlotReply(slot, *reply);
 

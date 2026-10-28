@@ -9,6 +9,7 @@
 #include "nl2x/MidiOutput.h"
 #include "nl2x/MorphAmounts.h"
 #include "nl2x/Performance.h"
+#include "nl2x/ProjectState.h"
 #include "nl2x/ProgramParameters.h"
 #include "nl2x/Selection.h"
 #include "nl2x/Slot.h"
@@ -33,6 +34,7 @@ class ConnectionCheck;
 class ProgramDumpThrottle;
 class SynthConnection;
 struct SelectionTracker;
+struct ProjectRecall;
 
 // Everything the editor does, behind one seam: MIDI messages in, MIDI messages out.
 // Single-threaded: the caller invokes it from one thread only (CODING_STANDARDS.md).
@@ -181,6 +183,21 @@ public:
     void undo(TimeMs timeMs);
     void redo(TimeMs timeMs);
 
+    // Project recall (#8, EngineRecall.cpp). The Synth model's sounds (the four Slot Edit Buffers
+    // and the Performance Edit Buffer, if read) as the blob the shell keeps in the project
+    // (ProjectState.h).
+    std::vector<std::uint8_t> projectState() const;
+    // Project load (or a DAW preset): the blob's sounds become the Synth model's. With
+    // `sendToSynth` they go to the synth's Edit Buffers only, never to a Bank: one Performance dump
+    // (type 30, if the project has a Performance) then one Program dump (type 0) per Slot playing
+    // a Program, paced like every other dump; Kit Slots are not sent (a Performance holds Kits by
+    // reference only). Connected: at once, dropping reads still pending. Not connected: held, and
+    // sent right after the Global Channel is found instead of reading the Slots. Afterwards only
+    // what the project does not hold (Kit or unknown Slots, a missing Performance) is read. Without
+    // `sendToSynth` nothing is sent and the synth is read (at once when connected), so that its
+    // sounds replace the project's. A rejected blob changes and sends nothing. Never sends a CC.
+    ProjectLoadResult loadProjectState(std::span<const std::uint8_t> state, bool sendToSynth, TimeMs timeMs);
+
     // Changes whenever anything above changes: the shell polls it and redraws (or saves the
     // Global Channel) only when it moved.
     std::uint64_t stateRevision() const { return revision; }
@@ -205,6 +222,15 @@ private:
     void sendSelection(MidiChannel channel, BankAndProgramChange midi);
 
     void changed() { ++revision; }
+
+    // Project recall (EngineRecall.cpp).
+    bool projectRecallHeld() const;
+    // On connecting: a recall whose dumps have not all gone out is held again for the new connection.
+    void holdUnfinishedProjectRecall();
+    void startProjectRecall(TimeMs timeMs);
+    void sendDueProjectRecall(TimeMs timeMs);
+    void readWhatProjectRecallLacks(TimeMs timeMs);
+    void dropPendingReads();
 
     // Program dumps for edits without a CC (EngineMorph.cpp).
     void sendDueProgramDumps(TimeMs timeMs);
@@ -251,6 +277,8 @@ private:
     // The step of the user edit being handed in; empty outside beginUserEdit … endUserEdit.
     std::optional<EditStepId> userEditStep;
     EditStepId lastEditStep = 0;
+    // Created by the first project load.
+    std::unique_ptr<ProjectRecall> recall;
 };
 
 } // namespace nl2x

@@ -18,6 +18,8 @@ add_library(nl2x_engine STATIC
     src/Program.cpp
     src/ProgramDumpThrottle.cpp
     src/ProgramParameters.cpp
+    src/ProjectState.cpp
+    src/EngineRecall.cpp
     src/Selection.cpp
     src/Slot.cpp
     src/SlotChannels.cpp

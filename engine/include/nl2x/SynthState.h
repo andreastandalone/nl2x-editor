@@ -23,6 +23,8 @@ struct SlotState {
     // The Slot's Program Edit Buffer, as last read from the synth and edited since; set exactly
     // when content is Program.
     std::optional<Program> program;
+
+    friend bool operator==(const SlotState&, const SlotState&) = default;
 };
 
 enum class ConnectionStatus : std::uint8_t {

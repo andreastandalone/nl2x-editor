@@ -18,6 +18,7 @@ add_executable(nl2x_tests
     ProbeLogTest.cpp
     ProbeScriptsTest.cpp
     ProgramCodecTest.cpp
+    ProjectRecallTest.cpp
     ReadSlotsTest.cpp
     SelectionTest.cpp
     SimulatedNordLead2XTest.cpp

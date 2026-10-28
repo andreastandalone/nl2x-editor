@@ -34,6 +34,8 @@ public:
     // user made them after the request went out.
     void applyReply(std::span<const std::uint8_t> reply);
     void readFailed() { readStatus = PerformanceStatus::NoAnswer; }
+    // Project recall (#8): the project's Performance replaces ours, as if read; none forgets it.
+    void restore(const std::optional<Performance>& performance);
 
     // A whole Performance is being sent (Audition): edits not sent yet no longer apply.
     void dropUnsentEdits() { unsentBytes.clear(); }

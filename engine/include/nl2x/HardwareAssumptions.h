@@ -375,6 +375,19 @@ inline constexpr int kPerformanceDumpIntervalMs = 100;
 inline constexpr int kProgramDumpIntervalMs = 100;
 
 // ---------------------------------------------------------------------------------------------
+// Project recall (#8)
+
+// A Performance holds full copies of the four Programs [OFF-2X p.31–33], so a Performance dump to
+// the Performance Edit Buffer (type 30) should by itself put the project's Programs into the
+// Slots. Whether the synth applies a type-30 dump at once is unknown (research §7.3), and how it
+// treats the Programs inside one is not documented. So project recall also sends each Slot
+// playing a Program its own Program dump (type 0) after the Performance dump: a few hundred bytes
+// more, and the Slots end up right either way. Set to false once hardware shows the Performance
+// dump alone restores the Slots. Status: [INF] (plan step 6: send a type-30 dump and read the
+// Slots back).
+inline constexpr bool kProjectRecallSendsSlotDumpsAfterPerformance = true;
+
+// ---------------------------------------------------------------------------------------------
 // Selecting stored Programs and Performances (#10)
 
 // Program Change and Bank Select (CC32) are transmitted and received on a Slot's channel; the
