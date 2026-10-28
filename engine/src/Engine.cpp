@@ -65,7 +65,8 @@ Engine::Engine(MidiOutput& midiOutput, hardware::Switches hardwareSwitches)
       selectionTracker(std::make_unique<SelectionTracker>()),
       programDumps(std::make_unique<ProgramDumpThrottle>()),
       switches(hardwareSwitches),
-      check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); }))
+      check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); })),
+      memory(std::make_unique<MemoryWriter>(*this, *connection, hardwareSwitches, [this] { changed(); }))
 {
 }
 
@@ -84,6 +85,7 @@ void Engine::advanceTime(TimeMs timeMs)
 {
     rereadAfterSelection(timeMs);
     connection->advanceTime(timeMs);
+    memory->advanceTime(timeMs);
     // Edits wait until no request is in flight, so a dump never interrupts a reply.
     if (foundGlobalChannel && connection->isIdle(timeMs))
         if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
@@ -143,6 +145,7 @@ void Engine::applyControlChange(MidiChannel channel, std::uint8_t cc, std::uint8
 void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeMs timeMs)
 {
     check->cancel();
+    memory->abort("The connection to the synth was reset.");
     connection->clear();
     pendingSlotReads = 0;
     slotReadFailed = false;

@@ -10,6 +10,7 @@ add_executable(nl2x_tests
     FactoryBankTest.cpp
     LibraryFactoryTest.cpp
     LibraryTest.cpp
+    MemoryWriterTest.cpp
     MorphAmountsTest.cpp
     ParameterToCcTest.cpp
     PerformanceCodecTest.cpp
