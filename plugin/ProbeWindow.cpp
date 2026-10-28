@@ -106,6 +106,7 @@ ProbeComponent::~ProbeComponent()
 {
     stopTimer();
     processor.setMidiMonitor(nullptr);
+    processor.setEngineRequestsSuspended(false);
 }
 
 void ProbeComponent::setUpField(Field& field, const juce::String& labelText, const juce::String& initialText)
@@ -192,6 +193,10 @@ void ProbeComponent::timerCallback()
             juce::String(shownGlobalChannel + nl2x::hardware::kShownGlobalChannelOfDev0), false);
     }
 
+    // The engine stays out of the way while a script runs: it could take a reply to the script's
+    // request for its own, and its requests would disturb the script.
+    processor.setEngineRequestsSuspended(session.isRunning());
+
     const auto status = session.isRunning() ? juce::String("Running…") : juce::String("Idle");
     if (statusLabel.getText() != status)
         statusLabel.setText(status, juce::dontSendNotification);
@@ -274,6 +279,7 @@ void ProbeComponent::runScript(ScriptId id)
 
 void ProbeComponent::startScript(ScriptId id, const nl2x::probe::ScriptOptions& options)
 {
+    processor.setEngineRequestsSuspended(true);
     session.start(id, options, engineTime(nowMs()));
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nl2x/ConnectionCheck.h"
 #include "nl2x/MidiOutput.h"
 #include "nl2x/Performance.h"
 #include "nl2x/ProgramParameters.h"
@@ -19,6 +20,7 @@
 namespace nl2x {
 
 class PerformanceEditBuffer;
+class ConnectionCheck;
 class SynthConnection;
 
 // Everything the editor does, behind one seam: MIDI messages in, MIDI messages out.
@@ -40,9 +42,10 @@ public:
 
     // Connects to the synth (MIDI ports opened, app started, or the user asked): finds the Global
     // Channel by asking each possible one for Slot A's Edit Buffer, `rememberedGlobalChannel`
-    // first, then reads the Edit Buffers of Slots B, C and D and the Performance Edit Buffer.
-    // Anything still pending from an earlier connection is dropped, the Performance read from it
-    // included.
+    // first, then reads the Edit Buffers of Slots B, C and D and the Performance Edit Buffer. With
+    // a manual Global Channel only that one is asked. Anything still pending from an earlier
+    // connection is dropped, the Performance read from it included, and a running Connection
+    // check is cancelled.
     void connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeMs timeMs);
 
     // "Read from synth": reads one Slot's Edit Buffer again. Finds the Global Channel first when
@@ -63,6 +66,26 @@ public:
     // empty releases it.
     void setSlotChannelOverride(Slot slot, std::optional<MidiChannel> channel);
     std::optional<MidiChannel> slotChannelOverride(Slot slot) const { return channelOverrides[slotIndex(slot)]; }
+
+    // Fixes the Global Channel (spec #1, user story 4): connecting then asks only this one and never
+    // probes. Empty = Automatic, the default. Forgets a found Global Channel that differs; the
+    // caller connects again afterwards.
+    void setManualGlobalChannel(std::optional<GlobalChannel> channel);
+    std::optional<GlobalChannel> manualGlobalChannel() const { return manualChannel; }
+
+    // While suspended the engine sends no requests and takes no replies, because another tool
+    // talks to the synth (the Probe window running a script). Requests queued meanwhile go out
+    // after resuming; a running Connection check is cancelled. CCs from parameter changes still
+    // go out.
+    void setRequestsSuspended(bool suspended, TimeMs timeMs);
+    bool requestsSuspended() const { return suspended; }
+
+    // The Connection check (ConnectionCheck.h). Starting is ignored while requests are suspended.
+    void startConnectionCheck(TimeMs timeMs);
+    // The user will not do what the check's interactive step asks.
+    void skipConnectionCheckStep(TimeMs timeMs);
+    void cancelConnectionCheck();
+    const ConnectionCheckReport& connectionCheck() const;
 
     // The Synth model, for the GUI.
     const SlotState& slotState(Slot slot) const { return slots[slotIndex(slot)]; }
@@ -97,8 +120,12 @@ private:
     std::unique_ptr<SynthConnection> connection;
     std::unique_ptr<PerformanceEditBuffer> performanceBuffer;
     std::array<std::optional<MidiChannel>, 4> channelOverrides;
+    // Declared after `connection`, which holds callbacks into it, so that it goes first.
+    std::unique_ptr<ConnectionCheck> check;
     std::array<SlotState, 4> slots;
     std::optional<GlobalChannel> foundGlobalChannel;
+    std::optional<GlobalChannel> manualChannel;
+    bool suspended = false;
     ConnectionStatus status = ConnectionStatus::NotConnected;
     // Slot reads queued on the known Global Channel and not yet finished.
     int pendingSlotReads = 0;

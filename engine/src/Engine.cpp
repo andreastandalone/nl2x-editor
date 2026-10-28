@@ -1,6 +1,7 @@
 #include "nl2x/Engine.h"
 
 #include "PerformanceEditBuffer.h"
+#include "ConnectionCheck.h"
 #include "SynthConnection.h"
 
 #include "nl2x/HardwareAssumptions.h"
@@ -17,8 +18,12 @@ constexpr GlobalChannel kGlobalChannelCount = 16;
 
 // The remembered Global Channel first (connecting is fast when nothing changed), then the one a
 // synth with factory settings uses, then the rest in order.
-std::vector<GlobalChannel> probeOrder(std::optional<GlobalChannel> remembered, std::optional<GlobalChannel> found)
+std::vector<GlobalChannel> probeOrder(std::optional<GlobalChannel> remembered, std::optional<GlobalChannel> found,
+                                      std::optional<GlobalChannel> manual)
 {
+    // A manual Global Channel is never probed around (spec #1, user story 4).
+    if (manual)
+        return { *manual };
     std::vector<GlobalChannel> order;
     const auto add = [&order](GlobalChannel channel) {
         if (channel < kGlobalChannelCount && std::find(order.begin(), order.end(), channel) == order.end())
@@ -49,7 +54,8 @@ bool isSlotEditBufferReply(std::span<const std::uint8_t> message)
 Engine::Engine(MidiOutput& midiOutput)
     : output(midiOutput),
       connection(std::make_unique<SynthConnection>(midiOutput)),
-      performanceBuffer(std::make_unique<PerformanceEditBuffer>())
+      performanceBuffer(std::make_unique<PerformanceEditBuffer>()),
+      check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); }))
 {
 }
 
@@ -57,7 +63,8 @@ Engine::~Engine() = default;
 
 void Engine::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs)
 {
-    // Incoming CCs (#6) come next; for now only replies to the engine's own requests count.
+    // Incoming CCs (#6) come next; for now only replies to requests count.
+    check->handleIncomingMidi(message, timeMs);
     connection->handleIncomingMidi(message, timeMs);
 }
 
@@ -68,6 +75,7 @@ void Engine::advanceTime(TimeMs timeMs)
     if (foundGlobalChannel && connection->isIdle(timeMs))
         if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
             connection->sendWithoutReply(*dump, timeMs);
+    check->advanceTime(timeMs);
 }
 
 void Engine::setParameter(Slot slot, ProgramParameter parameter, int value)
@@ -91,13 +99,14 @@ void Engine::setParameter(Slot slot, ProgramParameter parameter, int value)
 
 void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeMs timeMs)
 {
+    check->cancel();
     connection->clear();
     pendingSlotReads = 0;
     slotReadFailed = false;
     performanceBuffer->forget();
     changed();
     setStatus(ConnectionStatus::SearchingGlobalChannel);
-    probe(probeOrder(rememberedGlobalChannel, foundGlobalChannel), 0, Slot::A, true, timeMs);
+    probe(probeOrder(rememberedGlobalChannel, foundGlobalChannel, manualChannel), 0, Slot::A, true, timeMs);
 }
 
 void Engine::readSlot(Slot slot, TimeMs timeMs)
@@ -107,7 +116,7 @@ void Engine::readSlot(Slot slot, TimeMs timeMs)
 
     if (! foundGlobalChannel) {
         setStatus(ConnectionStatus::SearchingGlobalChannel);
-        probe(probeOrder(std::nullopt, std::nullopt), 0, slot, false, timeMs);
+        probe(probeOrder(std::nullopt, std::nullopt, manualChannel), 0, slot, false, timeMs);
         return;
     }
 

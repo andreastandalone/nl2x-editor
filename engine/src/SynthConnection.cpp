@@ -11,9 +11,10 @@ SynthConnection::SynthConnection(MidiOutput& midiOutput)
 {
 }
 
-void SynthConnection::enqueue(std::vector<std::uint8_t> request, Accepts accepts, Done done, TimeMs timeMs)
+void SynthConnection::enqueue(std::vector<std::uint8_t> request, Accepts accepts, Done done, TimeMs timeMs,
+                              Owner owner)
 {
-    queue.push_back({ std::move(request), std::move(accepts), std::move(done) });
+    queue.push_back({ std::move(request), std::move(accepts), std::move(done), owner });
     sendNextIfDue(timeMs);
 }
 
@@ -34,9 +35,31 @@ void SynthConnection::sendWithoutReply(std::span<const std::uint8_t> message, Ti
     nextSendTime = timeMs + hardware::kRequestSpacingMs;
 }
 
+void SynthConnection::cancel(Owner owner)
+{
+    std::erase_if(queue, [owner](const Request& request) { return request.owner == owner; });
+    if (waiting && waiting->owner == owner)
+        waiting.reset();
+}
+
+void SynthConnection::setSuspended(bool newSuspended, TimeMs timeMs)
+{
+    if (suspended == newSuspended)
+        return;
+    suspended = newSuspended;
+    if (suspended) {
+        if (waiting) {
+            queue.push_front(std::move(*waiting));
+            waiting.reset();
+        }
+        return;
+    }
+    nextSendTime = timeMs + hardware::kRequestSpacingMs;
+}
+
 void SynthConnection::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs)
 {
-    if (waiting && waiting->accepts(message))
+    if (! suspended && waiting && waiting->accepts(message))
         finishWaiting(message, timeMs);
 }
 
@@ -58,7 +81,7 @@ void SynthConnection::finishWaiting(std::optional<std::span<const std::uint8_t>>
 
 void SynthConnection::sendNextIfDue(TimeMs timeMs)
 {
-    if (waiting || queue.empty() || (nextSendTime && timeMs < *nextSendTime))
+    if (suspended || waiting || queue.empty() || (nextSendTime && timeMs < *nextSendTime))
         return;
 
     waiting = std::move(queue.front());

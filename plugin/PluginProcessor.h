@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MidiPorts.h"
+#include "SynthControl.h"
 
 #include "nl2x/Engine.h"
 
@@ -44,6 +45,28 @@ public:
     // Pins a Slot's channel regardless of the Performance (empty releases it). A service setting:
     // kept in the plugin state, never a DAW parameter. Message thread only.
     void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);
+
+    // Single instance (user story 11): whether this instance controls the synth. One that does
+    // not opens no MIDI port and sends nothing. Message thread only.
+    bool controlsSynth() const { return control.holds(); }
+    SynthControl::Refusal controlRefusal() const { return control.refusal(); }
+    // The user asks to take over after the controlling instance went away; false if it has not.
+    bool takeControlOfSynth();
+
+    // Manual Global Channel (0–15), or empty for Automatic: saved per user, then connects again.
+    void setManualGlobalChannel(std::optional<nl2x::GlobalChannel> channel);
+
+    // The Connection check panel. It opens by itself on the first connection ever and when the
+    // synth stops answering; open() also starts a check unless one is running. Message thread only.
+    void openConnectionCheck();
+    void closeConnectionCheck();
+    bool connectionCheckOpen() const { return checkOpen; }
+    void skipConnectionCheckStep();
+    // Milliseconds on the engine's clock, for showing the check's countdown.
+    static nl2x::TimeMs engineTimeMs();
+
+    // The Probe window runs a script: the engine sends no request and takes no reply meanwhile.
+    void setEngineRequestsSuspended(bool suspended);
 
     // Sees every MIDI message exchanged with the synth (the Probe window). Message thread only.
     class MidiMonitor {
@@ -126,7 +149,13 @@ private:
     // Connects to the synth when both ports are open and differ from the last connected pair.
     void connectIfPortsChanged();
     void rememberFoundGlobalChannel();
+    // Opens the Connection check when it should open by itself, and reconnects after a check that
+    // found the synth answering.
+    void watchConnection();
+    void forceReconnect();
 
+    // Before `ports`: control is released only after the ports are closed.
+    SynthControl control;
     juce::AudioProcessorValueTreeState parameters;
     // Declared before `ports`, so they outlive the MIDI input that writes to them.
     std::mutex incomingLock;
@@ -144,6 +173,11 @@ private:
     std::atomic<bool> slotChannelOverridesRestored { false };
     juce::String connectedInput;
     juce::String connectedOutput;
+    bool checkOpen = false;
+    // The check was started by this shell and has not been seen finishing yet.
+    bool checkAwaitingResult = false;
+    // The last of Connected or NoAnswer seen, to notice the synth stop answering.
+    nl2x::ConnectionStatus lastSettledStatus = nl2x::ConnectionStatus::NotConnected;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NL2XEditorProcessor)
 };

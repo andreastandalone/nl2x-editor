@@ -44,11 +44,31 @@ MidiPorts::MidiPorts(juce::MidiInputCallback& callback)
       settings(settingsOptions()),
       deviceListConnection(juce::MidiDeviceListConnection::make([this] { handleDeviceListChange(); }))
 {
+}
+
+void MidiPorts::open()
+{
+    if (active)
+        return;
+    active = true;
     reopenSavedPorts();
+    sendSynchronousChangeMessage();
+}
+
+void MidiPorts::close()
+{
+    if (! active)
+        return;
+    active = false;
+    input.reset();
+    output.reset();
+    sendSynchronousChangeMessage();
 }
 
 void MidiPorts::handleDeviceListChange()
 {
+    if (! active)
+        return;
     if (input != nullptr && nameOf(juce::MidiInput::getAvailableDevices(), input->getIdentifier()).isEmpty())
         input.reset();
     if (output != nullptr && nameOf(juce::MidiOutput::getAvailableDevices(), output->getIdentifier()).isEmpty())
@@ -77,7 +97,7 @@ void MidiPorts::reopenSavedPorts()
 
 void MidiPorts::selectInput(const juce::String& identifier)
 {
-    if (identifier == inputIdentifier())
+    if (! active || identifier == inputIdentifier())
         return;
 
     input.reset();
@@ -92,7 +112,7 @@ void MidiPorts::selectInput(const juce::String& identifier)
 
 void MidiPorts::selectOutput(const juce::String& identifier)
 {
-    if (identifier == outputIdentifier())
+    if (! active || identifier == outputIdentifier())
         return;
 
     output.reset();
@@ -124,5 +144,27 @@ void MidiPorts::rememberGlobalChannel(int channel)
     if (rememberedGlobalChannel() == channel)
         return;
     settings.setValue(kGlobalChannelKey, channel);
+    settings.saveIfNeeded();
+}
+
+std::optional<int> MidiPorts::manualGlobalChannel() const
+{
+    const auto channel = settings.getIntValue(kManualGlobalChannelKey, -1);
+    if (channel < 0 || channel > 15)
+        return std::nullopt;
+    return channel;
+}
+
+void MidiPorts::setManualGlobalChannel(std::optional<int> channel)
+{
+    if (manualGlobalChannel() == channel)
+        return;
+    settings.setValue(kManualGlobalChannelKey, channel ? *channel : -1);
+    settings.saveIfNeeded();
+}
+
+void MidiPorts::setConnectionCheckShown()
+{
+    settings.setValue(kConnectionCheckShownKey, true);
     settings.saveIfNeeded();
 }

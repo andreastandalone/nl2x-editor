@@ -50,7 +50,7 @@ void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message, TimeMs 
 
 void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message)
 {
-    if (message.size() == 3 && (message[0] & 0xF0) == kControlChange)
+    if (message.size() == 3 && (message[0] & 0xF0) == kControlChange && receivesCcs)
         handleControlChange(static_cast<MidiChannel>(message[0] & 0x0F), message[1], message[2]);
     else if (! message.empty() && message[0] == kSysExStart)
         handleSysEx(message);
@@ -63,8 +63,24 @@ void SimulatedNordLead2X::turnPanelControl(Slot slot, std::uint8_t cc, std::uint
         return;
 
     handleControlChange(*state.channel, cc, value);
+    if (! transmitsCcs)
+        return;
     const std::array<std::uint8_t, 3> message { static_cast<std::uint8_t>(kControlChange | *state.channel), cc, value };
     transmit(message);
+}
+
+void SimulatedNordLead2X::playKey(Slot slot, std::uint8_t note)
+{
+    const auto& state = slots[slotIndex(slot)];
+    if (! state.channel)
+        return;
+
+    constexpr std::uint8_t kNoteOn = 0x90;
+    constexpr std::uint8_t kNoteOff = 0x80;
+    const std::array<std::uint8_t, 3> on { static_cast<std::uint8_t>(kNoteOn | *state.channel), note, 100 };
+    const std::array<std::uint8_t, 3> off { static_cast<std::uint8_t>(kNoteOff | *state.channel), note, 0 };
+    transmit(on);
+    transmit(off);
 }
 
 void SimulatedNordLead2X::setEditBuffer(Slot slot, const Program& program)
@@ -239,7 +255,7 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
 void SimulatedNordLead2X::sendAllControllers(Slot slot)
 {
     const auto& state = slots[slotIndex(slot)];
-    if (! state.channel)
+    if (! state.channel || (hardware::kAllControllersReplyNeedsControlChangeOn && ! transmitsCcs))
         return;
 
     for (const auto& [cc, offset] : kCcToProgramOffset) {
