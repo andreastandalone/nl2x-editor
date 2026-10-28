@@ -15,7 +15,8 @@ class MidiPorts : public juce::ChangeBroadcaster {
 public:
     // Incoming messages are delivered to `inputCallback` on the MIDI driver's thread. No port is
     // opened until open(): an instance that does not control the synth never opens one.
-    explicit MidiPorts(juce::MidiInputCallback& inputCallback);
+    // `settingsFile` replaces the per-user file (development tools, which must not touch it).
+    explicit MidiPorts(juce::MidiInputCallback& inputCallback, const juce::File& settingsFile = {});
 
     // Opens the saved ports, and from then on reopens them when they come back.
     void open();

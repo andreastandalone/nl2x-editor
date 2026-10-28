@@ -30,6 +30,21 @@ public:
     NL2XEditorProcessor();
     ~NL2XEditorProcessor() override;
 
+    // Development tools only (tools/render-editor): a stand-in for the MIDI cables, for example to
+    // a simulated synth. A processor built on one opens no MIDI port, never competes for control of
+    // the synth, keeps its per-user settings in `settingsFile` instead of the user's, and connects
+    // at once; the link's replies come back through fromSynth().
+    class SynthLink {
+    public:
+        virtual ~SynthLink() = default;
+        virtual void toSynth(std::span<const std::uint8_t> message) = 0;
+    };
+    NL2XEditorProcessor(SynthLink& link, const juce::File& settingsFile);
+    // A message from the synth on the link, delivered on the next timer tick. Message thread only.
+    void fromSynth(std::span<const std::uint8_t> message);
+    // Both ends of the link to the synth are there: the MIDI ports are chosen (or a SynthLink).
+    bool midiPortsChosen() const;
+
     juce::AudioProcessorValueTreeState& parameterState() { return parameters; }
     MidiPorts& midiPorts() { return ports; }
 
@@ -78,7 +93,7 @@ public:
 
     // Single instance (user story 11): whether this instance controls the synth. One that does
     // not opens no MIDI port and sends nothing. Message thread only.
-    bool controlsSynth() const { return control.holds(); }
+    bool controlsSynth() const { return synthLink != nullptr || control.holds(); }
     SynthControl::Refusal controlRefusal() const { return control.refusal(); }
     // The user asks to take over after the controlling instance went away; false if it has not.
     bool takeControlOfSynth();
@@ -201,6 +216,9 @@ private:
     void watchConnection();
     void forceReconnect();
 
+    NL2XEditorProcessor(SynthLink* link, const juce::File& settingsFile);
+
+    SynthLink* const synthLink;
     // Before `ports`: control is released only after the ports are closed.
     SynthControl control;
     juce::AudioProcessorValueTreeState parameters;
