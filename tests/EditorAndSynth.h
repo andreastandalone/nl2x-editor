@@ -24,7 +24,11 @@ struct EditorAndSynth {
     // The shell's timer interval.
     static constexpr TimeMs kTickMs = 10;
 
-    EditorAndSynth()
+    // `switches`: a reading of the unverified hardware switches other than HardwareAssumptions.h's,
+    // followed by both the engine and the synth.
+    explicit EditorAndSynth(hardware::Switches switches = {})
+        : synth(switches),
+          engine(toSynth, switches)
     {
         toSynth.plugInto([this](auto message) {
             sendTimes.push_back(now);
@@ -82,6 +86,16 @@ struct EditorAndSynth {
         runUntilSettled();
     }
 
+    // The messages sent to the synth that are Program dumps (any type).
+    std::vector<Bytes> programDumpsSent() const
+    {
+        std::vector<Bytes> dumps;
+        for (const auto& message : toSynth.messages())
+            if (parseSysEx(message).kind == SysExKind::ProgramDump)
+                dumps.push_back(message);
+        return dumps;
+    }
+
     // The messages sent to the synth that are Performance dumps.
     std::vector<Bytes> performanceDumpsSent() const
     {
@@ -95,7 +109,7 @@ struct EditorAndSynth {
     MidiCable toSynth;
     MidiCable fromSynth;
     SimulatedNordLead2X synth;
-    Engine engine { toSynth };
+    Engine engine;
     std::deque<Bytes> pending;
     std::vector<TimeMs> sendTimes;
     TimeMs now = 1000;

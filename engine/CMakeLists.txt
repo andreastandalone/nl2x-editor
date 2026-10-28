@@ -4,13 +4,16 @@ add_library(nl2x_engine STATIC
     src/ConnectionCheck.cpp
     src/Engine.cpp
     src/EngineAudition.cpp
+    src/EngineMorph.cpp
     src/Performance.cpp
     src/PerformanceEditBuffer.cpp
     src/PerformanceSettings.cpp
     src/EngineConnectionCheck.cpp
     src/Library.cpp
+    src/MorphAmounts.cpp
     src/EngineSelection.cpp
     src/Program.cpp
+    src/ProgramDumpThrottle.cpp
     src/ProgramParameters.cpp
     src/Selection.cpp
     src/Slot.cpp

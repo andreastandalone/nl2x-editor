@@ -47,6 +47,8 @@ public:
     static constexpr int kProgramBankCount = 10;
 
     SimulatedNordLead2X();
+    // A synth following other readings of the unverified hardware switches (HardwareAssumptions.h).
+    explicit SimulatedNordLead2X(hardware::Switches switches);
 
     // A complete message arriving at the synth's MIDI In, at `timeMs` (used only by the pacing
     // misbehaviour); without a time, the time of the previous message is kept.
@@ -100,8 +102,12 @@ public:
         DumpDestination destination;
         std::uint8_t type;
         std::uint8_t spec;
+        // When it arrived, so that tests can check the rate of dumps.
+        TimeMs timeMs;
     };
     const std::vector<ReceivedDump>& receivedDumps() const { return dumpLog; }
+    // When each Program dump to `slot`'s Edit Buffer (type 0, spec = Slot) arrived, in order.
+    std::vector<TimeMs> programEditBufferDumpTimes(Slot slot) const;
     int receivedDumpCount(DumpDestination destination) const;
 
     // The Percussion Kit a Slot plays (8 Programs, by decoded offset); empty while it plays a Program.
@@ -187,6 +193,7 @@ private:
     void sendPerformance();
     void transmit(std::span<const std::uint8_t> message);
 
+    hardware::Switches switches;
     std::array<SlotState, 4> slots;
     PerformanceSettings settings {};
     std::array<std::array<Program, kProgramsPerBank>, kProgramBankCount> banks {};

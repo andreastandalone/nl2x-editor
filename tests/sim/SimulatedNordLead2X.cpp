@@ -150,7 +150,13 @@ std::optional<Slot> slotFromSpec(std::uint8_t spec)
 } // namespace
 
 SimulatedNordLead2X::SimulatedNordLead2X()
-    : globalChannel(hardware::kFactoryGlobalChannel)
+    : SimulatedNordLead2X(hardware::Switches {})
+{
+}
+
+SimulatedNordLead2X::SimulatedNordLead2X(hardware::Switches hardwareSwitches)
+    : switches(hardwareSwitches),
+      globalChannel(hardware::kFactoryGlobalChannel)
 {
     for (auto slot : kAllSlots)
         slots[slotIndex(slot)].channel = hardware::kDefaultSlotChannels[slotIndex(slot)];
@@ -255,6 +261,18 @@ void SimulatedNordLead2X::handleControlChange(MidiChannel channel, std::uint8_t 
     const auto* control = panelCc(cc);
     if (control == nullptr)
         return;
+    // CC35 may carry the sync bit only (HardwareAssumptions.h): the ring-mod bit is then kept.
+    if (cc == hardware::kRingModSyncCc && ! switches.ringModReachableByCc35) {
+        if (value > 1)
+            return;
+        for (auto slot : kAllSlots)
+            if (receivesOn(slot, channel)) {
+                auto& byte52 = slots[slotIndex(slot)].editBuffer[control->offset];
+                byte52 = static_cast<std::int8_t>((static_cast<std::uint8_t>(byte52) & ~1u) | value);
+            }
+        return;
+    }
+
     const auto stored = hardware::valueFromCcData(cc, control->isSwitch, value);
     if (! stored)
         return;
@@ -353,6 +371,16 @@ void SimulatedNordLead2X::sendSlotEditBuffer(Slot requested)
         transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType, spec, state.editBuffer));
 }
 
+std::vector<TimeMs> SimulatedNordLead2X::programEditBufferDumpTimes(Slot slot) const
+{
+    std::vector<TimeMs> times;
+    for (const auto& dump : dumpLog)
+        if (dump.kind == SysExKind::ProgramDump && dump.type == hardware::kProgramEditBufferDumpType
+            && dump.spec == slotIndex(slot))
+            times.push_back(dump.timeMs);
+    return times;
+}
+
 int SimulatedNordLead2X::receivedDumpCount(DumpDestination destination) const
 {
     return static_cast<int>(std::count_if(dumpLog.begin(), dumpLog.end(),
@@ -367,7 +395,7 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
                                   ? dump.type == hardware::kPerformanceEditBufferDumpType
                                   : dump.type == hardware::kProgramEditBufferDumpType;
     dumpLog.push_back({ dump.kind, toEditBuffer ? DumpDestination::EditBuffer : DumpDestination::Bank, dump.type,
-                        dump.spec });
+                        dump.spec, now });
 
     if (dump.kind == SysExKind::ProgramDump) {
         Program program;

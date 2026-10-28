@@ -194,6 +194,28 @@ inline constexpr std::uint8_t kRingModSyncCc = 35;
 inline constexpr std::uint8_t kRingModSyncBits = 0x03;
 inline constexpr std::array<std::string_view, 4> kRingModSyncChoices { "Off", "Sync", "Ring Mod", "Sync + Ring Mod" };
 
+// Whether CC35 reaches the ring-mod bit (bit 1 of byte 52) at all. The research lists "Ring Mod as
+// a separate control" among the things not reachable by CC (research §2): the CC chart names CC35
+// "Oscillator Sync" only [OFF-2X p.103]. We assume it carries both bits (the 4-state control
+// above). If plan step 9 shows it carries sync only, set this to false: CC35 then carries the sync
+// bit as 0/1 (values above 1 from the synth are ignored), and a change of the ring-mod bit goes to
+// the synth as a throttled Program dump to the Slot's Edit Buffer instead (#7).
+// Status: [INF], plan step 9.
+inline constexpr bool kRingModReachableByCc35 = true;
+
+// The bits of byte 52 that CC35 carries, under either reading of the switch above.
+constexpr std::uint8_t ringModSyncCcBits(bool ringModReachableByCc35)
+{
+    return ringModReachableByCc35 ? kRingModSyncBits : std::uint8_t { 0x01 };
+}
+
+// The switches above that tests flip to cover both readings until hardware discovery (#3) settles
+// them. Production code always uses the defaults, which are the constants; only tests construct
+// an Engine or the simulated synth with other values.
+struct Switches {
+    bool ringModReachableByCc35 = kRingModReachableByCc35;
+};
+
 // Filter Distortion (CC80, an on/off button) is bit 4 of byte 52 [OFF-2X p.111]; the other bits
 // of byte 52 are kept when it changes. Status: the bit is documented; that CC80 drives it is [INF].
 inline constexpr std::uint8_t kFilterDistortionBit = 0x10;
@@ -297,6 +319,15 @@ inline constexpr int kRequestSpacingMs = 20;
 // at once, and how long it needs to digest one, is unknown (research §7.3).
 // Status: [INF] (plan steps 6 and 8).
 inline constexpr int kPerformanceDumpIntervalMs = 100;
+
+// Parameters without a CC (the Morph Amounts, and the ring-mod bit if CC35 does not reach it) are
+// sent as whole Program dumps (139 bytes, about 45 ms on the wire) to the Slot's Edit Buffer
+// (type 0, spec = Slot). Rapid edits are coalesced into at most one dump per Slot per this
+// interval, about 10 per second (spec #1, "Sync"): the first edit goes out at once, later ones
+// within the interval are sent together when it has passed. Whether a type-0 dump is applied at
+// once and audibly, and how fast the synth can take them, is unknown (research §7.4).
+// Status: [INF] pacing (plan step 7).
+inline constexpr int kProgramDumpIntervalMs = 100;
 
 // ---------------------------------------------------------------------------------------------
 // Selecting stored Programs and Performances (#10)

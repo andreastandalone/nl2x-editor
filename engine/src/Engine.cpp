@@ -1,6 +1,7 @@
 #include "nl2x/Engine.h"
 
 #include "PerformanceEditBuffer.h"
+#include "ProgramDumpThrottle.h"
 #include "SelectionTracker.h"
 #include "ConnectionCheck.h"
 #include "SynthConnection.h"
@@ -53,10 +54,17 @@ bool isSlotEditBufferReply(std::span<const std::uint8_t> message)
 } // namespace
 
 Engine::Engine(MidiOutput& midiOutput)
+    : Engine(midiOutput, hardware::Switches {})
+{
+}
+
+Engine::Engine(MidiOutput& midiOutput, hardware::Switches hardwareSwitches)
     : output(midiOutput),
       connection(std::make_unique<SynthConnection>(midiOutput)),
       performanceBuffer(std::make_unique<PerformanceEditBuffer>()),
       selectionTracker(std::make_unique<SelectionTracker>()),
+      programDumps(std::make_unique<ProgramDumpThrottle>()),
+      switches(hardwareSwitches),
       check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); }))
 {
 }
@@ -81,11 +89,16 @@ void Engine::advanceTime(TimeMs timeMs)
         if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
             connection->sendWithoutReply(*dump, timeMs);
     sendDueAudition(timeMs);
+    sendDueProgramDumps(timeMs);
     check->advanceTime(timeMs);
 }
 
 void Engine::setParameter(Slot slot, CcParameter parameter, int value)
 {
+    if (parameter == CcParameter::RingModSync && ! switches.ringModReachableByCc35) {
+        setRingModSyncWithoutRingModCc(slot, value);
+        return;
+    }
     auto& state = slots[slotIndex(slot)];
     if (state.program && ccParameterValue(*state.program, parameter) != value) {
         setCcParameterValue(*state.program, parameter, value);
@@ -105,6 +118,10 @@ void Engine::applyControlChange(MidiChannel channel, std::uint8_t cc, std::uint8
     const auto parameter = ccParameterOfController(cc);
     if (! parameter)
         return;
+    if (*parameter == CcParameter::RingModSync && ! switches.ringModReachableByCc35) {
+        applySyncOnlyControlChange(channel, data);
+        return;
+    }
     const auto value = valueOfCcData(*parameter, data);
     if (! value)
         return;
@@ -131,6 +148,7 @@ void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeM
     slotReadFailed = false;
     performanceBuffer->forget();
     pendingAuditions.clear();
+    programDumps->dropAllUnsentEdits();
     changed();
     setStatus(ConnectionStatus::SearchingGlobalChannel);
     probe(probeOrder(rememberedGlobalChannel, foundGlobalChannel, manualChannel), 0, Slot::A, true, timeMs);
@@ -288,10 +306,12 @@ void Engine::applySlotReply(Slot slot, std::span<const std::uint8_t> reply)
         if (const auto dump = parseProgramDump(reply)) {
             state.content = SlotContent::Program;
             state.program = dump->program;
+            programDumps->applyUnsentEdits(slot, *state.program);
         }
         break;
     case hardware::SlotEditBufferReply::PercussionKit:
         state.content = SlotContent::PercussionKit;
+        programDumps->dropUnsentEdits(slot);
         break;
     case hardware::SlotEditBufferReply::NotAReply:
         break;

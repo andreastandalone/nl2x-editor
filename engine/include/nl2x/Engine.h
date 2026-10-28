@@ -3,7 +3,9 @@
 #include "nl2x/Audition.h"
 #include "nl2x/CcParameters.h"
 #include "nl2x/ConnectionCheck.h"
+#include "nl2x/HardwareAssumptions.h"
 #include "nl2x/MidiOutput.h"
+#include "nl2x/MorphAmounts.h"
 #include "nl2x/Performance.h"
 #include "nl2x/ProgramParameters.h"
 #include "nl2x/Selection.h"
@@ -24,6 +26,7 @@ namespace nl2x {
 
 class PerformanceEditBuffer;
 class ConnectionCheck;
+class ProgramDumpThrottle;
 class SynthConnection;
 struct SelectionTracker;
 
@@ -32,6 +35,8 @@ struct SelectionTracker;
 class Engine {
 public:
     explicit Engine(MidiOutput& output);
+    // Tests only: an engine following other readings of the unverified hardware switches.
+    Engine(MidiOutput& output, hardware::Switches switches);
     ~Engine();
 
     // A complete MIDI message received from the synth. A CC of a CcParameter on a channel updates
@@ -44,8 +49,20 @@ public:
 
     // The user (GUI or DAW automation) set a parameter of a Slot's Program, in the parameter's
     // own range (CcParameterInfo::minValue … maxValue): its CC goes out on the Slot's channel and
-    // the Slot's Edit Buffer, once read, holds the new value.
+    // the Slot's Edit Buffer, once read, holds the new value. When CC35 does not reach the
+    // ring-mod bit (hardware::kRingModReachableByCc35), a change of that bit goes out with the
+    // Slot's next throttled Program dump instead, as a Morph Amount does.
     void setParameter(Slot slot, CcParameter parameter, int value);
+
+    // Morph Amounts (#7, EngineMorph.cpp). The user (GUI or DAW automation) set the Morph Amount of
+    // a morphable base parameter of a Slot playing a Program, −128…127 (0 = off; values outside are
+    // brought into it). It goes into the Slot's Edit Buffer and reaches the synth as a whole
+    // Program dump to that Edit Buffer (type 0, never a Bank dump), carrying every other edit too:
+    // at once when the Slot's last dump is kProgramDumpIntervalMs old and nothing waits for a
+    // reply, otherwise coalesced and sent on a later advanceTime(). Nothing goes out while
+    // requests are suspended. Edits not sent yet survive a read of the Slot; a selection, an
+    // Audition or a new connection drops them.
+    MorphEditResult setMorphAmount(Slot slot, ProgramParameter baseParameter, int amount, TimeMs timeMs);
 
     // Connects to the synth (MIDI ports opened, app started, or the user asked): finds the Global
     // Channel by asking each possible one for Slot A's Edit Buffer, `rememberedGlobalChannel`
@@ -159,6 +176,12 @@ private:
 
     void changed() { ++revision; }
 
+    // Program dumps for edits without a CC (EngineMorph.cpp).
+    void sendDueProgramDumps(TimeMs timeMs);
+    void dropUnsentProgramEdits(const std::array<bool, 4>& slotsReplaced);
+    void setRingModSyncWithoutRingModCc(Slot slot, int value);
+    void applySyncOnlyControlChange(MidiChannel channel, std::uint8_t data);
+
     // An auditioned dump not sent yet; `slot` is empty for the Performance Edit Buffer.
     struct PendingAudition {
         std::optional<Slot> slot;
@@ -172,6 +195,8 @@ private:
     std::unique_ptr<SynthConnection> connection;
     std::unique_ptr<PerformanceEditBuffer> performanceBuffer;
     std::unique_ptr<SelectionTracker> selectionTracker;
+    std::unique_ptr<ProgramDumpThrottle> programDumps;
+    hardware::Switches switches;
     std::array<std::optional<MidiChannel>, 4> channelOverrides;
     // Declared after `connection`, which holds callbacks into it, so that it goes first.
     std::unique_ptr<ConnectionCheck> check;
