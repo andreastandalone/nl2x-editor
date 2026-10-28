@@ -4,7 +4,10 @@
 
 #include "EditorAndSynth.h"
 
+#include "nl2x/HardwareAssumptions.h"
+#include "nl2x/MorphAmounts.h"
 #include "nl2x/Performance.h"
+#include "nl2x/Program.h"
 #include "nl2x/SysEx.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -317,4 +320,120 @@ TEST_CASE("When the synth's Edit Buffer replaces the plugin's copy, its edits le
         rig.connect();
         CHECK_FALSE(rig.engine.canUndo());
     }
+}
+
+namespace {
+
+// Research §3: Filter Cutoff's Morph Amount is Program byte 28.
+constexpr std::size_t kFilterCutoffMorphOffset = 28;
+
+void userSetsMorphAmount(EditorAndSynth& rig, EditStepId step, Slot slot, ProgramParameter base, int amount)
+{
+    rig.engine.beginUserEdit(step);
+    rig.engine.setMorphAmount(slot, base, amount, rig.now);
+    rig.engine.endUserEdit();
+}
+
+// The Filter Cutoff Morph Amount in each Program dump sent to `slot`'s Edit Buffer, in order.
+std::vector<int> cutoffMorphAmountsSent(const EditorAndSynth& rig, Slot slot)
+{
+    std::vector<int> amounts;
+    for (const auto& message : rig.programDumpsSent()) {
+        const auto dump = parseProgramDump(message);
+        if (dump && dump->spec == slotIndex(slot))
+            amounts.push_back(dump->program.bytes()[kFilterCutoffMorphOffset]);
+    }
+    return amounts;
+}
+
+} // namespace
+
+TEST_CASE("Undo and redo of a Morph Amount send Program dumps with the old and the new amount, throttled")
+{
+    EditorAndSynth rig;
+    rig.connect();
+    const int original = rig.synth.editBuffer(Slot::C)[kFilterCutoffMorphOffset];
+    const int edited = original == 40 ? 30 : 40;
+
+    userSetsMorphAmount(rig, rig.engine.newEditStep(), Slot::C, ProgramParameter::FilterCutoff, edited);
+    rig.runFor(500);
+    REQUIRE(rig.synth.editBuffer(Slot::C)[kFilterCutoffMorphOffset] == edited);
+
+    rig.toSynth.clear();
+    rig.sendTimes.clear();
+    rig.engine.undo(rig.now);
+    rig.engine.redo(rig.now);
+    rig.engine.undo(rig.now);
+    rig.runFor(1000);
+
+    // Three changes within one throttle interval: the last one always arrives, and dumps keep
+    // their interval.
+    const auto amounts = cutoffMorphAmountsSent(rig, Slot::C);
+    REQUIRE_FALSE(amounts.empty());
+    CHECK(amounts.size() <= 2);
+    CHECK(amounts.back() == original);
+    CHECK(rig.synth.editBuffer(Slot::C)[kFilterCutoffMorphOffset] == original);
+    for (std::size_t i = 1; i < rig.sendTimes.size(); ++i)
+        CHECK(rig.sendTimes[i] - rig.sendTimes[i - 1] >= hardware::kProgramDumpIntervalMs);
+
+    rig.toSynth.clear();
+    rig.engine.redo(rig.now);
+    rig.runFor(1000);
+    CHECK(cutoffMorphAmountsSent(rig, Slot::C) == std::vector<int> { edited });
+    CHECK(rig.synth.editBuffer(Slot::C)[kFilterCutoffMorphOffset] == edited);
+}
+
+TEST_CASE("A Morph Amount drag is one undo step")
+{
+    EditorAndSynth rig;
+    rig.connect();
+    const int original = rig.synth.editBuffer(Slot::A)[kFilterCutoffMorphOffset];
+
+    const auto drag = rig.engine.newEditStep();
+    for (int amount = -60; amount <= 60; amount += 20) {
+        userSetsMorphAmount(rig, drag, Slot::A, ProgramParameter::FilterCutoff, amount);
+        rig.tick();
+    }
+    rig.runFor(500);
+
+    rig.engine.undo(rig.now);
+    rig.runFor(500);
+    CHECK(rig.synth.editBuffer(Slot::A)[kFilterCutoffMorphOffset] == original);
+    CHECK_FALSE(rig.engine.canUndo());
+}
+
+TEST_CASE("Steps mixing CC parameters and Morph Amounts undo latest first")
+{
+    EditorAndSynth rig;
+    rig.connect();
+    const int originalCutoff = synthCutoff(rig, Slot::A);
+    const int originalMorph = rig.synth.editBuffer(Slot::A)[kFilterCutoffMorphOffset];
+
+    userSetsParameter(rig, rig.engine.newEditStep(), Slot::A, CcParameter::FilterCutoff, 11);
+    userSetsMorphAmount(rig, rig.engine.newEditStep(), Slot::A, ProgramParameter::FilterCutoff, 55);
+    userSetsParameter(rig, rig.engine.newEditStep(), Slot::A, CcParameter::FilterCutoff, 22);
+    rig.runFor(500);
+
+    rig.engine.undo(rig.now);
+    rig.runFor(500);
+    CHECK(synthCutoff(rig, Slot::A) == 11);
+    CHECK(rig.synth.editBuffer(Slot::A)[kFilterCutoffMorphOffset] == 55);
+
+    rig.engine.undo(rig.now);
+    rig.runFor(500);
+    CHECK(synthCutoff(rig, Slot::A) == 11);
+    CHECK(rig.synth.editBuffer(Slot::A)[kFilterCutoffMorphOffset] == originalMorph);
+
+    rig.engine.undo(rig.now);
+    rig.runFor(500);
+    CHECK(synthCutoff(rig, Slot::A) == originalCutoff);
+    CHECK_FALSE(rig.engine.canUndo());
+}
+
+TEST_CASE("Morph Amounts set by DAW automation are not undoable")
+{
+    EditorAndSynth rig;
+    rig.connect();
+    rig.engine.setMorphAmount(Slot::A, ProgramParameter::FilterCutoff, 33, rig.now);
+    CHECK_FALSE(rig.engine.canUndo());
 }
