@@ -92,8 +92,9 @@ void Engine::advanceTime(TimeMs timeMs)
     rereadAfterSelection(timeMs);
     connection->advanceTime(timeMs);
     memory->advanceTime(timeMs);
-    // Edits wait until no request is in flight, so a dump never interrupts a reply.
-    if (foundGlobalChannel && connection->isIdle(timeMs))
+    // Edits wait until no request is in flight, so a dump never interrupts a reply, and while the
+    // synth's memory is written: a Performance dump carries the Slots' Banks (bankselect).
+    if (foundGlobalChannel && connection->isIdle(timeMs) && ! memory->holdsEditBufferDumps())
         if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
             connection->sendWithoutReply(*dump, timeMs);
     sendDueAudition(timeMs);

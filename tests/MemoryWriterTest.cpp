@@ -493,3 +493,36 @@ TEST_CASE("Memory writer: a sound selected on the synth during a Bank send stops
     CHECK(rig.bankDumpTimes.size() == 5);
     CHECK(rig.synth.bankProgram(1, 10) == patternProgram(110));
 }
+
+TEST_CASE("Memory writer: no Edit Buffer dump goes out between the confirmation and the end of the write")
+{
+    Rig rig(kVerified, "edits-held");
+    REQUIRE(rig.memory().prepareBankSend(bankFile(99), 2, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+
+    const auto isEditBufferProgramDump = [](const Bytes& message) {
+        const auto parsed = parseSysEx(message);
+        return parsed.kind == SysExKind::ProgramDump && parsed.type == hardware::kProgramEditBufferDumpType;
+    };
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    const auto confirmedAt = rig.toSynth.messages().size();
+    // Morph Amount edits right after confirming (before the Bank check) and during the write.
+    int amount = 1;
+    rig.engine.setMorphAmount(Slot::A, ProgramParameter::FilterCutoff, amount, rig.now);
+    while (rig.memory().holdsEditBufferDumps()) {
+        rig.tick();
+        rig.engine.setMorphAmount(Slot::A, ProgramParameter::FilterCutoff, ++amount % 100, rig.now);
+    }
+    const auto writeEndedAt = rig.toSynth.messages().size();
+    rig.settle();
+    REQUIRE(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.status().message.find("Read back: 99 of 99") != std::string::npos);
+    CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 99);
+
+    const auto& sent = rig.toSynth.messages();
+    CHECK(std::none_of(sent.begin() + static_cast<std::ptrdiff_t>(confirmedAt),
+                       sent.begin() + static_cast<std::ptrdiff_t>(writeEndedAt), isEditBufferProgramDump));
+    // The held edit goes out afterwards.
+    rig.runFor(500);
+    CHECK(std::any_of(sent.begin() + static_cast<std::ptrdiff_t>(writeEndedAt), sent.end(), isEditBufferProgramDump));
+}

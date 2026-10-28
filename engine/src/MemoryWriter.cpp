@@ -118,6 +118,12 @@ bool MemoryWriter::busy() const
     }
 }
 
+bool MemoryWriter::holdsEditBufferDumps() const
+{
+    return current.stage == MemoryStage::CheckingSelectedBank || current.stage == MemoryStage::Writing
+           || current.stage == MemoryStage::Verifying;
+}
+
 MemoryRefusal MemoryWriter::startRefusal(int bank) const
 {
     if (! engine.globalChannel())

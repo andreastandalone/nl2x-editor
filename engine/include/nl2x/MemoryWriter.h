@@ -163,6 +163,11 @@ public:
     const MemoryTaskStatus& status() const { return current; }
     // A task is under way or waiting for its confirmation.
     bool busy() const;
+    // From confirmation to the end of the read-back: the Engine then sends no Edit Buffer dump
+    // (Morph Program dumps, Auditions, Performance edits) until the write is over. A Performance
+    // dump would set the Bank selected on the synth (its bankselect bytes are received) after the
+    // check; the others are held too, so that only the write and its own requests reach the synth.
+    bool holdsEditBufferDumps() const;
 
     // Called by the Engine.
     void advanceTime(TimeMs timeMs);
