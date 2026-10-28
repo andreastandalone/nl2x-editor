@@ -294,7 +294,7 @@ TEST_CASE("Save Slot as .syx writes the Slot's Edit Buffer, with the edits made,
     EditorAndSynth rig;
     rig.synth.setGlobalChannel(6);
     rig.connect();
-    rig.engine.setParameter(Slot::B, ProgramParameter::FilterCutoff, 101);
+    rig.engine.setParameter(Slot::B, CcParameter::FilterCutoff, 101);
 
     const auto file = slotProgramFile(rig.engine, Slot::B);
     REQUIRE(file);
@@ -324,7 +324,7 @@ TEST_CASE("Save Performance as .syx writes a Performance Edit Buffer dump with t
     EditorAndSynth rig;
     CHECK_FALSE(performanceFile(rig.engine));
     rig.connect();
-    rig.engine.setParameter(Slot::D, ProgramParameter::FilterCutoff, 9);
+    rig.engine.setParameter(Slot::D, CcParameter::FilterCutoff, 9);
 
     const auto file = performanceFile(rig.engine);
     REQUIRE(file);
@@ -365,7 +365,7 @@ TEST_CASE("Audition sends a Program to the selected Slot's Edit Buffer and never
 
     SECTION("a CC afterwards edits the auditioned Program")
     {
-        rig.engine.setParameter(Slot::C, ProgramParameter::FilterCutoff, 33);
+        rig.engine.setParameter(Slot::C, CcParameter::FilterCutoff, 33);
         CHECK(rig.synth.editBuffer(Slot::C)[3] == 33);
         CHECK(rig.engine.slotState(Slot::C).program->value(ProgramParameter::FilterCutoff) == 33);
     }
