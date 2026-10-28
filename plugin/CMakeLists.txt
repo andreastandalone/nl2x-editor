@@ -19,9 +19,11 @@ juce_add_plugin(NL2XEditor
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
 target_sources(NL2XEditor PRIVATE
+    MidiPortSelector.cpp
     MidiPorts.cpp
     PluginEditor.cpp
-    PluginProcessor.cpp)
+    PluginProcessor.cpp
+    ProbeWindow.cpp)
 
 target_compile_definitions(NL2XEditor PUBLIC
     JUCE_WEB_BROWSER=0
@@ -31,6 +33,7 @@ target_compile_definitions(NL2XEditor PUBLIC
 target_link_libraries(NL2XEditor
     PRIVATE
         nl2x_engine
+        nl2x_probe
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags

@@ -6,7 +6,9 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <cstdint>
 #include <mutex>
+#include <span>
 #include <vector>
 
 // The plugin shell. It owns threading and the MIDI ports; every decision is the engine's.
@@ -23,6 +25,22 @@ public:
 
     juce::AudioProcessorValueTreeState& parameterState() { return parameters; }
     MidiPorts& midiPorts() { return ports; }
+
+    // Sees every MIDI message exchanged with the synth (the Probe window). Message thread only.
+    class MidiMonitor {
+    public:
+        virtual ~MidiMonitor() = default;
+        // `timeMs` is on the juce::Time::getMillisecondCounterHiRes() clock.
+        virtual void midiFromSynth(std::span<const std::uint8_t> message, double timeMs) = 0;
+        virtual void midiToSynth(std::span<const std::uint8_t> message, double timeMs) = 0;
+    };
+    void setMidiMonitor(MidiMonitor* monitor) { midiMonitor = monitor; }
+
+    // Sends a message to the synth's MIDI output port. Message thread only.
+    void sendToSynth(std::span<const std::uint8_t> message);
+    // Hands queued messages from the synth to the engine and the monitor now, instead of on the
+    // next 10 ms tick (the probe measures timing). Message thread only.
+    void deliverIncomingMidi();
 
     // AudioProcessor
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -53,11 +71,11 @@ private:
     // Connects the engine's output to the chosen MIDI output port.
     class EngineMidiOutput final : public nl2x::MidiOutput {
     public:
-        explicit EngineMidiOutput(MidiPorts& midiPorts) : ports(midiPorts) {}
-        void send(std::span<const std::uint8_t> message) override;
+        explicit EngineMidiOutput(NL2XEditorProcessor& owner) : processor(owner) {}
+        void send(std::span<const std::uint8_t> message) override { processor.sendToSynth(message); }
 
     private:
-        MidiPorts& ports;
+        NL2XEditorProcessor& processor;
     };
 
     // A DAW parameter bound to one Slot's Program parameter.
@@ -72,7 +90,6 @@ private:
 
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
     void timerCallback() override;
-    void deliverIncomingMidi();
     void sendChangedParameters();
 
     juce::AudioProcessorValueTreeState parameters;
@@ -80,7 +97,8 @@ private:
     std::mutex incomingLock;
     std::vector<juce::MidiMessage> incoming;
     MidiPorts ports;
-    EngineMidiOutput engineOutput { ports };
+    MidiMonitor* midiMonitor = nullptr;
+    EngineMidiOutput engineOutput { *this };
     nl2x::Engine engine { engineOutput };
     std::vector<BoundParameter> boundParameters;
 
