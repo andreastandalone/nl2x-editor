@@ -14,6 +14,13 @@ namespace nl2x {
 
 namespace {
 
+std::array<bool, 4> oneSlot(Slot slot)
+{
+    std::array<bool, 4> slots {};
+    slots[slotIndex(slot)] = true;
+    return slots;
+}
+
 std::string slotName(Slot slot)
 {
     return std::string("Slot ") + slotLetter(slot);
@@ -52,6 +59,8 @@ AuditionResult Engine::auditionProgram(Slot slot, const Program& program, TimeMs
     if (state.content == SlotContent::PercussionKit)
         return AuditionResult::RefusedSlotPlaysPercussionKit;
 
+    // The auditioned Program replaces the Edit Buffer, Morph edits not sent yet included.
+    dropUnsentProgramEdits(oneSlot(slot));
     if (state.program != program) {
         state.program = program;
         changed();
@@ -88,6 +97,7 @@ AuditionResult Engine::auditionPerformance(const Performance& performance, TimeM
     performanceBuffer->dropUnsentEdits();
     // It also replaces every Slot's Program: a Program Audition still waiting would be undone by it.
     std::erase_if(pendingAuditions, [](const auto& pending) { return pending.slot && ! pending.percussionKit; });
+    dropUnsentProgramEdits({ true, true, true, true });
     const auto& bytes = performance.bytes();
     queueAudition({ std::nullopt, false, { bytes.begin(), bytes.end() } }, timeMs);
     return AuditionResult::Sent;

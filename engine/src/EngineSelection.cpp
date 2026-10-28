@@ -48,6 +48,8 @@ SelectionResult Engine::selectProgram(Slot slot, ProgramSelection selection, Tim
     for (auto other : kAllSlots)
         if (reached[slotIndex(other)])
             selectionTracker->state.programs[slotIndex(other)] = selection;
+    // Morph edits of the old Programs not sent yet must not land on the new ones.
+    dropUnsentProgramEdits(reached);
     // The Performance too: its copy of the Program and its pgmselect/bankselect bytes change, and
     // a later Performance edit is sent as a whole dump built from that copy.
     selectionTracker->scheduleReread(timeMs, reached, true);
@@ -67,6 +69,7 @@ SelectionResult Engine::selectPerformance(PerformanceSelection selection, TimeMs
     sendSelection(*channel, *midi);
     // Edits of the old Performance not sent yet must not land on the new one.
     performanceBuffer->dropUnsentEdits();
+    dropUnsentProgramEdits(kEverySlot);
     selectionTracker->state.performance = selection;
     // The Slots now play the new Performance's Programs; the Performance read fills them in.
     selectionTracker->state.programs = {};
@@ -131,6 +134,7 @@ void Engine::followSelectionOnSynth(std::span<const std::uint8_t> message, TimeM
             bank = midiSelection(*tracker.state.performance)->bankSelect;
         tracker.state.performance = bank ? performanceSelectionFromMidi(*bank, programChange) : std::nullopt;
         performanceBuffer->dropUnsentEdits();
+        dropUnsentProgramEdits(kEverySlot);
         tracker.state.programs = {};
         tracker.scheduleReread(timeMs, kEverySlot, true);
         changed();
@@ -151,6 +155,7 @@ void Engine::followSelectionOnSynth(std::span<const std::uint8_t> message, TimeM
             bank = selected->bank + hardware::kBankSelectOfProgramBank0;
         selected = bank ? programSelectionFromMidi(*bank, programChange) : std::nullopt;
     }
+    dropUnsentProgramEdits(reached);
     tracker.scheduleReread(timeMs, reached, true);
     changed();
 }
