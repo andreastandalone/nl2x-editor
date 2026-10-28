@@ -78,7 +78,8 @@ public:
     bool mightContainSubItems() override { return file.entries.size() > 1; }
     juce::String getUniqueName() const override { return utf8(file.path.string()); }
     int getItemHeight() const override { return kRowHeight; }
-    bool canBeSelected() const override { return file.entries.size() == 1; }
+    // A Bank file is selected to send it to the synth (#12).
+    bool canBeSelected() const override { return ! file.entries.empty(); }
 
     void paintItem(juce::Graphics& g, int width, int height) override
     {
@@ -115,6 +116,8 @@ public:
     {
         if (file.entries.size() == 1)
             panel.entrySelected(isNowSelected ? &file.entries.front() : nullptr);
+        else
+            panel.bankFileSelected(file, isNowSelected);
     }
 
 private:
@@ -238,6 +241,7 @@ void LibraryPanel::rescan()
     tree.setRootItem(nullptr);
     root.reset();
     selectedEntry = nullptr;
+    selectedFile = nullptr;
     saveEntryButton.setEnabled(false);
 
     const auto current = folder();
@@ -282,6 +286,14 @@ void LibraryPanel::entrySelected(const nl2x::LibraryEntry* entry)
     else if (tree.getNumSelectedItems() == 0)
         selectedEntry = nullptr;
     saveEntryButton.setEnabled(selectedEntry != nullptr);
+}
+
+void LibraryPanel::bankFileSelected(const nl2x::LibraryFile& file, bool isNowSelected)
+{
+    if (isNowSelected)
+        selectedFile = &file;
+    else if (selectedFile == &file)
+        selectedFile = nullptr;
 }
 
 void LibraryPanel::auditionEntry(const nl2x::LibraryEntry& entry)

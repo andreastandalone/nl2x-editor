@@ -27,13 +27,19 @@ public:
     void entryClicked(const nl2x::LibraryEntry& entry);
     void entryDoubleClicked(const nl2x::LibraryEntry& entry);
     void entrySelected(const nl2x::LibraryEntry* entry);
+    void bankFileSelected(const nl2x::LibraryFile& file, bool isNowSelected);
+
+    // The selected file holding several dumps (a Bank file), for "Send Bank file to synth…" (#12);
+    // nullptr when none is selected. Valid until the next rescan().
+    const nl2x::LibraryFile* selectedBankFile() const { return selectedFile; }
+    juce::File folder() const;
+    // Reads the Library folder again.
+    void rescan();
 
 private:
     void timerCallback() override;
-    juce::File folder() const;
     void setFolder(const juce::File& newFolder);
     void chooseFolder();
-    void rescan();
     void auditionEntry(const nl2x::LibraryEntry& entry);
     void saveSlot();
     void savePerformance();
@@ -60,6 +66,7 @@ private:
     std::vector<nl2x::LibraryFile> files;
     std::unique_ptr<juce::TreeViewItem> root;
     const nl2x::LibraryEntry* selectedEntry = nullptr;
+    const nl2x::LibraryFile* selectedFile = nullptr;
     std::unique_ptr<juce::FileChooser> chooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LibraryPanel)
