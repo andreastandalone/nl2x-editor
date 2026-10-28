@@ -10,9 +10,10 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     : AudioProcessorEditor(owner),
       editorProcessor(owner),
       cutoffAttachment(owner.parameterState(), kCutoffParameterId, cutoffKnob),
-      portSelector(owner.midiPorts())
+      portSelector(owner.midiPorts()),
+      slotView(owner)
 {
-    for (auto* title : { &slotTitle, &settingsTitle })
+    for (auto* title : { &slotTitle, &settingsTitle, &synthTitle })
         title->setFont(juce::FontOptions(16.0f, juce::Font::bold));
 
     cutoffLabel.setText(juce::String(std::string(nl2x::programParameterInfo(nl2x::ProgramParameter::FilterCutoff).name)),
@@ -21,7 +22,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     cutoffKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
 
     for (auto* child : std::initializer_list<juce::Component*> { &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle,
-                                                                 &portSelector })
+                                                                 &portSelector, &synthTitle, &slotView })
         addAndMakeVisible(child);
 
     // The probe sends raw requests and dumps: a developer tool, never shown inside a DAW.
@@ -31,7 +32,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
         addAndMakeVisible(probeButton);
     }
 
-    setSize(520, 300);
+    setSize(720, 760);
 }
 
 NL2XPluginEditor::~NL2XPluginEditor() = default;
@@ -52,6 +53,10 @@ void NL2XPluginEditor::paint(juce::Graphics& g)
 void NL2XPluginEditor::resized()
 {
     auto area = getLocalBounds().reduced(16);
+
+    auto synthArea = area.removeFromBottom(getHeight() - 300);
+    synthTitle.setBounds(synthArea.removeFromTop(24));
+    slotView.setBounds(synthArea);
 
     auto slotArea = area.removeFromLeft(160);
     slotTitle.setBounds(slotArea.removeFromTop(24));

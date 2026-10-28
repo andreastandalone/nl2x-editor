@@ -23,7 +23,8 @@ target_sources(NL2XEditor PRIVATE
     MidiPorts.cpp
     PluginEditor.cpp
     PluginProcessor.cpp
-    ProbeWindow.cpp)
+    ProbeWindow.cpp
+    SlotView.cpp)
 
 target_compile_definitions(NL2XEditor PUBLIC
     JUCE_WEB_BROWSER=0
