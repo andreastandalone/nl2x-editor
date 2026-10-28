@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    # Apple Silicon runner: the Universal build is tested natively on arm64 here, while the
+    # development Mac runs it on x86_64.
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      ARTEFACTS: build/plugin/NL2XEditor_artefacts/Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache FetchContent downloads and pluginval
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/downloads
+            .ci-cache/pluginval
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'tools/run-pluginval.sh') }}
+
+      - name: Configure (Universal)
+        run: >
+          cmake -S . -B build -G "Unix Makefiles"
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DNL2X_DOWNLOAD_CACHE="$PWD/.ci-cache/downloads"
+
+      - name: Build
+        run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Check the binaries are Universal
+        run: |
+          for binary in \
+            "$ARTEFACTS/VST3/NL2X Editor.vst3/Contents/MacOS/NL2X Editor" \
+            "$ARTEFACTS/AU/NL2X Editor.component/Contents/MacOS/NL2X Editor" \
+            "$ARTEFACTS/Standalone/NL2X Editor.app/Contents/MacOS/NL2X Editor"; do
+            lipo -info "$binary"
+            lipo "$binary" -verify_arch arm64 x86_64
+          done
+
+      - name: pluginval (VST3)
+        run: tools/run-pluginval.sh "$ARTEFACTS/VST3/NL2X Editor.vst3" .ci-cache/pluginval
+
+      - name: auval (AU)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ARTEFACTS/AU/NL2X Editor.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v aumu Nl2x Astd

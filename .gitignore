@@ -15,3 +15,9 @@ cmake-build-*/
 # Editors
 .vscode/
 .idea/
+
+# CI caches (downloads, pluginval)
+.ci-cache/
+
+# Agent worktrees
+.worktrees/
