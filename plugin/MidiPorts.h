@@ -57,6 +57,9 @@ public:
     bool connectionCheckShown() const { return settings.getBoolValue(kConnectionCheckShownKey, false); }
     void setConnectionCheckShown();
 
+    // The per-user settings file itself, for other per-user settings (the Library folder, #11).
+    juce::PropertiesFile& userSettings() { return settings; }
+
 private:
     static constexpr const char* kInputIdKey = "midiInputIdentifier";
     static constexpr const char* kInputNameKey = "midiInputName";

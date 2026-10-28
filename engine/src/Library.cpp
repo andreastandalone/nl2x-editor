@@ -145,6 +145,7 @@ LibraryFile recogniseLibraryFile(const std::string& name, std::span<const std::u
     if (file.entries.empty())
         file.kind = LibraryFileKind::Unknown;
     else if (file.entries.size() == 1)
+        // The first three file kinds are the entry kinds, in the same order.
         file.kind = static_cast<LibraryFileKind>(file.entries.front().kind());
     else if (performances == 0)
         file.kind = LibraryFileKind::ProgramBank;

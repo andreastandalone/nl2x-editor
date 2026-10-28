@@ -203,6 +203,11 @@ void NL2XEditorProcessor::readSlotFromSynth(nl2x::Slot slot)
     engine.readSlot(slot, nowMs());
 }
 
+nl2x::AuditionResult NL2XEditorProcessor::auditionFromLibrary(const nl2x::LibraryEntry& entry, nl2x::Slot slot)
+{
+    return nl2x::audition(engine, entry, slot, nowMs());
+}
+
 void NL2XEditorProcessor::readPerformanceFromSynth()
 {
     engine.readPerformance(nowMs());

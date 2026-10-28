@@ -7,6 +7,7 @@ namespace {
 const auto kCutoffParameterId = nl2x::dawParameterId(nl2x::Slot::A, nl2x::ProgramParameter::FilterCutoff);
 
 constexpr int kRefreshIntervalMs = 100;
+constexpr int kLibraryWidth = 320;
 // Global Channel menu: Automatic, then the 16 channels as the synth shows them.
 constexpr int kAutomaticId = 1;
 constexpr int kFirstChannelId = 2;
@@ -30,7 +31,8 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
       portSelector(owner.midiPorts()),
       slotView(owner),
       performanceView(owner),
-      checkView(owner)
+      checkView(owner),
+      libraryPanel(owner, [this] { return slotView.selected(); })
 {
     for (auto* title : { &slotTitle, &settingsTitle, &synthTitle })
         title->setFont(juce::FontOptions(16.0f, juce::Font::bold));
@@ -69,7 +71,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
 
     for (auto* child : std::initializer_list<juce::Component*> {
              &indicator, &checkButton, &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle, &portSelector,
-             &globalChannelLabel, &globalChannelChoice, &warningLabel, &synthTitle, &tabs })
+             &globalChannelLabel, &globalChannelChoice, &warningLabel, &synthTitle, &tabs, &libraryPanel })
         addAndMakeVisible(child);
     addChildComponent(instanceWarning);
     addChildComponent(takeControlButton);
@@ -82,7 +84,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
         addAndMakeVisible(probeButton);
     }
 
-    setSize(760, 860);
+    setSize(760 + kLibraryWidth, 860);
     timerCallback();
     startTimer(kRefreshIntervalMs);
 }
@@ -153,6 +155,8 @@ void NL2XPluginEditor::paint(juce::Graphics& g)
 void NL2XPluginEditor::resized()
 {
     auto area = getLocalBounds().reduced(16);
+    libraryPanel.setBounds(area.removeFromRight(kLibraryWidth - 16));
+    area.removeFromRight(16);
 
     auto header = area.removeFromTop(30);
     checkButton.setBounds(header.removeFromRight(150));
