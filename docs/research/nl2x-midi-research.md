@@ -314,6 +314,8 @@ Source: [OFF-2X p.112] = [OFF-NL2 p.100]. Offsets are in decoded parameters. `[A
 - Offsets 308–311 contain some out-of-range note numbers.
 - Again: **round-trip unknown bytes untouched.**
 
+Code cross-references (#5): the settings table is `engine/include/nl2x/PerformanceSettings.h`; the −1 = off reading of offset 264 and the Layer reception rule (§1) are `kPerformanceSlotChannelOff` / `slotChannelFromPerformance` and `kLayeredSlotsAlsoReceiveOnLeftmostActiveSlotChannel` in `engine/include/nl2x/HardwareAssumptions.h`.
+
 ---
 
 ## 4. Gotchas

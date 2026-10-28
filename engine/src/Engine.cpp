@@ -1,5 +1,6 @@
 #include "nl2x/Engine.h"
 
+#include "PerformanceEditBuffer.h"
 #include "SynthConnection.h"
 
 #include "nl2x/HardwareAssumptions.h"
@@ -47,10 +48,9 @@ bool isSlotEditBufferReply(std::span<const std::uint8_t> message)
 
 Engine::Engine(MidiOutput& midiOutput)
     : output(midiOutput),
-      connection(std::make_unique<SynthConnection>(midiOutput))
+      connection(std::make_unique<SynthConnection>(midiOutput)),
+      performanceBuffer(std::make_unique<PerformanceEditBuffer>())
 {
-    for (auto slot : kAllSlots)
-        slotChannels[slotIndex(slot)] = hardware::kDefaultSlotChannels[slotIndex(slot)];
 }
 
 Engine::~Engine() = default;
@@ -64,6 +64,10 @@ void Engine::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs ti
 void Engine::advanceTime(TimeMs timeMs)
 {
     connection->advanceTime(timeMs);
+    // Edits wait until no request is in flight, so a dump never interrupts a reply.
+    if (foundGlobalChannel && connection->isIdle(timeMs))
+        if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
+            connection->sendWithoutReply(*dump, timeMs);
 }
 
 void Engine::setParameter(Slot slot, ProgramParameter parameter, int value)
@@ -75,7 +79,7 @@ void Engine::setParameter(Slot slot, ProgramParameter parameter, int value)
     }
 
     const auto& info = programParameterInfo(parameter);
-    const auto& channel = slotChannels[slotIndex(slot)];
+    const auto channel = slotChannel(slot);
     if (! info.cc || ! channel)
         return;
 
@@ -90,6 +94,8 @@ void Engine::connect(std::optional<GlobalChannel> rememberedGlobalChannel, TimeM
     connection->clear();
     pendingSlotReads = 0;
     slotReadFailed = false;
+    performanceBuffer->forget();
+    changed();
     setStatus(ConnectionStatus::SearchingGlobalChannel);
     probe(probeOrder(rememberedGlobalChannel, foundGlobalChannel), 0, Slot::A, true, timeMs);
 }
@@ -109,6 +115,64 @@ void Engine::readSlot(Slot slot, TimeMs timeMs)
         slotReadFailed = false;
     setStatus(ConnectionStatus::ReadingSlots);
     queueSlotRead(slot, timeMs);
+}
+
+void Engine::readPerformance(TimeMs timeMs)
+{
+    if (status == ConnectionStatus::SearchingGlobalChannel)
+        return;
+    if (! foundGlobalChannel) {
+        connect(std::nullopt, timeMs);
+        return;
+    }
+    if (performanceBuffer->status() != PerformanceStatus::Reading)
+        queuePerformanceRead(timeMs);
+}
+
+PerformanceEditResult Engine::setPerformanceSetting(PerformanceSetting setting, Slot slot, int value)
+{
+    const auto before = performanceBuffer->performance();
+    const auto result = performanceBuffer->edit(setting, slot, value);
+    if (performanceBuffer->performance() != before)
+        changed();
+    return result;
+}
+
+void Engine::setSlotChannelOverride(Slot slot, std::optional<MidiChannel> channel)
+{
+    if (channel && *channel > 15)
+        channel.reset();
+    if (channelOverrides[slotIndex(slot)] != channel) {
+        channelOverrides[slotIndex(slot)] = channel;
+        changed();
+    }
+}
+
+PerformanceStatus Engine::performanceStatus() const
+{
+    return performanceBuffer->status();
+}
+
+const std::optional<Performance>& Engine::performance() const
+{
+    return performanceBuffer->performance();
+}
+
+std::optional<MidiChannel> Engine::slotChannel(Slot slot) const
+{
+    if (const auto& pinned = channelOverrides[slotIndex(slot)])
+        return pinned;
+    if (performanceBuffer->performance())
+        return performanceBuffer->slotChannel(slot);
+    return hardware::kDefaultSlotChannels[slotIndex(slot)];
+}
+
+std::vector<SlotChannelWarning> Engine::slotChannelWarnings() const
+{
+    SlotChannelArray channels;
+    for (auto slot : kAllSlots)
+        channels[slotIndex(slot)] = slotChannel(slot);
+    return nl2x::slotChannelWarnings(channels, performanceBuffer->layer());
 }
 
 void Engine::probe(std::vector<GlobalChannel> candidates, std::size_t index, Slot slot, bool readOtherSlots,
@@ -134,12 +198,14 @@ void Engine::probe(std::vector<GlobalChannel> candidates, std::size_t index, Slo
 
             if (! readOtherSlots) {
                 setStatus(ConnectionStatus::Connected);
-                return;
+            } else {
+                setStatus(ConnectionStatus::ReadingSlots);
+                for (auto other : kAllSlots)
+                    if (other != slot)
+                        queueSlotRead(other, doneMs);
             }
-            setStatus(ConnectionStatus::ReadingSlots);
-            for (auto other : kAllSlots)
-                if (other != slot)
-                    queueSlotRead(other, doneMs);
+            // The Global Channel is known now: the Slot Channels come from the Performance.
+            queuePerformanceRead(doneMs);
         },
         timeMs);
 }
@@ -156,6 +222,23 @@ void Engine::queueSlotRead(Slot slot, TimeMs timeMs)
                                 slotReadFailed = true;
                             if (pendingSlotReads == 0)
                                 setStatus(slotReadFailed ? ConnectionStatus::NoAnswer : ConnectionStatus::Connected);
+                        },
+                        timeMs);
+}
+
+void Engine::queuePerformanceRead(TimeMs timeMs)
+{
+    performanceBuffer->startReading();
+    changed();
+    connection->enqueue(performanceEditBufferRequest(*foundGlobalChannel), PerformanceEditBuffer::isReply,
+                        [this](auto reply, TimeMs) {
+                            // Its own status: a synth that answers Slot requests but not this one
+                            // is still connected (the type-40 request is unverified, research §7.3).
+                            if (reply)
+                                performanceBuffer->applyReply(*reply);
+                            else
+                                performanceBuffer->readFailed();
+                            changed();
                         },
                         timeMs);
 }

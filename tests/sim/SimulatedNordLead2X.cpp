@@ -19,6 +19,13 @@ constexpr std::array<std::pair<std::uint8_t, std::size_t>, 1> kCcToProgramOffset
 
 constexpr std::uint8_t kControlChange = 0xB0;
 
+// Performance settings the synth ignores in a received dump: "not received!!!" [OFF-2X p.112],
+// decoded offsets (research §3, Performance layout).
+constexpr std::array<std::size_t, 8> kNotReceivedPerformanceOffsets { 315, 316, 317, 318, 319, 320, 321, 323 };
+
+// Decoded offset of Slot A's layer flag ("channel_actived") [OFF-2X p.112].
+constexpr std::size_t kLayerOffset = 324;
+
 std::optional<Slot> slotFromSpec(std::uint8_t spec)
 {
     if (spec >= kAllSlots.size())
@@ -84,10 +91,33 @@ void SimulatedNordLead2X::handleControlChange(MidiChannel channel, std::uint8_t 
     if (entry == kCcToProgramOffset.end())
         return;
 
+    for (auto slot : kAllSlots)
+        if (receivesOn(slot, channel))
+            slots[slotIndex(slot)].editBuffer[entry->second] = static_cast<std::int8_t>(value);
+}
+
+bool SimulatedNordLead2X::layered(Slot slot) const
+{
+    return settings[kLayerOffset - kPerformanceSlotChannelOffset + slotIndex(slot)] != 0;
+}
+
+bool SimulatedNordLead2X::receivesOn(Slot slot, MidiChannel channel) const
+{
     // Every Slot on the channel reacts [OFF-2X p.77].
-    for (auto& state : slots)
-        if (state.channel == channel)
-            state.editBuffer[entry->second] = static_cast<std::int8_t>(value);
+    if (slots[slotIndex(slot)].channel == channel)
+        return true;
+    // Slots in a Layer also receive on the leftmost active Slot's channel [OFF-2X p.76–77].
+    if (! hardware::kLayeredSlotsAlsoReceiveOnLeftmostActiveSlotChannel || ! layered(slot))
+        return false;
+    for (auto other : kAllSlots)
+        if (layered(other))
+            return slots[slotIndex(other)].channel == channel;
+    return false;
+}
+
+void SimulatedNordLead2X::setLayered(Slot slot, bool inLayer)
+{
+    settings[kLayerOffset - kPerformanceSlotChannelOffset + slotIndex(slot)] = inLayer ? 1 : 0;
 }
 
 void SimulatedNordLead2X::handleSysEx(std::span<const std::uint8_t> message)
@@ -127,7 +157,8 @@ void SimulatedNordLead2X::handleRequest(std::uint8_t type, std::uint8_t spec)
     }
 
     if (type == hardware::kPerformanceEditBufferRequestType) {
-        sendPerformance();
+        if (answersPerformanceRequests)
+            sendPerformance();
         return;
     }
 
@@ -183,20 +214,25 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
     }
 
     if (dump.kind == SysExKind::PerformanceDump && dump.type == hardware::kPerformanceEditBufferDumpType) {
+        ++receivedPerformanceDumps;
         for (auto slot : kAllSlots) {
+            // A Kit is stored in a Performance as a reference only [OFF-2X p.31–32]: a Slot playing
+            // one keeps it.
+            if (playsPercussionKit(slot))
+                continue;
             const auto first = values.begin() + static_cast<std::ptrdiff_t>(slotIndex(slot) * kProgramParameterCount);
             std::copy(first, first + static_cast<std::ptrdiff_t>(kProgramParameterCount),
                       slots[slotIndex(slot)].editBuffer.begin());
         }
-        const auto settingsBegin = values.begin() + static_cast<std::ptrdiff_t>(kPerformanceSlotChannelOffset);
-        std::copy(settingsBegin, values.end(), settings.begin());
-        // [INF] −1 = off (research §3, Performance layout).
-        for (auto slot : kAllSlots) {
-            const auto channel = settings[slotIndex(slot)];
-            slots[slotIndex(slot)].channel = channel >= 0 && channel < 16
-                                                 ? std::optional<MidiChannel>(static_cast<MidiChannel>(channel))
-                                                 : std::nullopt;
+        for (std::size_t offset = kPerformanceSlotChannelOffset; offset < kPerformanceParameterCount; ++offset) {
+            const bool notReceived = std::find(kNotReceivedPerformanceOffsets.begin(),
+                                               kNotReceivedPerformanceOffsets.end(), offset)
+                                     != kNotReceivedPerformanceOffsets.end();
+            if (! notReceived)
+                settings[offset - kPerformanceSlotChannelOffset] = values[offset];
         }
+        for (auto slot : kAllSlots)
+            slots[slotIndex(slot)].channel = hardware::slotChannelFromPerformance(settings[slotIndex(slot)]);
     }
 }
 

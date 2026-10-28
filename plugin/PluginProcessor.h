@@ -6,8 +6,11 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -32,6 +35,15 @@ public:
     const nl2x::Engine& synth() const { return engine; }
     // "Read from synth" for one Slot. Message thread only.
     void readSlotFromSynth(nl2x::Slot slot);
+    // "Read from synth" for the Performance. Message thread only.
+    void readPerformanceFromSynth();
+    // The user changed a Performance setting in the GUI. Settings that are DAW parameters change
+    // through their parameter (so the DAW records it); the others go to the engine directly.
+    // Message thread only.
+    void editPerformanceSetting(nl2x::PerformanceSetting setting, nl2x::Slot slot, int value);
+    // Pins a Slot's channel regardless of the Performance (empty releases it). A service setting:
+    // kept in the plugin state, never a DAW parameter. Message thread only.
+    void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);
 
     // Sees every MIDI message exchanged with the synth (the Probe window). Message thread only.
     class MidiMonitor {
@@ -93,12 +105,24 @@ private:
         int lastSentValue;
     };
 
+    // A DAW parameter bound to a Performance setting.
+    struct BoundPerformanceParameter {
+        nl2x::PerformanceSetting setting;
+        nl2x::Slot slot;
+        juce::RangedAudioParameter* dawParameter;
+        int lastSentValue;
+    };
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
     void timerCallback() override;
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
     void sendChangedParameters();
+    // Moves the Performance DAW parameters to the values the engine read from the synth, without
+    // that move being sent back as an edit.
+    void followPerformanceFromSynth();
+    void applySavedSlotChannelOverrides();
     // Connects to the synth when both ports are open and differ from the last connected pair.
     void connectIfPortsChanged();
     void rememberFoundGlobalChannel();
@@ -112,6 +136,12 @@ private:
     EngineMidiOutput engineOutput { *this };
     nl2x::Engine engine { engineOutput };
     std::vector<BoundParameter> boundParameters;
+    std::vector<BoundPerformanceParameter> boundPerformanceParameters;
+    std::uint64_t followedRevision = 0;
+    // Slot Channel overrides as saved in the plugin state, −1 = none. Atomic because hosts may
+    // save and restore state from other threads; the timer hands changes to the engine.
+    std::array<std::atomic<int>, 4> savedSlotChannelOverrides { -1, -1, -1, -1 };
+    std::atomic<bool> slotChannelOverridesRestored { false };
     juce::String connectedInput;
     juce::String connectedOutput;
 

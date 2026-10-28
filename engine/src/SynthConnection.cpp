@@ -23,6 +23,17 @@ void SynthConnection::clear()
     waiting.reset();
 }
 
+bool SynthConnection::isIdle(TimeMs timeMs) const
+{
+    return ! waiting && queue.empty() && (! nextSendTime || timeMs >= *nextSendTime);
+}
+
+void SynthConnection::sendWithoutReply(std::span<const std::uint8_t> message, TimeMs timeMs)
+{
+    output.send(message);
+    nextSendTime = timeMs + hardware::kRequestSpacingMs;
+}
+
 void SynthConnection::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs)
 {
     if (waiting && waiting->accepts(message))

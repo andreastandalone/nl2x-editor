@@ -246,3 +246,73 @@ TEST_CASE("Simulated synth misbehaving: no SysEx answers at all")
 
     CHECK(rig.fromSynth.messages().empty());
 }
+
+TEST_CASE("Simulated synth: a Performance dump ignores the settings the synth does not receive")
+{
+    SimulatedNordLead2X synth;
+    auto before = synth.performanceSettings();
+    before[318 - kPerformanceSlotChannelOffset] = -12; // Master Tune
+    synth.setPerformanceSettings(before);
+
+    std::vector<std::int8_t> performance(kPerformanceParameterCount, 0);
+    for (std::size_t offset = 315; offset <= 323; ++offset)
+        performance[offset] = 3;
+    performance[kPerformanceKeyboardSplitOffset] = 1;
+    synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
+
+    const auto& after = synth.performanceSettings();
+    for (std::size_t offset : { 315u, 316u, 317u, 318u, 319u, 320u, 321u, 323u })
+        CHECK(after[offset - kPerformanceSlotChannelOffset] == before[offset - kPerformanceSlotChannelOffset]);
+    CHECK(after[322 - kPerformanceSlotChannelOffset] == 3); // Selected Slot is received
+    CHECK(after[kPerformanceKeyboardSplitOffset - kPerformanceSlotChannelOffset] == 1);
+}
+
+TEST_CASE("Simulated synth: after a Performance dump the Slots listen on its Slot Channels only")
+{
+    SimulatedNordLead2X synth;
+    std::vector<std::int8_t> performance(kPerformanceParameterCount, 0);
+    performance[kPerformanceSlotChannelOffset + 0] = 7;
+    performance[kPerformanceSlotChannelOffset + 1] = 7;
+    performance[kPerformanceSlotChannelOffset + 2] = 9;
+    performance[kPerformanceSlotChannelOffset + 3] = hardware::kPerformanceSlotChannelOff;
+    synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
+
+    synth.receive(std::array<std::uint8_t, 3> { 0xB0, 74, 11 }); // channel 1: nobody now
+    synth.receive(std::array<std::uint8_t, 3> { 0xB7, 74, 22 }); // channel 8: A and B
+    synth.receive(std::array<std::uint8_t, 3> { 0xB3, 74, 33 }); // channel 4: D used to be here
+
+    CHECK(synth.editBuffer(Slot::A)[3] == 22);
+    CHECK(synth.editBuffer(Slot::B)[3] == 22);
+    CHECK(synth.editBuffer(Slot::C)[3] == 0);
+    CHECK(synth.editBuffer(Slot::D)[3] == 0);
+    CHECK_FALSE(synth.slotChannel(Slot::D));
+}
+
+TEST_CASE("Simulated synth: layered Slots also receive on the leftmost active Slot's channel")
+{
+    SimulatedNordLead2X synth;
+    synth.setLayered(Slot::B, true);
+    synth.setLayered(Slot::D, true);
+
+    // Slot B (channel 2) is the leftmost active Slot.
+    synth.receive(std::array<std::uint8_t, 3> { static_cast<std::uint8_t>(0xB0 | hardware::kDefaultSlotChannels[1]), 74, 44 });
+
+    CHECK(synth.editBuffer(Slot::A)[3] == 0);
+    CHECK(synth.editBuffer(Slot::B)[3] == 44);
+    CHECK(synth.editBuffer(Slot::C)[3] == 0);
+    CHECK(synth.editBuffer(Slot::D)[3] == 44);
+}
+
+TEST_CASE("Simulated synth: a Performance dump leaves a Slot playing a Percussion Kit alone")
+{
+    SimulatedNordLead2X synth;
+    synth.playPercussionKit(Slot::B, {});
+    std::vector<std::int8_t> performance(kPerformanceParameterCount, 5);
+    performance[kPerformanceSlotChannelOffset + 1] = 1;
+
+    synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
+
+    CHECK(synth.playsPercussionKit(Slot::B));
+    CHECK(synth.editBuffer(Slot::B)[3] == 0);
+    CHECK(synth.editBuffer(Slot::A)[3] == 5);
+}

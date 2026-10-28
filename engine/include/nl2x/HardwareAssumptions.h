@@ -15,6 +15,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace nl2x::hardware {
 
@@ -25,6 +26,26 @@ namespace nl2x::hardware {
 // Choice: channels 1, 2, 3, 4, so that the four Slots can be addressed independently.
 // Status: [INF], not verified on hardware.
 inline constexpr std::array<MidiChannel, 4> kDefaultSlotChannels { 0, 1, 2, 3 };
+
+// A Slot Channel as stored in the Performance (decoded offsets 264–267): 0–15 = channels 1–16
+// [OFF-2X p.112]. The manual documents no value for "oFF", but [OFF-FB] contains −1 there, so −1
+// is taken to mean off. Any other value outside 0–15 cannot address a channel and is also treated
+// as off (the byte itself is kept unchanged).
+// Status: [INF] (research §3, Performance layout), not verified on hardware.
+inline constexpr std::int8_t kPerformanceSlotChannelOff = -1;
+
+constexpr std::optional<MidiChannel> slotChannelFromPerformance(std::int8_t value)
+{
+    if (value >= 0 && value <= 15)
+        return static_cast<MidiChannel>(value);
+    return std::nullopt;
+}
+
+// All Slots in a Layer (all activated Slots, Performance offsets 324–327) also receive on the MIDI
+// channel of the leftmost active Slot, as well as on their own [OFF-2X p.76–77]. So with Slots A,
+// B and D layered and Slot A on channel 1, a CC on channel 1 reaches B and D too.
+// Status: documented, not verified on hardware.
+inline constexpr bool kLayeredSlotsAlsoReceiveOnLeftmostActiveSlotChannel = true;
 
 // ---------------------------------------------------------------------------------------------
 // Global Channel and SysEx Device ID
@@ -156,5 +177,12 @@ inline constexpr int kRequestReplyTimeoutMs = 1000;
 // that the synth is never handed a request while still sending. Research §4.9 only says "wait for
 // each reply before sending the next request". Status: [INF] (plan step 10).
 inline constexpr int kRequestSpacingMs = 20;
+
+// Edits of Performance settings are sent as whole Performance dumps (715 bytes, about 230 ms on
+// the wire at 31 250 baud) to the Performance Edit Buffer. Rapid edits (a slider being dragged)
+// are coalesced into at most one dump per this interval. Whether the synth applies a type-30 dump
+// at once, and how long it needs to digest one, is unknown (research §7.3).
+// Status: [INF] (plan steps 6 and 8).
+inline constexpr int kPerformanceDumpIntervalMs = 100;
 
 } // namespace nl2x::hardware

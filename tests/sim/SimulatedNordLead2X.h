@@ -20,9 +20,11 @@ namespace nl2x::test {
 //
 // It understands CCs on Slot Channels, the Slot Edit Buffer request, the All Controllers Request,
 // Program dumps into Edit Buffers and Bank locations, the Performance Edit Buffer request and
-// dump, and Slots playing a Percussion Kit. Performance Banks and Slot Channel changes from
-// Program Change (#5) are added as those tickets land. Replies are sent at once; the misbehaviour switches below model a
-// synth that does not answer or cannot keep up.
+// dump (ignoring the settings the synth does not receive), Slots listening on their Slot Channels
+// and, when layered, on the leftmost active Slot's channel, and Slots playing a Percussion Kit.
+// Performance Banks and Performance changes by Program Change are added as those tickets land.
+// Replies are sent at once; the misbehaviour switches below model a synth that does not answer or
+// cannot keep up.
 class SimulatedNordLead2X {
 public:
     using Program = std::array<std::int8_t, kProgramParameterCount>;
@@ -67,6 +69,11 @@ public:
     // the Slots and written into offsets 264–267 when a Performance is dumped.
     const PerformanceSettings& performanceSettings() const { return settings; }
     void setPerformanceSettings(const PerformanceSettings& newSettings) { settings = newSettings; }
+    // The Slot's layer flag (offset 324 + Slot): activated Slots play together.
+    void setLayered(Slot slot, bool inLayer);
+    std::optional<MidiChannel> slotChannel(Slot slot) const { return slots[slotIndex(slot)].channel; }
+    // How many Performance dumps to the Edit Buffer arrived.
+    int receivedPerformanceDumpCount() const { return receivedPerformanceDumps; }
 
     // Bank locations, numbered as the synth shows Banks (0–3) and as Programs are sent (0–98).
     const Program& bankProgram(int shownBank, int location) const;
@@ -81,6 +88,8 @@ public:
 
     // Misbehaviour: ignore every SysEx message.
     void setAnswersSysEx(bool answers) { answersSysEx = answers; }
+    // Misbehaviour: ignore the Performance Edit Buffer request (type 40 is unverified, research §7.3).
+    void setAnswersPerformanceRequests(bool answers) { answersPerformanceRequests = answers; }
     // Misbehaviour: a SysEx message arriving less than `recoveryMs` after the previous one is lost,
     // as if the synth were still digesting it.
     void setSysExRecoveryMs(TimeMs recoveryMs) { sysExRecoveryMs = recoveryMs; }
@@ -97,6 +106,8 @@ private:
     };
 
     void handleControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t value);
+    bool layered(Slot slot) const;
+    bool receivesOn(Slot slot, MidiChannel channel) const;
     void handleSysEx(std::span<const std::uint8_t> message);
     void handleRequest(std::uint8_t type, std::uint8_t spec);
     void sendSlotEditBuffer(Slot requested);
@@ -113,6 +124,8 @@ private:
     GlobalChannel globalChannel;
     std::optional<std::uint8_t> bankRequestType;
     bool answersSysEx = true;
+    bool answersPerformanceRequests = true;
+    int receivedPerformanceDumps = 0;
     TimeMs sysExRecoveryMs = 0;
     TimeMs now = 0;
     std::optional<TimeMs> lastSysExTime;

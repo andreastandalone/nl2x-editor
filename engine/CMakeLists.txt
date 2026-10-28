@@ -1,9 +1,13 @@
 # The engine: plain C++20, no JUCE, no platform headers (CODING_STANDARDS.md).
 add_library(nl2x_engine STATIC
     src/Engine.cpp
+    src/Performance.cpp
+    src/PerformanceEditBuffer.cpp
+    src/PerformanceSettings.cpp
     src/Program.cpp
     src/ProgramParameters.cpp
     src/Slot.cpp
+    src/SlotChannels.cpp
     src/SynthConnection.cpp
     src/SysEx.cpp)
 
