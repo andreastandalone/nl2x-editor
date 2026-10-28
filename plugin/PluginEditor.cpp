@@ -29,6 +29,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
       indicator(owner),
       cutoffAttachment(owner.parameterState(), kCutoffParameterId, cutoffKnob),
       portSelector(owner.midiPorts()),
+      selectorBar(owner),
       slotView(owner),
       performanceView(owner),
       checkView(owner),
@@ -71,7 +72,8 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
 
     for (auto* child : std::initializer_list<juce::Component*> {
              &indicator, &checkButton, &slotTitle, &cutoffKnob, &cutoffLabel, &settingsTitle, &portSelector,
-             &globalChannelLabel, &globalChannelChoice, &warningLabel, &synthTitle, &tabs, &libraryPanel })
+             &globalChannelLabel, &globalChannelChoice, &warningLabel, &synthTitle, &selectorBar, &tabs,
+             &libraryPanel })
         addAndMakeVisible(child);
     addChildComponent(instanceWarning);
     addChildComponent(takeControlButton);
@@ -84,7 +86,7 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
         addAndMakeVisible(probeButton);
     }
 
-    setSize(760 + kLibraryWidth, 860);
+    setSize(760 + kLibraryWidth, 860 + SelectorBar::kPreferredHeight + 8);
     timerCallback();
     startTimer(kRefreshIntervalMs);
 }
@@ -175,10 +177,12 @@ void NL2XPluginEditor::resized()
     auto top = area.removeFromTop(260);
     area.removeFromTop(8);
     warningLabel.setBounds(area.removeFromTop(44));
+    // The Connection check is shown over the selectors and the tabs.
+    checkView.setBounds(area);
     synthTitle.setBounds(area.removeFromTop(24));
+    selectorBar.setBounds(area.removeFromTop(SelectorBar::kPreferredHeight));
+    area.removeFromTop(8);
     tabs.setBounds(area);
-    // The Connection check is shown over the tabs.
-    checkView.setBounds(area.withTrimmedTop(-24));
 
     auto slotArea = top.removeFromLeft(160);
     slotTitle.setBounds(slotArea.removeFromTop(24));

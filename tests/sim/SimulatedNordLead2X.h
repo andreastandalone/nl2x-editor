@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nl2x/Engine.h"
+#include "nl2x/HardwareAssumptions.h"
 #include "nl2x/MidiOutput.h"
 #include "nl2x/ProgramParameters.h"
 #include "nl2x/Slot.h"
@@ -26,7 +27,9 @@ namespace nl2x::test {
 // and, when layered, on the leftmost active Slot's channel, and Slots playing a Percussion Kit
 // (a Kit Edit Buffer dump reaches only a Slot playing a Kit, a Program only one playing a Program).
 // It records every dump it receives by destination, so tests can prove nothing writes to Banks.
-// Performance Banks and Performance changes by Program Change are added as those tickets land.
+// It holds Program Banks 0–9 with Percussion Kits P0–P9 in Banks 0–3 and Performance Banks 1–4,
+// filled with distinct test contents, and selects them on Bank Select (CC32) and Program Change:
+// on a Slot Channel into the Slots receiving there, on the Global Channel as a Performance.
 // Replies are sent at once; the misbehaviour switches below model a synth that does not answer or
 // cannot keep up.
 class SimulatedNordLead2X {
@@ -35,9 +38,13 @@ public:
     using PercussionKit = std::array<std::int8_t, kPercussionKitParameterCount>;
     using PerformanceSettings = std::array<std::int8_t, kPerformanceSettingsCount>;
 
+    using Performance = std::array<std::int8_t, kPerformanceParameterCount>;
+
     // The four RAM Program Banks, numbered as the synth shows them (0–3) [OFF-2X p.13].
     static constexpr int kRamBankCount = 4;
     static constexpr int kProgramsPerBank = 99;
+    // All Program Banks, 0–9 (4–9 are ROM) [OFF-2X p.13].
+    static constexpr int kProgramBankCount = 10;
 
     SimulatedNordLead2X();
 
@@ -100,11 +107,35 @@ public:
     // The Percussion Kit a Slot plays (8 Programs, by decoded offset); empty while it plays a Program.
     const std::optional<PercussionKit>& percussionKit(Slot slot) const { return slots[slotIndex(slot)].percussionKit; }
 
-    // Bank locations, numbered as the synth shows Banks (0–3) and as Programs are sent (0–98).
+    // Bank locations, numbered as the synth shows Banks (0–9) and as Programs are sent (0–98).
+    // Every location starts with a distinct test Program (byte 0 = Bank, byte 1 = location).
     const Program& bankProgram(int shownBank, int location) const;
     void setBankProgram(int shownBank, int location, const Program& program);
     // The Bank selected on the synth's panel: Bank dumps are stored there [OFF-2X p.78].
     void selectBank(int shownBank) { selectedBank = shownBank; }
+
+    // Stored Percussion Kits P0–P9 (0–9) of Banks 0–3; each starts distinct (Program 0's byte 0 =
+    // 100 + Bank, byte 1 = Kit).
+    const PercussionKit& storedPercussionKit(int shownBank, int kit) const;
+    // Stored Performances, Bank 1–4, number 0–99 (A0–L9). Each starts distinct: Slot X's Program has
+    // byte 0 = 50 + Bank, byte 1 = number, byte 2 = Slot; Slot Channels (Slot + number) mod 12;
+    // Slot A alone in the Layer; pgmselect = number mod 99 and bankselect = Bank − 1 for all Slots.
+    const Performance& storedPerformance(int bank, int number) const;
+    void setStoredPerformance(int bank, int number, const Performance& performance);
+
+    // The P setting under Shift + PROG/CTRL: Program Change (and, by HardwareAssumptions.h, Bank
+    // Select) sent and received [OFF-2X p.66–67]. On by default.
+    void setProgramChangeOn(bool on) { programChangeOn = on; }
+    // How many Program Changes arrived and were acted on.
+    int receivedProgramChangeCount() const { return receivedProgramChanges; }
+
+    // The user selects a stored Program (location 0–98) or Kit (99–108) on the panel while `slot` is
+    // active: that Slot loads it, and with P on CC32 and Program Change go out on that
+    // channel [OFF-2X p.76].
+    void selectProgramOnPanel(Slot slot, int shownBank, int location);
+    // The user selects a stored Performance on the panel: it is loaded, and with P on CC32 and
+    // Program Change go out on the Global Channel (HardwareAssumptions.h, [INF]).
+    void selectPerformanceOnPanel(int bank, int number);
 
     // The request type that reads SysEx Bank 1; Banks 2–4 follow. Unknown on a 2X
     // (HardwareAssumptions.h), so by default the simulated synth answers no Bank request; tests
@@ -140,6 +171,12 @@ private:
     };
 
     void handleControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t value);
+    void handleProgramChange(MidiChannel channel, std::uint8_t number);
+    void loadStoredProgram(Slot slot, int shownBank, int location);
+    void loadStoredPerformance(int bank, int number);
+    // Copies a Performance's Programs into the Slots and its settings, but those the synth does not
+    // receive, into the synth's.
+    void applyPerformance(std::span<const std::int8_t> values);
     bool layered(Slot slot) const;
     bool receivesOn(Slot slot, MidiChannel channel) const;
     void handleSysEx(std::span<const std::uint8_t> message);
@@ -152,7 +189,14 @@ private:
 
     std::array<SlotState, 4> slots;
     PerformanceSettings settings {};
-    std::array<std::array<Program, kProgramsPerBank>, kRamBankCount> banks {};
+    std::array<std::array<Program, kProgramsPerBank>, kProgramBankCount> banks {};
+    std::array<std::array<PercussionKit, hardware::kPercussionKitsPerBank>, hardware::kPercussionKitBankCount> kits {};
+    std::array<std::array<Performance, hardware::kPerformancesPerBank>, hardware::kPerformanceBankCount> performances {};
+    // The last Bank Select received on each channel.
+    std::array<std::optional<std::uint8_t>, 16> bankSelect;
+    int performanceBank = 1;
+    bool programChangeOn = true;
+    int receivedProgramChanges = 0;
     int selectedBank = 0;
     Slot activeSlot = Slot::A;
     GlobalChannel globalChannel;

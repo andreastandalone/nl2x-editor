@@ -6,6 +6,7 @@
 #include "nl2x/MidiOutput.h"
 #include "nl2x/Performance.h"
 #include "nl2x/ProgramParameters.h"
+#include "nl2x/Selection.h"
 #include "nl2x/Slot.h"
 #include "nl2x/SlotChannels.h"
 #include "nl2x/SynthState.h"
@@ -24,6 +25,7 @@ namespace nl2x {
 class PerformanceEditBuffer;
 class ConnectionCheck;
 class SynthConnection;
+struct SelectionTracker;
 
 // Everything the editor does, behind one seam: MIDI messages in, MIDI messages out.
 // Single-threaded: the caller invokes it from one thread only (CODING_STANDARDS.md).
@@ -92,6 +94,22 @@ public:
     void cancelConnectionCheck();
     const ConnectionCheckReport& connectionCheck() const;
 
+    // Selection (#10, EngineSelection.cpp). Selects a stored Program or Percussion Kit for a Slot:
+    // Bank Select (CC32) and Program Change on the Slot's channel. Every Slot receiving on that
+    // channel switches; once the synth has settled (kSelectionSettleMs) their Edit Buffers and the
+    // Performance are read again on a later advanceTime().
+    SelectionResult selectProgram(Slot slot, ProgramSelection selection, TimeMs timeMs);
+    // Selects a stored Performance: Bank Select and Program Change on the Global Channel; then the
+    // Performance (and so the Slot Channels) and all four Slots are read again.
+    SelectionResult selectPerformance(PerformanceSelection selection, TimeMs timeMs);
+    // What is selected: set by the two calls above, by Program Changes the synth sends (the user
+    // turned the dial on the synth), and, for Slots with nothing selected, by the Performance read
+    // (its pgmselect and bankselect bytes). A Performance change empties the Slots' selections
+    // until the Performance is read again.
+    const SelectionState& selection() const;
+    // Project load: shows `state` as selected and sends nothing (sending on load is #8's job).
+    void restoreSelection(const SelectionState& state);
+
     // The Synth model, for the GUI.
     const SlotState& slotState(Slot slot) const { return slots[slotIndex(slot)]; }
     // The Global Channel the synth answered on; empty until one has. The shell remembers it.
@@ -130,6 +148,15 @@ private:
     void applySlotReply(Slot slot, std::span<const std::uint8_t> reply);
     void applyControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t data);
     void setStatus(ConnectionStatus newStatus);
+    // Selection (EngineSelection.cpp).
+    void followSelectionOnSynth(std::span<const std::uint8_t> message, TimeMs timeMs);
+    void rereadAfterSelection(TimeMs timeMs);
+    void takeSelectionFromPerformance();
+    std::optional<GlobalChannel> selectionGlobalChannel() const;
+    // The Slots a Program Change on `channel` reaches (shared channel, Layer).
+    std::array<bool, 4> slotsReachedByProgramChange(MidiChannel channel) const;
+    void sendSelection(MidiChannel channel, BankAndProgramChange midi);
+
     void changed() { ++revision; }
 
     // An auditioned dump not sent yet; `slot` is empty for the Performance Edit Buffer.
@@ -144,6 +171,7 @@ private:
     MidiOutput& output;
     std::unique_ptr<SynthConnection> connection;
     std::unique_ptr<PerformanceEditBuffer> performanceBuffer;
+    std::unique_ptr<SelectionTracker> selectionTracker;
     std::array<std::optional<MidiChannel>, 4> channelOverrides;
     // Declared after `connection`, which holds callbacks into it, so that it goes first.
     std::unique_ptr<ConnectionCheck> check;

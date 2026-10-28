@@ -1,6 +1,7 @@
 #include "nl2x/Engine.h"
 
 #include "PerformanceEditBuffer.h"
+#include "SelectionTracker.h"
 #include "ConnectionCheck.h"
 #include "SynthConnection.h"
 
@@ -55,6 +56,7 @@ Engine::Engine(MidiOutput& midiOutput)
     : output(midiOutput),
       connection(std::make_unique<SynthConnection>(midiOutput)),
       performanceBuffer(std::make_unique<PerformanceEditBuffer>()),
+      selectionTracker(std::make_unique<SelectionTracker>()),
       check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); }))
 {
 }
@@ -67,10 +69,12 @@ void Engine::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs ti
         applyControlChange(static_cast<MidiChannel>(message[0] & 0x0F), message[1], message[2]);
     check->handleIncomingMidi(message, timeMs);
     connection->handleIncomingMidi(message, timeMs);
+    followSelectionOnSynth(message, timeMs);
 }
 
 void Engine::advanceTime(TimeMs timeMs)
 {
+    rereadAfterSelection(timeMs);
     connection->advanceTime(timeMs);
     // Edits wait until no request is in flight, so a dump never interrupts a reply.
     if (foundGlobalChannel && connection->isIdle(timeMs))
@@ -266,9 +270,10 @@ void Engine::queuePerformanceRead(TimeMs timeMs)
                         [this](auto reply, TimeMs) {
                             // Its own status: a synth that answers Slot requests but not this one
                             // is still connected (the type-40 request is unverified, research §7.3).
-                            if (reply)
+                            if (reply) {
                                 performanceBuffer->applyReply(*reply);
-                            else
+                                takeSelectionFromPerformance();
+                            } else
                                 performanceBuffer->readFailed();
                             changed();
                         },
