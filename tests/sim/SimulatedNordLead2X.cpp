@@ -112,6 +112,33 @@ constexpr std::array<std::size_t, 8> kNotReceivedPerformanceOffsets { 315, 316, 
 
 // Decoded offset of Slot A's layer flag ("channel_actived") [OFF-2X p.112].
 constexpr std::size_t kLayerOffset = 324;
+// Decoded offsets of Slot A's pgmselect and bankselect [OFF-2X p.112].
+constexpr std::size_t kProgramNumberOffset = 328;
+constexpr std::size_t kProgramBankOffset = 332;
+
+constexpr std::uint8_t kProgramChange = 0xC0;
+
+std::size_t settingIndex(std::size_t offset)
+{
+    return offset - kPerformanceSlotChannelOffset;
+}
+
+std::int8_t byte(int value)
+{
+    return static_cast<std::int8_t>(static_cast<std::uint8_t>(value));
+}
+
+// A test Program whose first bytes name where it comes from; the rest is a pattern.
+SimulatedNordLead2X::Program testProgram(int first, int second, int third)
+{
+    SimulatedNordLead2X::Program program {};
+    for (std::size_t i = 0; i < program.size(); ++i)
+        program[i] = byte(static_cast<int>(i) * 11 + first * 37 + second * 5 + third * 3);
+    program[0] = byte(first);
+    program[1] = byte(second);
+    program[2] = byte(third);
+    return program;
+}
 
 std::optional<Slot> slotFromSpec(std::uint8_t spec)
 {
@@ -127,6 +154,35 @@ SimulatedNordLead2X::SimulatedNordLead2X()
 {
     for (auto slot : kAllSlots)
         slots[slotIndex(slot)].channel = hardware::kDefaultSlotChannels[slotIndex(slot)];
+
+    for (std::size_t bank = 0; bank < banks.size(); ++bank)
+        for (std::size_t location = 0; location < banks[bank].size(); ++location)
+            banks[bank][location] = testProgram(static_cast<int>(bank), static_cast<int>(location), 0);
+
+    for (std::size_t bank = 0; bank < kits.size(); ++bank)
+        for (std::size_t kit = 0; kit < kits[bank].size(); ++kit)
+            for (std::size_t program = 0; program < kPercussionKitProgramCount; ++program) {
+                const auto sound = testProgram(100 + static_cast<int>(bank), static_cast<int>(kit),
+                                               static_cast<int>(program));
+                std::copy(sound.begin(), sound.end(),
+                          kits[bank][kit].begin() + static_cast<std::ptrdiff_t>(program * kProgramParameterCount));
+            }
+
+    for (std::size_t bank = 0; bank < performances.size(); ++bank)
+        for (std::size_t number = 0; number < performances[bank].size(); ++number) {
+            auto& performance = performances[bank][number];
+            const int shownBank = static_cast<int>(bank) + 1;
+            for (auto slot : kAllSlots) {
+                const auto index = slotIndex(slot);
+                const auto program = testProgram(50 + shownBank, static_cast<int>(number), static_cast<int>(index));
+                std::copy(program.begin(), program.end(),
+                          performance.begin() + static_cast<std::ptrdiff_t>(index * kProgramParameterCount));
+                performance[kPerformanceSlotChannelOffset + index] = byte(static_cast<int>((index + number) % 12));
+                performance[kLayerOffset + index] = slot == Slot::A ? 1 : 0;
+                performance[kProgramNumberOffset + index] = byte(static_cast<int>(number % 99));
+                performance[kProgramBankOffset + index] = byte(static_cast<int>(bank));
+            }
+        }
 }
 
 void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message, TimeMs timeMs)
@@ -137,8 +193,15 @@ void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message, TimeMs 
 
 void SimulatedNordLead2X::receive(std::span<const std::uint8_t> message)
 {
-    if (message.size() == 3 && (message[0] & 0xF0) == kControlChange && receivesCcs)
-        handleControlChange(static_cast<MidiChannel>(message[0] & 0x0F), message[1], message[2]);
+    const auto channel = message.empty() ? MidiChannel {} : static_cast<MidiChannel>(message[0] & 0x0F);
+    if (message.size() == 3 && (message[0] & 0xF0) == kControlChange && message[1] == hardware::kBankSelectController
+        && hardware::kBankSelectFollowsProgramChangeSetting) {
+        if (programChangeOn)
+            bankSelect[channel] = message[2];
+    } else if (message.size() == 3 && (message[0] & 0xF0) == kControlChange && receivesCcs)
+        handleControlChange(channel, message[1], message[2]);
+    else if (message.size() == 2 && (message[0] & 0xF0) == kProgramChange && programChangeOn)
+        handleProgramChange(channel, message[1]);
     else if (! message.empty() && message[0] == kSysExStart)
         handleSysEx(message);
 }
@@ -332,25 +395,139 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
 
     if (dump.kind == SysExKind::PerformanceDump && dump.type == hardware::kPerformanceEditBufferDumpType) {
         ++receivedPerformanceDumps;
-        for (auto slot : kAllSlots) {
-            // A Kit is stored in a Performance as a reference only [OFF-2X p.31–32]: a Slot playing
-            // one keeps it.
-            if (playsPercussionKit(slot))
-                continue;
-            const auto first = values.begin() + static_cast<std::ptrdiff_t>(slotIndex(slot) * kProgramParameterCount);
-            std::copy(first, first + static_cast<std::ptrdiff_t>(kProgramParameterCount),
-                      slots[slotIndex(slot)].editBuffer.begin());
-        }
-        for (std::size_t offset = kPerformanceSlotChannelOffset; offset < kPerformanceParameterCount; ++offset) {
-            const bool notReceived = std::find(kNotReceivedPerformanceOffsets.begin(),
-                                               kNotReceivedPerformanceOffsets.end(), offset)
-                                     != kNotReceivedPerformanceOffsets.end();
-            if (! notReceived)
-                settings[offset - kPerformanceSlotChannelOffset] = values[offset];
-        }
-        for (auto slot : kAllSlots)
-            slots[slotIndex(slot)].channel = hardware::slotChannelFromPerformance(settings[slotIndex(slot)]);
+        applyPerformance(values);
     }
+}
+
+void SimulatedNordLead2X::applyPerformance(std::span<const std::int8_t> values)
+{
+    for (auto slot : kAllSlots) {
+        // A Kit is stored in a Performance as a reference only [OFF-2X p.31–32]: a Slot playing
+        // one keeps it.
+        if (playsPercussionKit(slot))
+            continue;
+        const auto first = values.begin() + static_cast<std::ptrdiff_t>(slotIndex(slot) * kProgramParameterCount);
+        std::copy(first, first + static_cast<std::ptrdiff_t>(kProgramParameterCount),
+                  slots[slotIndex(slot)].editBuffer.begin());
+    }
+    for (std::size_t offset = kPerformanceSlotChannelOffset; offset < kPerformanceParameterCount; ++offset) {
+        const bool notReceived = std::find(kNotReceivedPerformanceOffsets.begin(), kNotReceivedPerformanceOffsets.end(),
+                                           offset)
+                                 != kNotReceivedPerformanceOffsets.end();
+        if (! notReceived)
+            settings[settingIndex(offset)] = values[offset];
+    }
+    for (auto slot : kAllSlots)
+        slots[slotIndex(slot)].channel = hardware::slotChannelFromPerformance(settings[slotIndex(slot)]);
+}
+
+const SimulatedNordLead2X::PercussionKit& SimulatedNordLead2X::storedPercussionKit(int shownBank, int kit) const
+{
+    return kits.at(static_cast<std::size_t>(shownBank)).at(static_cast<std::size_t>(kit));
+}
+
+const SimulatedNordLead2X::Performance& SimulatedNordLead2X::storedPerformance(int bank, int number) const
+{
+    return performances.at(static_cast<std::size_t>(bank - 1)).at(static_cast<std::size_t>(number));
+}
+
+void SimulatedNordLead2X::setStoredPerformance(int bank, int number, const Performance& performance)
+{
+    performances.at(static_cast<std::size_t>(bank - 1)).at(static_cast<std::size_t>(number)) = performance;
+}
+
+void SimulatedNordLead2X::handleProgramChange(MidiChannel channel, std::uint8_t number)
+{
+    // The Global Channel selects Performances, and wins over a Slot on it [OFF-2X p.76].
+    if (channel == globalChannel) {
+        int bank = performanceBank;
+        if (bankSelect[channel])
+            bank = *bankSelect[channel] - hardware::kBankSelectOfPerformanceBank1 + 1;
+        if (bank < 1 || bank > hardware::kPerformanceBankCount || number >= hardware::kPerformancesPerBank)
+            return;
+        ++receivedProgramChanges;
+        loadStoredPerformance(bank, number);
+        return;
+    }
+
+    std::array<bool, 4> reached {};
+    for (auto slot : kAllSlots)
+        reached[slotIndex(slot)] = receivesOn(slot, channel);
+    if (std::find(reached.begin(), reached.end(), true) == reached.end())
+        return;
+    ++receivedProgramChanges;
+    for (auto slot : kAllSlots) {
+        if (! reached[slotIndex(slot)])
+            continue;
+        int bank = settings[settingIndex(kProgramBankOffset) + slotIndex(slot)];
+        if (bankSelect[channel])
+            bank = *bankSelect[channel] - hardware::kBankSelectOfProgramBank0;
+        loadStoredProgram(slot, bank, number - hardware::kProgramChangeOfProgram1);
+    }
+}
+
+void SimulatedNordLead2X::loadStoredProgram(Slot slot, int shownBank, int location)
+{
+    auto& state = slots[slotIndex(slot)];
+    const int kit = location + hardware::kProgramChangeOfProgram1 - hardware::kProgramChangeOfPercussionKitP0;
+    if (kit >= 0) {
+        if (shownBank < 0 || shownBank >= hardware::kPercussionKitBankCount || kit >= hardware::kPercussionKitsPerBank)
+            return;
+        state.percussionKit = storedPercussionKit(shownBank, kit);
+    } else {
+        if (shownBank < 0 || shownBank >= kProgramBankCount || location < 0 || location >= kProgramsPerBank)
+            return;
+        state.editBuffer = bankProgram(shownBank, location);
+        state.percussionKit.reset();
+    }
+    // The Performance Edit Buffer remembers where the Slot was loaded from [OFF-2X p.112], [INF].
+    settings[settingIndex(kProgramNumberOffset) + slotIndex(slot)] = byte(location + hardware::kProgramChangeOfProgram1);
+    settings[settingIndex(kProgramBankOffset) + slotIndex(slot)] = byte(shownBank);
+}
+
+void SimulatedNordLead2X::loadStoredPerformance(int bank, int number)
+{
+    performanceBank = bank;
+    // A newly selected Performance plays its own Programs; Kit references are not simulated.
+    for (auto& state : slots)
+        state.percussionKit.reset();
+    applyPerformance(storedPerformance(bank, number));
+}
+
+void SimulatedNordLead2X::selectProgramOnPanel(Slot slot, int shownBank, int location)
+{
+    const auto channel = slots[slotIndex(slot)].channel;
+    if (! channel)
+        return;
+    // The panel changes the active Slot only.
+    loadStoredProgram(slot, shownBank, location);
+    if (! programChangeOn)
+        return;
+    const std::array<std::uint8_t, 3> bankMessage {
+        static_cast<std::uint8_t>(kControlChange | *channel), hardware::kBankSelectController,
+        static_cast<std::uint8_t>(shownBank + hardware::kBankSelectOfProgramBank0)
+    };
+    const std::array<std::uint8_t, 2> programMessage {
+        static_cast<std::uint8_t>(kProgramChange | *channel),
+        static_cast<std::uint8_t>(location + hardware::kProgramChangeOfProgram1)
+    };
+    transmit(bankMessage);
+    transmit(programMessage);
+}
+
+void SimulatedNordLead2X::selectPerformanceOnPanel(int bank, int number)
+{
+    loadStoredPerformance(bank, number);
+    if (! programChangeOn)
+        return;
+    const std::array<std::uint8_t, 3> bankMessage {
+        static_cast<std::uint8_t>(kControlChange | globalChannel), hardware::kBankSelectController,
+        static_cast<std::uint8_t>(bank - 1 + hardware::kBankSelectOfPerformanceBank1)
+    };
+    const std::array<std::uint8_t, 2> programMessage { static_cast<std::uint8_t>(kProgramChange | globalChannel),
+                                                       static_cast<std::uint8_t>(number) };
+    transmit(bankMessage);
+    transmit(programMessage);
 }
 
 void SimulatedNordLead2X::sendAllControllers(Slot slot)

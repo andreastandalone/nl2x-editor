@@ -203,11 +203,12 @@ TEST_CASE("Simulated synth: Bank dumps are stored in the Bank selected on the pa
 {
     SynthWithCables rig;
     rig.synth.selectBank(3);
+    const auto bank0Program99 = rig.synth.bankProgram(0, 98);
 
     rig.synth.receive(bankProgramDump(hardware::kFactoryGlobalChannel, 1, 98, programWithCutoff(12)));
 
     CHECK(rig.synth.bankProgram(3, 98) == programWithCutoff(12));
-    CHECK(rig.synth.bankProgram(0, 98) == SimulatedNordLead2X::Program {});
+    CHECK(rig.synth.bankProgram(0, 98) == bank0Program99);
 }
 
 TEST_CASE("Simulated synth: Bank requests are answered only once a request type is chosen")

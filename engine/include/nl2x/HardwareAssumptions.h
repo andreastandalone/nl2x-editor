@@ -298,4 +298,68 @@ inline constexpr int kRequestSpacingMs = 20;
 // Status: [INF] (plan steps 6 and 8).
 inline constexpr int kPerformanceDumpIntervalMs = 100;
 
+// ---------------------------------------------------------------------------------------------
+// Selecting stored Programs and Performances (#10)
+
+// Program Change and Bank Select (CC32) are transmitted and received on a Slot's channel; the
+// synth transmits them on the active Slot's channel [OFF-2X p.76, 104]. Both need the P setting
+// (Shift + PROG/CTRL) on, which covers transmission and reception [OFF-2X p.66–67]. The editor
+// cannot tell whether P is on: with P off a selection simply changes nothing.
+// Status: documented, not verified on hardware.
+inline constexpr std::uint8_t kBankSelectController = 32;
+
+// Whether CC32 is governed by the P setting (Program Change) rather than by C (Control Change).
+// The manual lists CC32 with the controllers [OFF-2X p.104] but describes Bank Select together
+// with Program Change [OFF-2X p.76]. We assume P governs it, so the simulated synth takes CC32
+// even with C off. Status: [INF] (plan: select a Bank from the editor with C off).
+inline constexpr bool kBankSelectFollowsProgramChangeSetting = true;
+
+// The CC32 value for a Program Bank: the Bank as the synth shows it, 0–9 [OFF-2X p.13 shows
+// Banks 0–9; the value mapping is not printed]. Status: [INF].
+inline constexpr int kBankSelectOfProgramBank0 = 0;
+inline constexpr int kProgramBankCount = 10;
+inline constexpr int kProgramsPerProgramBank = 99;
+
+// The Program Change number of Program 1 of a Bank; Programs 1–99 = 0–98. Consistent with the
+// Bank dump spec 0–98 [OFF-2X p.105] and the Performance's pgmselect 0–98 [OFF-2X p.112].
+// Status: [INF].
+inline constexpr int kProgramChangeOfProgram1 = 0;
+
+// Percussion Kits P0–P9 sit "above" Program 99 in Banks 0–3 [OFF-2X p.13, 28], and their Bank
+// locations are specs 99–108 [OFF-2X p.105–106]. So we assume Program Change 99–108 selects
+// P0–P9 in the selected Bank. Status: [INF] (no source says how a Kit is selected by MIDI).
+inline constexpr int kProgramChangeOfPercussionKitP0 = 99;
+inline constexpr int kPercussionKitBankCount = 4;
+inline constexpr int kPercussionKitsPerBank = 10;
+
+// Performances: Banks 1–4 × 100, named A0–L9 without the letters I and K [OFF-2X p.16, 32].
+// They are selected by Bank Select and Program Change on the Global Channel [OFF-2X p.67, 76];
+// when the Global Channel equals a Slot Channel, the Performance selection wins [OFF-2X p.76].
+// Assumed numbering: CC32 = Bank − 1 (0–3) and Program Change 0–99 in name order (A0 = 0,
+// A9 = 9, B0 = 10, …, L9 = 99). Status: documented channel; [INF] numbering.
+inline constexpr int kPerformanceBankCount = 4;
+inline constexpr int kPerformancesPerBank = 100;
+inline constexpr int kBankSelectOfPerformanceBank1 = 0;
+
+// When the user turns the dial in Performance mode, the synth transmits CC32 and Program Change
+// on the Global Channel, as it receives them [OFF-2X p.76 describes reception only].
+// Status: [INF]; the simulated synth does so.
+
+// A Program Change on a channel switches every Slot that receives on it: Slots sharing the
+// channel [OFF-2X p.77, CCs], and Slots in a Layer on the leftmost active Slot's channel
+// [OFF-2X p.76–77, notes]. The manual says this for notes and CCs; we assume Program Change
+// follows the same reception rule. Status: [INF].
+inline constexpr bool kProgramChangeReachesEverySlotReceivingOnItsChannel = true;
+
+// The Performance's pgmselect and bankselect bytes (decoded offsets 328–335) name the stored
+// Program each Slot was loaded from [OFF-2X p.112]: pgmselect 0–98 = Program 1–99, bankselect
+// 0–3 (the manual's range; we accept 0–9 as a Bank shown the same way). We read pgmselect 99–108
+// as Kits P0–P9, like Program Change. Status: [INF].
+
+// Time between sending (or receiving) a selection and reading the Edit Buffers again, so that
+// the synth has loaded the new Program or Performance. Bursts (CC32 then Program Change, or the
+// dial turned quickly) within this time are coalesced into one re-read after the last message.
+// No official figure exists. Status: [INF], research §4.9.
+inline constexpr int kSelectionSettleMs = 150;
+
 } // namespace nl2x::hardware

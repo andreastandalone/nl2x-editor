@@ -9,8 +9,10 @@ add_library(nl2x_engine STATIC
     src/PerformanceSettings.cpp
     src/EngineConnectionCheck.cpp
     src/Library.cpp
+    src/EngineSelection.cpp
     src/Program.cpp
     src/ProgramParameters.cpp
+    src/Selection.cpp
     src/Slot.cpp
     src/SlotChannels.cpp
     src/SynthConnection.cpp
