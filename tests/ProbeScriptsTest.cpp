@@ -157,7 +157,7 @@ TEST_CASE("Probe: All Controllers Request goes to every dev and credits the CCs 
     REQUIRE(rig.sysExSent().size() == 16);
     for (GlobalChannel dev = 0; dev < 16; ++dev)
         CHECK(rig.sysExSent()[dev] == allControllersRequest(dev, Slot::A));
-    CHECK(rig.lastSummary() == "SUMMARY All Controllers Request A: 1 of 16 requests answered: dev 15 -> 1 CCs on channel 1");
+    CHECK(rig.lastSummary() == "SUMMARY All Controllers Request A: 1 of 16 requests answered: dev 15 -> 42 CCs on channel 1");
 }
 
 TEST_CASE("Probe: Probe Global Channel adopts the only dev that answers")
@@ -233,7 +233,7 @@ TEST_CASE("Probe: Scan Bank requests sweeps types 11–24 and lists every hit")
     CHECK_THAT(summary, ContainsSubstring("type 15 spec 0 -> 139 bytes, Program dump, dev 15, type 1, spec 0"));
     CHECK_THAT(summary, ContainsSubstring("type 18 spec 98 -> 139 bytes, Program dump, dev 15, type 4, spec 98"));
     CHECK_THAT(summary, ContainsSubstring("type 14 spec 0 -> 139 bytes"));
-    CHECK_THAT(summary, ContainsSubstring("type 20 spec 0 -> 1 CCs on channel 1"));
+    CHECK_THAT(summary, ContainsSubstring("type 20 spec 0 -> 42 CCs on channel 1"));
     CHECK_THAT(summary, !ContainsSubstring("type 11 spec"));
     CHECK_THAT(summary, !ContainsSubstring("spec 99 ->"));
 }

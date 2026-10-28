@@ -5,7 +5,7 @@ target_link_libraries(nl2x_sim PUBLIC nl2x_engine)
 target_compile_options(nl2x_sim PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror)
 
 add_executable(nl2x_tests
-    ConnectionCheckTest.cpp
+    CcParametersTest.cpp
     ConnectionCheckTest.cpp
     FactoryBankTest.cpp
     LibraryFactoryTest.cpp

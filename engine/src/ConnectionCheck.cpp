@@ -1,5 +1,6 @@
 #include "ConnectionCheck.h"
 
+#include "nl2x/CcParameters.h"
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/ProgramParameters.h"
 
@@ -331,7 +332,7 @@ void ConnectionCheck::testSlot(Slot slot, const SlotReading& reading, TimeMs tim
     const auto testValue = value < 64 ? value + kCutoffTestOffset : value - kCutoffTestOffset;
     const auto channel = *setup.slotChannels[slotIndex(slot)];
     const std::array<std::uint8_t, 3> cc { static_cast<std::uint8_t>(kControlChange | channel),
-                                           *programParameterInfo(ProgramParameter::FilterCutoff).cc,
+                                           ccParameterInfo(CcParameter::FilterCutoff).cc,
                                            static_cast<std::uint8_t>(testValue) };
     output.send(cc);
     step = Step::SettlingCc;
@@ -358,7 +359,7 @@ void ConnectionCheck::readBack(TimeMs timeMs)
                 if (program->value(ProgramParameter::FilterCutoff) != originalCutoff) {
                     // Put the Slot back as it was.
                     const std::array<std::uint8_t, 3> cc { static_cast<std::uint8_t>(kControlChange | channel),
-                                                           *programParameterInfo(ProgramParameter::FilterCutoff).cc,
+                                                           ccParameterInfo(CcParameter::FilterCutoff).cc,
                                                            static_cast<std::uint8_t>(originalCutoff) };
                     output.send(cc);
                     set(ConnectionCheckItem::CcsReceived, ConnectionCheckOutcome::Passed,

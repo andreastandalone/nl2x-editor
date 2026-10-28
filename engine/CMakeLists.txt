@@ -1,5 +1,6 @@
 # The engine: plain C++20, no JUCE, no platform headers (CODING_STANDARDS.md).
 add_library(nl2x_engine STATIC
+    src/CcParameters.cpp
     src/ConnectionCheck.cpp
     src/Engine.cpp
     src/EngineAudition.cpp

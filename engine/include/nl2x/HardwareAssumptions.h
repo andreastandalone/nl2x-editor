@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace nl2x::hardware {
 
@@ -159,6 +160,88 @@ inline constexpr std::uint8_t kFirstPerformanceBankRequestType = 41;
 // All Controllers Request: type 20, spec = Slot; the synth answers with CCs for that Slot
 // [OFF-2X p.109]. Status: secondary, works for Slot A with dev 0 on a 2X [SEC-3] (plan step 1).
 inline constexpr std::uint8_t kAllControllersRequestType = 20;
+
+// ---------------------------------------------------------------------------------------------
+// CC values of the panel controls (research §2). The CC numbers are printed in the manual's CC
+// chart [OFF-2X p.103–104] and live in the engine's table (CcParameters.cpp); pairing each CC with
+// its SysEx offset is [INF], but the names match one to one. How a CC value maps to the stored
+// byte is mostly undocumented; every rule below is used by the engine *and* the simulated synth.
+
+// Knobs: the CC value is the SysEx value, 0–127 both ways. Status: [INF] (research §2 pairing).
+
+// On/off buttons: "0" = off and "a value of 'on'" = on [OFF-2X p.103], the on value is not
+// printed. The editor sends 127 for on, which a synth testing "≥ 64" or "not 0" reads as on, and
+// reads any value from 1 up as on, which covers a synth sending 1 or 127. The stored byte is 0 or
+// 1 (research §3). Status: [INF], plan step 9.
+inline constexpr std::uint8_t kSwitchOnCcValue = 127;
+inline constexpr std::uint8_t kSwitchOnCcThreshold = 1;
+
+// Stepped buttons send 0, 1, 2, … "from the lowest setting" [OFF-2X p.103]: the CC value is the
+// step number and the SysEx value. Which setting is the lowest is not printed (research §2,
+// "order [INF]"); the choice lists below give our guess, lowest first. A step number read from
+// the synth beyond the list is kept as it is (the factory data has such values, research §3).
+// Status: [INF], plan step 9.
+
+// Osc2 Semitones (CC78): SysEx 0–120 with 60 = centre, but a CC carries 0–127 and the scaling is
+// unknown (research §2). Assumed: the CC value is the SysEx value, so 121–127 never come from the
+// panel and are kept as they are if they do. Status: [INF], plan step 9.
+
+// The RING MOD/SYNC button (CC35) cycles off, sync, ring mod, both [OFF-2X p.42–43]; byte 52 holds
+// bit 0 = sync, bit 1 = ring mod [OFF-2X p.111]. Assumed: one 4-state control whose CC value 0–3
+// is bits 0–1 of byte 52 (so 1 = Sync, 2 = Ring Mod, 3 = both). A CC35 value above 3 cannot be
+// stored in those bits and is ignored. Status: [INF] (research §2 note), plan step 9.
+inline constexpr std::uint8_t kRingModSyncCc = 35;
+inline constexpr std::uint8_t kRingModSyncBits = 0x03;
+inline constexpr std::array<std::string_view, 4> kRingModSyncChoices { "Off", "Sync", "Ring Mod", "Sync + Ring Mod" };
+
+// Filter Distortion (CC80, an on/off button) is bit 4 of byte 52 [OFF-2X p.111]; the other bits
+// of byte 52 are kept when it changes. Status: the bit is documented; that CC80 drives it is [INF].
+inline constexpr std::uint8_t kFilterDistortionBit = 0x10;
+
+// Named steps, lowest first. Names are the manual's panel terms [OFF-2X p.37–61]; the order is
+// the order the manual describes them in, except where the patch layout fixes one value
+// [OFF-2X p.111]. Status: [INF] for every list, plan step 9.
+
+// Osc1: "3 = sine"; Osc 2 shares the first three waveforms with Osc 1 and has Noise instead of
+// Sine, "3 = noise" [OFF-2X p.39, 111].
+inline constexpr std::array<std::string_view, 4> kOsc1WaveformChoices { "Triangle", "Sawtooth", "Pulse", "Sine" };
+inline constexpr std::array<std::string_view, 4> kOsc2WaveformChoices { "Triangle", "Sawtooth", "Pulse", "Noise" };
+inline constexpr std::array<std::string_view, 5> kLfo1WaveformChoices { "Soft Random", "Square", "Triangle",
+                                                                        "Sawtooth", "Random" };
+inline constexpr std::array<std::string_view, 5> kLfo1DestinationChoices { "FM", "Osc 1+2", "Osc 2", "Filter", "PW" };
+// LFO 2 destinations in LFO mode, then the Arpeggio modes; "8 = off" [OFF-2X p.111].
+inline constexpr std::array<std::string_view, 9> kLfo2DestinationArpModeChoices {
+    "Osc 1+2", "Amp", "Filter", "Arp Up", "Arp Down", "Arp Up/Down", "Rnd Arp", "Echo", "Off"
+};
+inline constexpr std::array<std::string_view, 4> kModEnvDestinationChoices { "None", "FM Amt", "PW", "Osc 2" };
+inline constexpr std::array<std::string_view, 5> kModWheelDestinationChoices { "Morph", "LFO 1", "Osc 2", "FM",
+                                                                               "Filter" };
+inline constexpr std::array<std::string_view, 3> kVoiceModeChoices { "Poly", "Legato", "Mono" };
+inline constexpr std::array<std::string_view, 5> kFilterTypeChoices { "LP 12dB", "LP 24dB", "HP 24dB", "BP",
+                                                                      "Notch+LP" };
+inline constexpr std::array<std::string_view, 4> kFilterKeyboardTrackChoices { "Off", "1/3", "2/3", "Full" };
+inline constexpr std::array<std::string_view, 5> kOctaveShiftChoices { "-2", "-1", "0", "+1", "+2" };
+
+// The CC value sent for a control's value: 0–127 always (a CC data byte has 7 bits).
+constexpr std::uint8_t ccDataFromValue(std::uint8_t cc, bool isSwitch, int value)
+{
+    if (isSwitch)
+        return value != 0 ? kSwitchOnCcValue : std::uint8_t { 0 };
+    if (cc == kRingModSyncCc)
+        return static_cast<std::uint8_t>(value & kRingModSyncBits);
+    return static_cast<std::uint8_t>(value < 0 ? 0 : value > 127 ? 127 : value);
+}
+
+// The control's value for a CC value received from the synth; empty when the value cannot be
+// stored and is ignored.
+constexpr std::optional<int> valueFromCcData(std::uint8_t cc, bool isSwitch, std::uint8_t data)
+{
+    if (isSwitch)
+        return data >= kSwitchOnCcThreshold ? 1 : 0;
+    if (cc == kRingModSyncCc && data > kRingModSyncBits)
+        return std::nullopt;
+    return data;
+}
 
 // ---------------------------------------------------------------------------------------------
 // The Connection check

@@ -327,7 +327,7 @@ TEST_CASE("A parameter set in the editor changes the Slot's Program in the engin
     EditorAndSynth rig;
     rig.connect();
 
-    rig.engine.setParameter(Slot::A, ProgramParameter::FilterCutoff, 99);
+    rig.engine.setParameter(Slot::A, CcParameter::FilterCutoff, 99);
 
     CHECK(rig.engineProgram(Slot::A)->value(ProgramParameter::FilterCutoff) == 99);
     CHECK(rig.synth.editBuffer(Slot::A)[3] == 99);

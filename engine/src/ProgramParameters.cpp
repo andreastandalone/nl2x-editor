@@ -19,24 +19,23 @@ constexpr std::uint8_t offsetOf(P parameter)
 }
 
 // A parameter velocity or the mod wheel can morph (offsets 0–24).
-constexpr ProgramParameterInfo morphable(P id, std::string_view key, std::string_view name, int minValue, int maxValue,
-                                         std::optional<std::uint8_t> cc = std::nullopt)
+constexpr ProgramParameterInfo morphable(P id, std::string_view key, std::string_view name, int minValue, int maxValue)
 {
-    return { id, key, name, cc, offsetOf(id), minValue, maxValue, {},
+    return { id, key, name, offsetOf(id), minValue, maxValue,
              static_cast<P>(offsetOf(id) + kFirstMorphAmountOffset), std::nullopt };
 }
 
 // A Morph Amount (offsets 25–49): signed, 0 = off [OFF-2X p.111].
 constexpr ProgramParameterInfo morphAmount(P id, std::string_view key, std::string_view name)
 {
-    return { id, key, name, std::nullopt, offsetOf(id), -128, 127, {}, std::nullopt,
+    return { id, key, name, offsetOf(id), -128, 127, std::nullopt,
              static_cast<P>(offsetOf(id) - kFirstMorphAmountOffset) };
 }
 
 // Any other parameter (offsets 50–65): stepped buttons and switches.
 constexpr ProgramParameterInfo plain(P id, std::string_view key, std::string_view name, int minValue, int maxValue)
 {
-    return { id, key, name, std::nullopt, offsetOf(id), minValue, maxValue, {}, std::nullopt, std::nullopt };
+    return { id, key, name, offsetOf(id), minValue, maxValue, std::nullopt, std::nullopt };
 }
 
 // Names follow the manual's panel and CC chart terms [OFF-2X p.103–104, 111–112]; ranges are the
@@ -45,7 +44,7 @@ constexpr std::array<ProgramParameterInfo, kProgramParameterCount> kProgramParam
     morphable(P::Osc2Semitones, "osc2Semitones", "Osc2 Semitones", 0, 120),
     morphable(P::Osc2FineTune, "osc2FineTune", "Osc2 Fine Tune", 0, 127),
     morphable(P::OscMix, "oscMix", "Osc Mix", 0, 127),
-    morphable(P::FilterCutoff, "filterCutoff", "Filter Cutoff", 0, 127, 74),
+    morphable(P::FilterCutoff, "filterCutoff", "Filter Cutoff", 0, 127),
     morphable(P::FilterResonance, "filterResonance", "Filter Resonance", 0, 127),
     morphable(P::FilterEnvAmount, "filterEnvAmount", "Filter Env Amount", 0, 127),
     morphable(P::PulseWidth, "pulseWidth", "Osc Pulse Width", 0, 127),

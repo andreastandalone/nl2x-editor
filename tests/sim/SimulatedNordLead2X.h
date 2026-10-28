@@ -19,7 +19,8 @@ namespace nl2x::test {
 // engine's parameter table: it is an independent reading of the manual, so a mistake in the
 // engine shows up as a disagreement.
 //
-// It understands CCs on Slot Channels, the Slot Edit Buffer request, the All Controllers Request,
+// It understands every panel CC of the CC chart on Slot Channels (with the value conventions of
+// HardwareAssumptions.h), the Slot Edit Buffer request, the All Controllers Request,
 // Program dumps into Edit Buffers and Bank locations, the Performance Edit Buffer request and
 // dump (ignoring the settings the synth does not receive), Slots listening on their Slot Channels
 // and, when layered, on the leftmost active Slot's channel, and Slots playing a Percussion Kit

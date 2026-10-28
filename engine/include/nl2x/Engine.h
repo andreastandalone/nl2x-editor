@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nl2x/Audition.h"
+#include "nl2x/CcParameters.h"
 #include "nl2x/ConnectionCheck.h"
 #include "nl2x/MidiOutput.h"
 #include "nl2x/Performance.h"
@@ -31,15 +32,18 @@ public:
     explicit Engine(MidiOutput& output);
     ~Engine();
 
-    // A complete MIDI message received from the synth.
+    // A complete MIDI message received from the synth. A CC of a CcParameter on a channel updates
+    // the Edit Buffer of every Slot playing a Program that listens on that channel
+    // (slotsReceivingOn); nothing is sent back. Other controllers are ignored.
     void handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs);
 
     // Called regularly by the caller; drives throttling, timeouts and pacing.
     void advanceTime(TimeMs timeMs);
 
     // The user (GUI or DAW automation) set a parameter of a Slot's Program, in the parameter's
-    // own range (ProgramParameterInfo::minValue … maxValue).
-    void setParameter(Slot slot, ProgramParameter parameter, int value);
+    // own range (CcParameterInfo::minValue … maxValue): its CC goes out on the Slot's channel and
+    // the Slot's Edit Buffer, once read, holds the new value.
+    void setParameter(Slot slot, CcParameter parameter, int value);
 
     // Connects to the synth (MIDI ports opened, app started, or the user asked): finds the Global
     // Channel by asking each possible one for Slot A's Edit Buffer, `rememberedGlobalChannel`
@@ -124,6 +128,7 @@ private:
     void queueSlotRead(Slot slot, TimeMs timeMs);
     void queuePerformanceRead(TimeMs timeMs);
     void applySlotReply(Slot slot, std::span<const std::uint8_t> reply);
+    void applyControlChange(MidiChannel channel, std::uint8_t cc, std::uint8_t data);
     void setStatus(ConnectionStatus newStatus);
     void changed() { ++revision; }
 

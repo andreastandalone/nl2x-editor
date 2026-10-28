@@ -2,6 +2,7 @@
 // the documented ranges kept as they are (research §3). Fixtures are generated here from values we
 // chose; factory data is tested in FactoryBankTest.cpp only when present locally.
 
+#include "nl2x/CcParameters.h"
 #include "nl2x/Program.h"
 #include "nl2x/ProgramParameters.h"
 #include "nl2x/SysEx.h"
@@ -180,7 +181,7 @@ TEST_CASE("Parameter table: the released identity of Filter Cutoff is unchanged"
 {
     const auto& cutoff = programParameterInfo(ProgramParameter::FilterCutoff);
     CHECK(cutoff.key == "filterCutoff");
-    CHECK(cutoff.cc == 74);
+    CHECK(ccParameterInfo(CcParameter::FilterCutoff).cc == 74);
     CHECK(cutoff.sysExOffset == 3);
     CHECK(programParameterInfo(ProgramParameter::Osc2Semitones).maxValue == 120);
     CHECK(programParameterInfo(ProgramParameter::Lfo2DestinationArpMode).maxValue == 8);
