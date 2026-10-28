@@ -7,6 +7,7 @@
 #include "PerformanceView.h"
 #include "PluginProcessor.h"
 #include "ProbeWindow.h"
+#include "SelectorBar.h"
 #include "SlotView.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -52,6 +53,7 @@ private:
     juce::Label synthTitle { {}, "Read from the synth" };
     juce::Label warningLabel;
     std::uint64_t shownRevision = 0;
+    SelectorBar selectorBar;
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     SlotView slotView;
     PerformanceView performanceView;

@@ -55,6 +55,11 @@ public:
     // kept in the plugin state, never a DAW parameter. Message thread only.
     void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);
 
+    // Selection (#10): selects a stored Program or Kit for a Slot, or a Performance; the engine then
+    // reads the synth again. What is selected is kept in the plugin state. Message thread only.
+    nl2x::SelectionResult selectProgram(nl2x::Slot slot, nl2x::ProgramSelection selection);
+    nl2x::SelectionResult selectPerformance(nl2x::PerformanceSelection selection);
+
     // Single instance (user story 11): whether this instance controls the synth. One that does
     // not opens no MIDI port and sends nothing. Message thread only.
     bool controlsSynth() const { return control.holds(); }
@@ -159,6 +164,8 @@ private:
     // a DAW parameter.
     bool editThroughDawParameter(const juce::String& id, int value);
     void applySavedSlotChannelOverrides();
+    // Hands a restored selection to the engine, and keeps the copy saved with the project current.
+    void syncSavedSelection();
     // Connects to the synth when both ports are open and differ from the last connected pair.
     void connectIfPortsChanged();
     void rememberFoundGlobalChannel();
@@ -183,6 +190,11 @@ private:
     // save and restore state from other threads; the timer hands changes to the engine.
     std::array<std::atomic<int>, 4> savedSlotChannelOverrides { -1, -1, -1, -1 };
     std::atomic<bool> slotChannelOverridesRestored { false };
+    // The selection as saved in the plugin state; guarded because hosts may save and restore state
+    // from other threads.
+    std::mutex selectionLock;
+    nl2x::SelectionState savedSelection;
+    bool selectionRestored = false;
     juce::String connectedInput;
     juce::String connectedOutput;
     bool checkOpen = false;

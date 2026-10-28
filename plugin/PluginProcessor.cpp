@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "SavedSelection.h"
 
 #include <array>
 #include <utility>
@@ -264,6 +265,27 @@ void NL2XEditorProcessor::setSlotChannelOverride(nl2x::Slot slot, std::optional<
     engine.setSlotChannelOverride(slot, channel);
 }
 
+nl2x::SelectionResult NL2XEditorProcessor::selectProgram(nl2x::Slot slot, nl2x::ProgramSelection selection)
+{
+    return engine.selectProgram(slot, selection, nowMs());
+}
+
+nl2x::SelectionResult NL2XEditorProcessor::selectPerformance(nl2x::PerformanceSelection selection)
+{
+    return engine.selectPerformance(selection, nowMs());
+}
+
+void NL2XEditorProcessor::syncSavedSelection()
+{
+    const std::scoped_lock lock(selectionLock);
+    if (selectionRestored) {
+        selectionRestored = false;
+        // Shown only: nothing is sent to the synth (that is #8's job).
+        engine.restoreSelection(savedSelection);
+    }
+    savedSelection = engine.selection();
+}
+
 void NL2XEditorProcessor::applySavedSlotChannelOverrides()
 {
     if (! slotChannelOverridesRestored.exchange(false))
@@ -348,6 +370,10 @@ void NL2XEditorProcessor::getStateInformation(juce::MemoryBlock& destData)
         for (auto slot : nl2x::kAllSlots)
             if (const int channel = savedSlotChannelOverrides[nl2x::slotIndex(slot)]; channel >= 0)
                 xml->setAttribute(slotChannelOverrideAttribute(slot), channel);
+        {
+            const std::scoped_lock lock(selectionLock);
+            saved_selection::write(*xml, savedSelection);
+        }
         copyXmlToBinary(*xml, destData);
     }
 }
@@ -364,6 +390,11 @@ void NL2XEditorProcessor::setStateInformation(const void* data, int sizeInBytes)
         xml->removeAttribute(attribute);
     }
     slotChannelOverridesRestored = true;
+    {
+        const std::scoped_lock lock(selectionLock);
+        savedSelection = saved_selection::take(*xml);
+        selectionRestored = true;
+    }
     parameters.replaceState(juce::ValueTree::fromXml(*xml));
 }
 
@@ -376,6 +407,7 @@ void NL2XEditorProcessor::handleIncomingMidiMessage(juce::MidiInput*, const juce
 void NL2XEditorProcessor::timerCallback()
 {
     applySavedSlotChannelOverrides();
+    syncSavedSelection();
     deliverIncomingMidi();
     // DAW to engine first, so that a value the user just set is never overwritten by the older one
     // the engine still holds.

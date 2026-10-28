@@ -28,6 +28,8 @@ target_sources(NL2XEditor PRIVATE
     PluginEditor.cpp
     PluginProcessor.cpp
     ProbeWindow.cpp
+    SavedSelection.cpp
+    SelectorBar.cpp
     SlotView.cpp
     SynthControl.cpp)
 
