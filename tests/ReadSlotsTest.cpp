@@ -75,7 +75,8 @@ struct EditorAndSynth {
     bool busy() const
     {
         const auto status = engine.connectionStatus();
-        return status == ConnectionStatus::SearchingGlobalChannel || status == ConnectionStatus::ReadingSlots;
+        return status == ConnectionStatus::SearchingGlobalChannel || status == ConnectionStatus::ReadingSlots
+               || engine.performanceStatus() == PerformanceStatus::Reading;
     }
 
     void runUntilSettled()
@@ -118,15 +119,16 @@ TEST_CASE("Connecting finds the Global Channel the synth answers on, whichever o
     CHECK(rig.engine.connectionStatus() == ConnectionStatus::Connected);
 
     // Each candidate is asked once for Slot A, until the right one answers; after that only the
-    // right one is used.
+    // right one is used, for Slots B–D and the Performance.
     const auto& sent = rig.toSynth.messages();
-    REQUIRE(sent.size() >= 4);
+    REQUIRE(sent.size() >= 5);
     std::set<GlobalChannel> asked;
-    for (std::size_t i = 0; i + 3 < sent.size(); ++i) {
+    for (std::size_t i = 0; i + 4 < sent.size(); ++i) {
         CHECK(sent[i] == slotEditBufferRequest(sent[i][2], Slot::A));
         CHECK(asked.insert(sent[i][2]).second);
     }
-    CHECK(sent[sent.size() - 4] == slotEditBufferRequest(channel, Slot::A));
+    CHECK(sent[sent.size() - 5] == slotEditBufferRequest(channel, Slot::A));
+    CHECK(sent.back() == performanceEditBufferRequest(channel));
 }
 
 TEST_CASE("Connecting asks the remembered Global Channel first")
@@ -137,7 +139,8 @@ TEST_CASE("Connecting asks the remembered Global Channel first")
     rig.connect(GlobalChannel { 6 });
 
     const std::vector<Bytes> expected { slotEditBufferRequest(6, Slot::A), slotEditBufferRequest(6, Slot::B),
-                                        slotEditBufferRequest(6, Slot::C), slotEditBufferRequest(6, Slot::D) };
+                                        slotEditBufferRequest(6, Slot::C), slotEditBufferRequest(6, Slot::D),
+                                        performanceEditBufferRequest(6) };
     CHECK(rig.toSynth.messages() == expected);
     CHECK(rig.engine.globalChannel() == GlobalChannel { 6 });
 }
@@ -205,7 +208,7 @@ TEST_CASE("Requests go out one at a time, each after the previous reply and a pa
 
     rig.connect();
 
-    REQUIRE(rig.sendTimes.size() == 4);
+    REQUIRE(rig.sendTimes.size() == 5);
     for (std::size_t i = 1; i < rig.sendTimes.size(); ++i)
         CHECK(rig.sendTimes[i] - rig.sendTimes[i - 1] >= hardware::kRequestSpacingMs);
 }
@@ -240,7 +243,10 @@ TEST_CASE("Read from synth before any connection finds the Global Channel first"
     rig.runUntilSettled();
 
     CHECK(rig.engine.globalChannel() == GlobalChannel { 3 });
-    CHECK(rig.toSynth.messages().back() == slotEditBufferRequest(3, Slot::C));
+    const auto& sent = rig.toSynth.messages();
+    REQUIRE(sent.size() >= 2);
+    CHECK(sent[sent.size() - 2] == slotEditBufferRequest(3, Slot::C));
+    CHECK(sent.back() == performanceEditBufferRequest(3));
     CHECK(rig.engineProgram(Slot::C) == EditorAndSynth::simulatedProgram(rig.synth.editBuffer(Slot::C)));
     CHECK(rig.engine.slotState(Slot::A).content == SlotContent::Unknown);
 }

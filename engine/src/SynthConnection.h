@@ -32,6 +32,13 @@ public:
     // Forgets every queued and waiting request without calling their Done.
     void clear();
 
+    // Nothing queued or waiting, and the gap after the last message has passed: a message that
+    // expects no reply may go out now.
+    bool isIdle(TimeMs timeMs) const;
+    // Sends a message that expects no reply (a dump) and keeps the usual gap before the next one.
+    // Call only when isIdle().
+    void sendWithoutReply(std::span<const std::uint8_t> message, TimeMs timeMs);
+
     void handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs);
     void advanceTime(TimeMs timeMs);
 

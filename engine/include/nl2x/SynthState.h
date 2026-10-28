@@ -38,4 +38,29 @@ enum class ConnectionStatus : std::uint8_t {
     NoAnswer,
 };
 
+// The editor's copy of the synth's Performance Edit Buffer (#5).
+enum class PerformanceStatus : std::uint8_t {
+    // Never read since connecting: Slot Channels are the defaults or manual overrides, and
+    // Performance edits are refused.
+    NotRead,
+    // A Performance Edit Buffer request (type 40) is queued or waiting for its reply.
+    Reading,
+    // The last request was answered.
+    Read,
+    // The last request timed out; a Performance read earlier is kept.
+    NoAnswer,
+};
+
+// What became of a Performance setting edit.
+enum class PerformanceEditResult : std::uint8_t {
+    // Kept, and sent with the next Performance dump.
+    Accepted,
+    // Refused, nothing sent: the Performance has not been read from the synth, so a dump would
+    // overwrite the synth's settings with guesses.
+    RefusedNotRead,
+    // Refused: the synth ignores this setting in a received dump ("not received", or read-only in
+    // the editor; PerformanceSettingAccess).
+    RefusedNotEditable,
+};
+
 } // namespace nl2x

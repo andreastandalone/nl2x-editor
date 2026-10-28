@@ -7,6 +7,8 @@ target_compile_options(nl2x_sim PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconv
 add_executable(nl2x_tests
     FactoryBankTest.cpp
     ParameterToCcTest.cpp
+    PerformanceCodecTest.cpp
+    PerformanceTest.cpp
     ProbeLogTest.cpp
     ProbeScriptsTest.cpp
     ProgramCodecTest.cpp
