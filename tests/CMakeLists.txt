@@ -6,8 +6,11 @@ target_compile_options(nl2x_sim PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconv
 
 add_executable(nl2x_tests
     ParameterToCcTest.cpp
-    SimulatedNordLead2XTest.cpp)
-target_link_libraries(nl2x_tests PRIVATE nl2x_sim nl2x_engine Catch2::Catch2WithMain)
+    ProbeLogTest.cpp
+    ProbeScriptsTest.cpp
+    SimulatedNordLead2XTest.cpp
+    SysExTest.cpp)
+target_link_libraries(nl2x_tests PRIVATE nl2x_sim nl2x_probe nl2x_engine Catch2::Catch2WithMain)
 target_compile_options(nl2x_tests PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror)
 
 include(Catch)
