@@ -173,6 +173,8 @@ void ArcKnob::mouseDown(const juce::MouseEvent& event)
     // A value outside the range starts from the range's nearest end.
     dragValue = dragTarget == Target::Value ? std::clamp(currentValue, minValue, maxValue) : currentMorph;
     lastDragY = event.getPosition().y;
+    if (onGestureStart)
+        onGestureStart();
     repaint();
 }
 
@@ -194,6 +196,8 @@ void ArcKnob::mouseDrag(const juce::MouseEvent& event)
 void ArcKnob::mouseUp(const juce::MouseEvent&)
 {
     dragging = false;
+    if (onGestureEnd)
+        onGestureEnd();
     repaint();
 }
 

@@ -82,6 +82,9 @@ public:
             slider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 50, kRowHeight - 4);
             slider.setRange(info.minValue, info.maxValue, 1);
             slider.onValueChange = [this] { edit(juce::roundToInt(slider.getValue())); };
+            // One drag is one undo step (#14).
+            slider.onDragStart = [this] { processor.beginEditGesture(); };
+            slider.onDragEnd = [this] { processor.endEditGesture(); };
             addAndMakeVisible(slider);
             break;
         case nl2x::CcParameterKind::Stepped:
@@ -197,6 +200,8 @@ SlotView::SlotView(NL2XEditorProcessor& owner)
         const auto id = info.id;
         const auto byte = info.byte;
         knob.component->onValueEdit = [this, id](int value) { processor.editSlotParameter(selectedSlot, id, value); };
+        knob.component->onGestureStart = [this] { processor.beginEditGesture(); };
+        knob.component->onGestureEnd = [this] { processor.endEditGesture(); };
         if (morphable)
             knob.component->onMorphAmountEdit = [this, byte](int amount) {
                 processor.editSlotMorphAmount(selectedSlot, byte, amount);

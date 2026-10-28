@@ -94,6 +94,9 @@ public:
             slider.textFromValueFunction = [this](double value) { return valueText(info, juce::roundToInt(value)); };
             slider.valueFromTextFunction = [](const juce::String& entered) { return entered.getDoubleValue(); };
             slider.onValueChange = [this] { edit(juce::roundToInt(slider.getValue())); };
+            // One drag is one undo step (#14).
+            slider.onDragStart = [this] { processor.beginEditGesture(); };
+            slider.onDragEnd = [this] { processor.endEditGesture(); };
             addAndMakeVisible(slider);
         }
     }

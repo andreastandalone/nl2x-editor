@@ -53,6 +53,17 @@ public:
     void editSlotParameter(nl2x::Slot slot, nl2x::CcParameter parameter, int value);
     // The same for a Morph Amount (#7) of a morphable base parameter. Message thread only.
     void editSlotMorphAmount(nl2x::Slot slot, nl2x::ProgramParameter baseParameter, int amount);
+    // A GUI gesture (a knob drag): the edits made until it ends are one undo step. Without one,
+    // every edit is a step of its own (a menu choice, a button). Message thread only.
+    void beginEditGesture();
+    void endEditGesture();
+    // Undo/redo of the user's GUI edits (#14): the engine puts the values back and sends them to
+    // the synth; the DAW parameters follow the engine. Message thread only.
+    void undo();
+    void redo();
+    bool canUndo() const { return engine.canUndo(); }
+    bool canRedo() const { return engine.canRedo(); }
+
     // Pins a Slot's channel regardless of the Performance (empty releases it). A service setting:
     // kept in the plugin state, never a DAW parameter. Message thread only.
     void setSlotChannelOverride(nl2x::Slot slot, std::optional<nl2x::MidiChannel> channel);
@@ -162,9 +173,14 @@ private:
     // Moves the DAW parameters to the values the engine got from the synth, without that move
     // being sent back as an edit.
     void followEngine();
-    // A GUI edit of a bound value: through its DAW parameter, as one gesture. False if `id` is not
-    // a DAW parameter.
-    bool editThroughDawParameter(const juce::String& id, int value);
+    // A GUI edit of a bound value: through its DAW parameter, as one gesture, then at once to the
+    // engine as the user's edit in `step`. False if `id` is not a DAW parameter.
+    bool editThroughDawParameter(const juce::String& id, int value, nl2x::EditStepId step);
+    // Hands a DAW parameter's value to the engine if it changed; as the user's edit in `step`
+    // when given, otherwise as automation, which is not undoable.
+    void handToEngine(BoundParameter& bound, std::optional<nl2x::EditStepId> step);
+    // The undo step of the GUI's edit being made now: the open gesture's, or a new one.
+    nl2x::EditStepId editStep();
     void applySavedSlotChannelOverrides();
     // Hands a restored selection to the engine, and keeps the copy saved with the project current.
     void syncSavedSelection();
@@ -188,6 +204,8 @@ private:
     nl2x::Engine engine { engineOutput };
     std::vector<BoundParameter> boundParameters;
     std::uint64_t followedRevision = 0;
+    // The undo step of the GUI gesture in progress.
+    std::optional<nl2x::EditStepId> gestureStep;
     // Slot Channel overrides as saved in the plugin state, −1 = none. Atomic because hosts may
     // save and restore state from other threads; the timer hands changes to the engine.
     std::array<std::atomic<int>, 4> savedSlotChannelOverrides { -1, -1, -1, -1 };
