@@ -161,6 +161,36 @@ inline constexpr std::uint8_t kFirstPerformanceBankRequestType = 41;
 inline constexpr std::uint8_t kAllControllersRequestType = 20;
 
 // ---------------------------------------------------------------------------------------------
+// The Connection check
+
+// The C setting (hold SHIFT, press PROG/CTRL until the display shows C, UP/DOWN for on/oF)
+// switches transmission *and* reception of CCs together; mod wheel and pedals are always
+// transmitted [OFF-2X p.66–67, 77]. Whether C off also silences the CCs that answer an All
+// Controllers Request is not documented. We assume it does, so no CC after the request points to
+// C being off; the check then asks the user to turn a knob before concluding, so a wrong guess
+// costs one extra step. Status: [INF] (plan step 1 with C off would settle it).
+inline constexpr bool kAllControllersReplyNeedsControlChangeOn = true;
+
+// Controllers sent and received whatever the C setting says: mod wheel (CC1), expression pedal
+// (CC11) and sustain pedal (CC64) [OFF-2X p.74, 77, 104]. Their arrival proves nothing about C.
+// Status: documented.
+inline constexpr std::array<std::uint8_t, 3> kControllersIgnoringControlChangeSetting { 1, 11, 64 };
+
+// The Connection check tests CC reception by sending Filter Cutoff to a Slot and reading the
+// Slot's Edit Buffer back. Time allowed between the CC and the read, so that the synth has
+// applied the value. A CC is 1 ms on the wire; the synth's own reaction time is unknown.
+// Status: [INF], research §4.9.
+inline constexpr int kControlChangeSettleMs = 50;
+
+// That test assumes the Edit Buffer reply carries the CC's value unchanged at the parameter's
+// offset (Filter Cutoff, CC74 = offset 3, both 0–127). The check only asks "did it change?", so
+// a different scaling would not break it. Status: [INF] (research §2: CC/offset pairing).
+
+// How the synth shows its Global Channel: SHIFT + MIDI CH, then MIDI CH again; the display shows
+// the Global MIDI Channel [OFF-2X p.67], as "G.x" (research §4.4; the "G." prefix is not in the
+// manual's text). Counting: kShownGlobalChannelOfDev0 above. Status: documented / [INF] prefix.
+
+// ---------------------------------------------------------------------------------------------
 // Timing
 
 // Spacing between consecutive Program dumps written to Bank locations: the synth stores each one,

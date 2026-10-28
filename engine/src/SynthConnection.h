@@ -24,13 +24,25 @@ public:
     // It may queue further requests or clear the queue.
     using Done = std::function<void(std::optional<std::span<const std::uint8_t>> reply, TimeMs timeMs)>;
 
+    // Who queued a request, so that one user can withdraw its own (the Connection check).
+    using Owner = int;
+    static constexpr Owner kEngine = 0;
+
     explicit SynthConnection(MidiOutput& output);
 
     // Sent at once when nothing is waiting and the gap since the last request has passed;
     // otherwise on a later advanceTime().
-    void enqueue(std::vector<std::uint8_t> request, Accepts accepts, Done done, TimeMs timeMs);
+    void enqueue(std::vector<std::uint8_t> request, Accepts accepts, Done done, TimeMs timeMs,
+                 Owner owner = kEngine);
     // Forgets every queued and waiting request without calling their Done.
     void clear();
+    // Forgets the requests of one owner without calling their Done.
+    void cancel(Owner owner);
+
+    // While suspended nothing is sent and no reply is taken (another tool, the Probe, talks to
+    // the synth). A request waiting for its reply goes back to the front of the queue and is sent
+    // again on resume, since its reply could no longer be told from the other tool's.
+    void setSuspended(bool suspended, TimeMs timeMs);
 
     // Nothing queued or waiting, and the gap after the last message has passed: a message that
     // expects no reply may go out now.
@@ -47,6 +59,7 @@ private:
         std::vector<std::uint8_t> message;
         Accepts accepts;
         Done done;
+        Owner owner;
     };
 
     void finishWaiting(std::optional<std::span<const std::uint8_t>> reply, TimeMs timeMs);
@@ -58,6 +71,7 @@ private:
     TimeMs waitingSince = 0;
     // When the next request may go out; empty before the first one.
     std::optional<TimeMs> nextSendTime;
+    bool suspended = false;
 };
 
 } // namespace nl2x

@@ -42,8 +42,13 @@ public:
     void receive(std::span<const std::uint8_t> message);
     void receive(std::span<const std::uint8_t> message, TimeMs timeMs);
 
-    // The cable plugged into the synth's MIDI Out; nullptr when none is.
+    // The cable plugged into the synth's MIDI Out; nullptr when none is (misbehaviour "MIDI
+    // return cable missing": everything the synth sends goes nowhere).
     void connectMidiOut(MidiOutput* output) { midiOut = output; }
+
+    // The user plays a key while `slot` is the active Slot: Note On and Note Off go out on that
+    // Slot's channel, whatever the C setting says (it covers CCs only [OFF-2X p.66]).
+    void playKey(Slot slot, std::uint8_t note);
 
     // The user turns a panel control on the synth while `slot` is the active Slot: the Edit
     // Buffer changes and the CC goes out on that Slot's channel [OFF-2X p.76].
@@ -86,6 +91,15 @@ public:
     // that need Bank reads choose a type.
     void setBankRequestTypeOfSysExBank1(std::optional<std::uint8_t> type) { bankRequestType = type; }
 
+    // The C setting under Shift + PROG/CTRL, which switches CC transmission and reception
+    // together [OFF-2X p.66–67]. On by default.
+    void setControlChangeOn(bool on) { transmitsCcs = receivesCcs = on; }
+    // Misbehaviour, for testing each half alone: no CC is transmitted (panel knobs, and the All
+    // Controllers Request when HardwareAssumptions.h says C gates it).
+    void setTransmitsControlChanges(bool transmits) { transmitsCcs = transmits; }
+    // Misbehaviour: incoming CCs are ignored.
+    void setReceivesControlChanges(bool receives) { receivesCcs = receives; }
+
     // Misbehaviour: ignore every SysEx message.
     void setAnswersSysEx(bool answers) { answersSysEx = answers; }
     // Misbehaviour: ignore the Performance Edit Buffer request (type 40 is unverified, research §7.3).
@@ -126,6 +140,8 @@ private:
     bool answersSysEx = true;
     bool answersPerformanceRequests = true;
     int receivedPerformanceDumps = 0;
+    bool transmitsCcs = true;
+    bool receivesCcs = true;
     TimeMs sysExRecoveryMs = 0;
     TimeMs now = 0;
     std::optional<TimeMs> lastSysExTime;
