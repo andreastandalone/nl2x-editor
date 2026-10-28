@@ -4,6 +4,7 @@ A free, open-source VST3/AU plugin for macOS that edits a Clavia Nord Lead 2X ov
 
 - Code, comments, documentation and the plugin's user interface are in English, using the terms of the official Nord Lead 2X manual.
 - Never commit third-party material (Clavia manuals, factory banks, the commercial AURA Plugins editor, reference screenshots); `.gitignore` excludes it. See [ADR 0002](docs/adr/0002-open-source-agplv3.md).
+- Code follows [CODING_STANDARDS.md](CODING_STANDARDS.md). Agent notes from past sessions are in [docs/agents/wiki/](docs/agents/wiki/index.md).
 - Protocol facts and their sources are in [docs/research/nl2x-midi-research.md](docs/research/nl2x-midi-research.md); facts marked as inference must be verified on hardware before code relies on them.
 
 ## Agent skills
