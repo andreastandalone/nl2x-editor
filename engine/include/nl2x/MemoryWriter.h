@@ -168,6 +168,11 @@ public:
     void advanceTime(TimeMs timeMs);
     // The connection was reset (Engine::connect): whatever was queued is gone.
     void abort(const std::string& reason);
+    // A Bank Select or Program Change arrived from the synth: someone selected a sound on it, so the
+    // selected Bank may no longer be the one checked. Stops a write under way (the Programs not sent
+    // yet stay as they were); the plan of a write not confirmed yet is unaffected, since the Bank
+    // is checked after confirming.
+    void selectionChangedOnSynth();
 
 private:
     MemoryRefusal startRefusal(int bank) const;

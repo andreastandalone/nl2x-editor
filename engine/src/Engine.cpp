@@ -79,6 +79,12 @@ void Engine::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs ti
     check->handleIncomingMidi(message, timeMs);
     connection->handleIncomingMidi(message, timeMs);
     followSelectionOnSynth(message, timeMs);
+    // Someone selected a sound on the synth: the selected Bank may have changed under a write.
+    const bool programChange = message.size() == 2 && (message[0] & 0xF0) == 0xC0;
+    const bool bankSelect = message.size() == 3 && (message[0] & 0xF0) == kControlChange
+                            && message[1] == hardware::kBankSelectController;
+    if (programChange || bankSelect)
+        memory->selectionChangedOnSynth();
 }
 
 void Engine::advanceTime(TimeMs timeMs)

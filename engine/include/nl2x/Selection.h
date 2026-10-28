@@ -69,6 +69,9 @@ enum class SelectionResult : std::uint8_t {
     RefusedSlotOnGlobalChannel,
     // Nothing sent: the Global Channel is not known yet (not connected).
     RefusedNoGlobalChannel,
+    // Nothing sent: the synth's memory is being read or written (MemoryWriter.h). A Program Change
+    // would change the Bank selected on the synth, where Bank dumps are stored [OFF-2X p.78].
+    RefusedMemoryBusy,
 };
 
 // What the plugin shows as selected and keeps in the project: the last selection made from the

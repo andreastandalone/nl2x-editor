@@ -452,3 +452,44 @@ TEST_CASE("Memory writer: connecting again stops a Bank send part way")
     CHECK(rig.status().message.find("10 of 99 Programs had been written") != std::string::npos);
     CHECK(rig.bankDumpTimes.size() == 10);
 }
+
+TEST_CASE("Memory writer: selecting a Program or Performance is refused while the memory is busy")
+{
+    Rig rig(kNotVerified, "selection-busy");
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().stage == MemoryStage::AwaitingConfirmation);
+    const auto sentBefore = rig.toSynth.messages().size();
+
+    CHECK(rig.engine.selectProgram(Slot::A, { ProgramSelection::Kind::Program, 1, 3 }, rig.now)
+          == SelectionResult::RefusedMemoryBusy);
+    CHECK(rig.engine.selectPerformance({ 1, 4 }, rig.now) == SelectionResult::RefusedMemoryBusy);
+    rig.runFor(1000);
+    for (auto i = sentBefore; i < rig.toSynth.messages().size(); ++i) {
+        const auto& message = rig.toSynth.messages()[i];
+        CHECK_FALSE((message.size() == 2 && (message[0] & 0xF0) == 0xC0));
+    }
+    CHECK(rig.synth.selectedBank() == 2);
+
+    rig.memory().cancel();
+    CHECK(rig.engine.selectProgram(Slot::A, { ProgramSelection::Kind::Program, 1, 3 }, rig.now)
+          == SelectionResult::Sent);
+}
+
+TEST_CASE("Memory writer: a sound selected on the synth during a Bank send stops it")
+{
+    Rig rig(kNotVerified, "selection-on-synth");
+    REQUIRE(rig.memory().prepareBankSend(bankFile(99), 2, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.confirm(NoBackupConsent::Given) == MemoryConfirmResult::Accepted);
+    rig.runWhile([&] { return rig.bankDumpTimes.size() < 5; });
+
+    // The user turns the dial on the synth: Slot A now plays a Program of Bank 1.
+    rig.synth.selectProgramOnPanel(Slot::A, 1, 0);
+    rig.runFor(15000);
+
+    CHECK(rig.status().stage == MemoryStage::Failed);
+    CHECK(rig.status().message.find("selected on the synth during the write") != std::string::npos);
+    CHECK(rig.bankDumpTimes.size() == 5);
+    CHECK(rig.synth.bankProgram(1, 10) == patternProgram(110));
+}

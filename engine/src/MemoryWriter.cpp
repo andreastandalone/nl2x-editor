@@ -555,6 +555,12 @@ void MemoryWriter::abort(const std::string& reason)
                                  : " Nothing was written to the synth."));
 }
 
+void MemoryWriter::selectionChangedOnSynth()
+{
+    if (current.stage == MemoryStage::CheckingSelectedBank || current.stage == MemoryStage::Writing)
+        abort("A Program or Bank was selected on the synth during the write, so it was stopped.");
+}
+
 void MemoryWriter::finish(std::string message)
 {
     task.reset();
