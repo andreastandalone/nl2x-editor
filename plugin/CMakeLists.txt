@@ -19,13 +19,16 @@ juce_add_plugin(NL2XEditor
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
 target_sources(NL2XEditor PRIVATE
+    ConnectionCheckView.cpp
+    ConnectionIndicator.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
     PerformanceView.cpp
     PluginEditor.cpp
     PluginProcessor.cpp
     ProbeWindow.cpp
-    SlotView.cpp)
+    SlotView.cpp
+    SynthControl.cpp)
 
 target_compile_definitions(NL2XEditor PUBLIC
     JUCE_WEB_BROWSER=0

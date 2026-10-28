@@ -47,3 +47,7 @@ _Avoid_: Browser, patch folder
 **Audition**:
 Sending a Program from the Library to a Slot's Edit Buffer to hear it, without storing it in any Bank.
 _Avoid_: Preview, load
+
+**Connection check**:
+The editor's test of the MIDI link with the synth: whether MIDI arrives from it, whether it answers SysEx requests and on which Global Channel, and whether it transmits and receives CCs (the C setting under Shift + PROG/CTRL). Each problem comes with the setting to change.
+_Avoid_: Diagnostics, self-test

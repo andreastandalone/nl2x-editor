@@ -64,6 +64,9 @@ void MidiPortSelector::refresh()
                                     ports.missingInputName());
     outputIdentifiers = fillPortList(outputPorts, juce::MidiOutput::getAvailableDevices(), ports.outputIdentifier(),
                                      ports.missingOutputName());
+    // An instance that does not control the synth must not change the ports of the one that does.
+    inputPorts.setEnabled(ports.isOpen());
+    outputPorts.setEnabled(ports.isOpen());
 }
 
 void MidiPortSelector::resized()

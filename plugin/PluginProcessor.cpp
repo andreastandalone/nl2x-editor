@@ -60,8 +60,14 @@ NL2XEditorProcessor::NL2XEditorProcessor()
         boundPerformanceParameters.push_back({ setting, slot, dawParameter, engineValue(*dawParameter) });
     }
 
+    if (const auto manual = ports.manualGlobalChannel())
+        engine.setManualGlobalChannel(static_cast<nl2x::GlobalChannel>(*manual));
+
     ports.addChangeListener(this);
-    // The ports saved by the user are already open: connect at once (spec #1, user story 19).
+    // Only the instance that controls the synth opens the ports; the saved ones open at once and
+    // it connects (spec #1, user stories 11 and 19).
+    if (control.tryAcquire())
+        ports.open();
     connectIfPortsChanged();
     startTimer(kTimerIntervalMs);
 }
@@ -70,6 +76,100 @@ NL2XEditorProcessor::~NL2XEditorProcessor()
 {
     stopTimer();
     ports.removeChangeListener(this);
+    ports.close();
+    control.release();
+}
+
+bool NL2XEditorProcessor::takeControlOfSynth()
+{
+    if (! control.tryAcquire())
+        return false;
+    ports.open();
+    forceReconnect();
+    return true;
+}
+
+void NL2XEditorProcessor::forceReconnect()
+{
+    connectedInput = {};
+    connectedOutput = {};
+    connectIfPortsChanged();
+}
+
+void NL2XEditorProcessor::setManualGlobalChannel(std::optional<nl2x::GlobalChannel> channel)
+{
+    ports.setManualGlobalChannel(channel ? std::optional<int>(*channel) : std::nullopt);
+    engine.setManualGlobalChannel(channel);
+    forceReconnect();
+}
+
+nl2x::TimeMs NL2XEditorProcessor::engineTimeMs()
+{
+    return nowMs();
+}
+
+void NL2XEditorProcessor::openConnectionCheck()
+{
+    checkOpen = true;
+    const auto state = engine.connectionCheck().state;
+    if (state == nl2x::ConnectionCheckState::Running || state == nl2x::ConnectionCheckState::WaitingForUser)
+        return;
+    if (! controlsSynth() || ports.inputIdentifier().isEmpty() || ports.outputIdentifier().isEmpty())
+        return;
+    engine.startConnectionCheck(nowMs());
+    checkAwaitingResult = engine.connectionCheck().state != nl2x::ConnectionCheckState::Idle;
+}
+
+void NL2XEditorProcessor::closeConnectionCheck()
+{
+    checkOpen = false;
+    engine.cancelConnectionCheck();
+    checkAwaitingResult = false;
+}
+
+void NL2XEditorProcessor::skipConnectionCheckStep()
+{
+    engine.skipConnectionCheckStep(nowMs());
+}
+
+void NL2XEditorProcessor::setEngineRequestsSuspended(bool suspended)
+{
+    engine.setRequestsSuspended(suspended, nowMs());
+}
+
+void NL2XEditorProcessor::watchConnection()
+{
+    using nl2x::ConnectionStatus;
+    const auto status = engine.connectionStatus();
+    if (status == ConnectionStatus::Connected || status == ConnectionStatus::NoAnswer) {
+        if (! ports.connectionCheckShown()) {
+            // The first connection ever (user story 9).
+            ports.setConnectionCheckShown();
+            openConnectionCheck();
+        } else if (status == ConnectionStatus::NoAnswer && lastSettledStatus == ConnectionStatus::Connected) {
+            // The synth stopped answering.
+            openConnectionCheck();
+        }
+        lastSettledStatus = status;
+    }
+
+    const auto& report = engine.connectionCheck();
+    if (checkAwaitingResult && report.state == nl2x::ConnectionCheckState::Finished) {
+        checkAwaitingResult = false;
+        // The check found the synth while the connection had given up: connect again, so the
+        // indicator and the Slots catch up. Not with a wrong manual Global Channel, which would
+        // only fail again.
+        const auto manual = engine.manualGlobalChannel();
+        if (status != ConnectionStatus::Connected && report.answeringGlobalChannel
+            && (! manual || manual == report.answeringGlobalChannel)) {
+            connectedInput = {};
+            connectedOutput = {};
+            lastSettledStatus = ConnectionStatus::NotConnected;
+            engine.connect(report.answeringGlobalChannel, nowMs());
+            connectedInput = ports.inputIdentifier();
+            connectedOutput = ports.outputIdentifier();
+        }
+    }
 }
 
 void NL2XEditorProcessor::changeListenerCallback(juce::ChangeBroadcaster*)
@@ -143,6 +243,9 @@ void NL2XEditorProcessor::applySavedSlotChannelOverrides()
 
 void NL2XEditorProcessor::rememberFoundGlobalChannel()
 {
+    // A manual Global Channel is not a found one.
+    if (engine.manualGlobalChannel())
+        return;
     if (const auto channel = engine.globalChannel())
         ports.rememberGlobalChannel(*channel);
 }
@@ -231,6 +334,7 @@ void NL2XEditorProcessor::timerCallback()
     followPerformanceFromSynth();
     engine.advanceTime(nowMs());
     rememberFoundGlobalChannel();
+    watchConnection();
 }
 
 void NL2XEditorProcessor::deliverIncomingMidi()
