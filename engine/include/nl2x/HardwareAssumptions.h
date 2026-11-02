@@ -390,6 +390,22 @@ constexpr std::optional<int> valueFromCcData(std::uint8_t cc, bool isSwitch, std
 }
 
 // ---------------------------------------------------------------------------------------------
+// Morph Amounts
+
+// Where a Morph Amount takes its parameter: the base value plus the amount, in the units of the
+// knob's value, so a knob at 40 with a Morph Amount of +30 reaches 70 at full velocity or Mod
+// Wheel. Facts: the 25 Morph Amounts are signed bytes, −128…127, 0 = off [OFF-2X p.111]; the
+// manual says how far the parameter moves "away from its base value" increases with velocity or
+// the Mod Wheel [OFF-2X p.26–27] but prints no scale. The editor's Morph ring draws the arc from
+// the value to this target (plugin/ArcKnob.cpp); nothing else depends on it.
+// Status: [INF], not verified on hardware. To check: set a knob near the middle, give it a large
+// Morph Amount, and hear or read where full Mod Wheel takes it.
+constexpr int morphTarget(int value, int morphAmount)
+{
+    return value + morphAmount;
+}
+
+// ---------------------------------------------------------------------------------------------
 // The Connection check
 
 // The C setting (hold SHIFT, press PROG/CTRL until the display shows C, UP/DOWN for on/oF)

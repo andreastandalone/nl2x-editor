@@ -9,8 +9,8 @@
 //                      [--scale <n>] [--work <dir>]
 //
 // --kit makes that Slot play a Percussion Kit; --offline lets the synth answer nothing;
-// --edge-cases puts Slots A and B on one channel and values outside the documented ranges into
-// Slot A.
+// --edge-cases puts Slots A and B on one channel, and values outside the documented ranges and
+// Morph Amounts past the ends of the ranges into Slot A.
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
@@ -204,6 +204,13 @@ int render(const Options& options)
         nl2x::Program program(link.synth.editBuffer(nl2x::Slot::A));
         program.setValue(nl2x::ProgramParameter::Osc2Semitones, 125);
         program.setValue(nl2x::ProgramParameter::FilterType, 7);
+        // Morph Amounts that go past the end of the range, and one at the edge pointing out of it.
+        program.setValue(nl2x::ProgramParameter::AmpEnvAttack, 0);
+        program.setValue(*nl2x::morphAmountOf(nl2x::ProgramParameter::AmpEnvAttack), -40);
+        program.setValue(nl2x::ProgramParameter::FilterCutoff, 100);
+        program.setValue(*nl2x::morphAmountOf(nl2x::ProgramParameter::FilterCutoff), 60);
+        program.setValue(nl2x::ProgramParameter::FilterResonance, 30);
+        program.setValue(*nl2x::morphAmountOf(nl2x::ProgramParameter::FilterResonance), -90);
         link.synth.setEditBuffer(nl2x::Slot::A, program.bytes());
     }
 

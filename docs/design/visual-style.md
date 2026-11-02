@@ -9,6 +9,10 @@ Applies to both the first functional version and the later polished one; polishi
 - **Colours from the Nord Lead 2X itself**: Nord red, panel grey and the blue-violet/lilac of the panel sections. Exact values to be sampled from a photo of the user's synth.
 - **Layout mirrors the hardware front panel**, as `skin-examples/nodalred.jpg` does: LFO 1, LFO 2/Arp and Mod Env on the left; Oscillators in the centre; Amplifier and Filter on the right; Play Mode, Portamento, Unison, Oct Shift and Mod Wheel destination along the bottom. A knob is found in the plugin where it sits on the synth. Two panel controls are left out (2026-11-02, #40): Master Level, which has no MIDI and is not part of the Program, and the Slot A–D buttons, since the Slot is chosen with the editor's tabs.
 
+## The Morph ring
+
+A morphable knob draws its Morph Amount as a thinner ring inside the value arc, from the value to value + amount (an unverified assumption, `morphTarget` in `HardwareAssumptions.h`). Positive amounts are teal, negative ones orange; a dot marks where the ring lands. When value + amount goes past the end of the range the ring stops there and a tick across the track marks the clipping, so a Morph Amount is never invisible.
+
 ## Where the palette lives
 
 All colours, fonts and sizes are named in `plugin/NordLookAndFeel.h`; the components only use those names. The colours of the Nord Lead 2X are placeholders until sampled from the photo (#13), marked PLACEHOLDER there:
@@ -16,7 +20,7 @@ All colours, fonts and sizes are named in `plugin/NordLookAndFeel.h`; the compon
 - `NordPalette::casingRed`: the red casing (header bar, panel frame, front tab).
 - `NordPalette::panelGrey`: the front panel, the body of every section.
 - `NordPalette::sectionTitle`, `sectionTitleText`: the blue-violet/lilac title bars and their text.
-- `NordPalette::morph`: the Morph Amount arcs and the Morph button.
+- `NordPalette::morph`, `morphNegative`: the Morph Amount ring (positive and negative amounts) and the Morph button; deliberately not the title bars' colour.
 - `NordPalette::ledOn`, `ledOff`: the LEDs of stepped choices and switches.
 - The others (`background`, `text`, `textDim`, `knobTrack`, `valueArc`, `control`, the status colours) are the editor's own.
 

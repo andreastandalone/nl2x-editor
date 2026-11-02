@@ -2,6 +2,8 @@
 
 #include "NordLookAndFeel.h"
 
+#include "nl2x/HardwareAssumptions.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -21,6 +23,13 @@ constexpr float kValueHeight = 16.0f;
 juce::String signedText(int amount)
 {
     return amount > 0 ? "+" + juce::String(amount) : juce::String(amount);
+}
+
+juce::Colour morphColour(int amount)
+{
+    if (amount == 0)
+        return NordPalette::textDim;
+    return amount < 0 ? NordPalette::morphNegative : NordPalette::morph;
 }
 
 } // namespace
@@ -130,19 +139,36 @@ void ArcKnob::paint(juce::Graphics& g)
     const auto pointer = juce::Point<float>(std::sin(valueAngle), -std::cos(valueAngle));
     g.drawLine(juce::Line<float>(centre + pointer * (radius * 0.35f), centre + pointer * (radius * 0.75f)), 2.0f);
 
-    // The Morph Amount: inside the main arc, from the value towards value + amount.
+    // The Morph Amount: inside the main arc, from the value towards where value + amount lands,
+    // in the colour of its sign, with a dot at that end. When value + amount goes past the end of
+    // the range, the ring stops at the end and a tick across the track marks the clipping, so a
+    // Morph Amount is never invisible (a knob at its minimum with a negative amount shows the dot
+    // and the tick).
     if (morphable && currentMorph != 0) {
-        const auto targetAngle = angleOf(positionOf(std::clamp(currentValue, minValue, maxValue) + currentMorph));
+        const auto from = std::clamp(currentValue, minValue, maxValue);
+        const auto target = nl2x::hardware::morphTarget(from, currentMorph);
+        const bool clipped = target < minValue || target > maxValue;
+        const auto colour = morphColour(currentMorph);
+        const auto targetAngle = angleOf(positionOf(target));
         const auto morphRadius = radius - thickness - 1.5f;
         const auto morphWidth = std::max(2.0f, thickness * 0.5f);
-        arc(std::min(valueAngle, targetAngle), std::max(valueAngle, targetAngle), morphRadius, morphWidth,
-            NordPalette::morph);
+        if (std::clamp(target, minValue, maxValue) != from)
+            arc(std::min(valueAngle, targetAngle), std::max(valueAngle, targetAngle), morphRadius, morphWidth, colour);
+
+        const auto direction = juce::Point<float>(std::sin(targetAngle), -std::cos(targetAngle));
+        g.setColour(colour);
+        if (clipped)
+            g.drawLine(juce::Line<float>(centre + direction * (morphRadius - morphWidth),
+                                         centre + direction * (radius + thickness * 0.5f + 2.5f)),
+                       2.0f);
+        const auto dot = morphWidth + 1.0f;
+        g.fillEllipse(juce::Rectangle<float>(dot * 2.0f, dot * 2.0f).withCentre(centre + direction * morphRadius));
     }
 
     // Underneath: the number being edited.
     g.setFont(NordFonts::value());
     if (showsMorph()) {
-        g.setColour(NordPalette::morph);
+        g.setColour(morphColour(currentMorph));
         g.drawText("M " + signedText(currentMorph), valueArea, juce::Justification::centred);
     } else {
         g.setColour(outOfRange ? NordPalette::outOfRange : text);

@@ -19,9 +19,11 @@ inline const juce::Colour background { 0xff303236 };
 // The blue-violet/lilac of the panel's section title bars. PLACEHOLDER.
 inline const juce::Colour sectionTitle { 0xff8a7cf0 };
 inline const juce::Colour sectionTitleText { 0xff1c1b26 };
-// The Morph Amount arc and everything that shows Morph (the Morph button, "M +12"). The same
-// blue-violet as the title bars until the photo says otherwise. PLACEHOLDER.
-inline const juce::Colour morph { 0xff8a7cf0 };
+// The Morph Amount ring and everything that shows Morph (the Morph button, "M +12"): a positive
+// amount in `morph`, a negative one in `morphNegative`. Both stand apart from the title bars, the
+// value arc, the LEDs and `outOfRange`, so the ring never blends into the panel.
+inline const juce::Colour morph { 0xff2ec4b6 };
+inline const juce::Colour morphNegative { 0xffff7a45 };
 
 inline const juce::Colour text { 0xfff0f0f2 };
 inline const juce::Colour textDim { 0xffb4b6bc };
