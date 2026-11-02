@@ -94,6 +94,8 @@ jobs:
           This build is not notarized, so macOS blocks it the first time. To open it anyway:
           System Settings > Privacy & Security > Open Anyway, or in Terminal:
             xattr -dr com.apple.quarantine "<path to the file you copied>"
+          On macOS 14 or earlier you can also Control-click (right-click) the app and choose
+          Open; macOS 15 and later only offer System Settings.
 
           MIDI setup, the synth settings (Shift + PROG/CTRL: P on, C on, A off) and DAW notes
           are in README.md.
