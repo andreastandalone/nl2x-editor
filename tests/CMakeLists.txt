@@ -9,6 +9,7 @@ add_executable(nl2x_tests
     ConnectionCheckTest.cpp
     FactoryBankTest.cpp
     LibraryFactoryTest.cpp
+    LibraryMetadataTest.cpp
     LibraryTest.cpp
     MemoryWriterTest.cpp
     MorphAmountsTest.cpp

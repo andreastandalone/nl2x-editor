@@ -19,12 +19,17 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
 namespace nl2x {
 
 class Engine;
+
+// The subfolder of the Library folder where the editor and the Probe save Bank backups. Its files
+// are marked as backups by scanLibrary (LibraryFile::isBackup).
+inline constexpr std::string_view kLibraryBackupFolderName = "Backups";
 
 enum class LibraryEntryKind : std::uint8_t { Program, PercussionKit, Performance };
 
@@ -60,6 +65,9 @@ struct LibraryFile {
     // Messages that are not decodable Nord Lead 2X dumps (other devices, other sizes, bad nibbles):
     // skipped, never guessed at.
     std::size_t ignoredMessageCount = 0;
+    // Found in the Backups subfolder of the Library folder (kLibraryBackupFolderName): a Bank
+    // backup saved by the editor or the Probe, kept apart from the user's sounds.
+    bool isBackup = false;
 };
 
 // Recognises a file's bytes; `name` is the file name without extension.
@@ -67,7 +75,7 @@ LibraryFile recogniseLibraryFile(const std::string& name, std::span<const std::u
 // Reads and recognises one file. An unreadable or oversized file comes back as Unknown.
 LibraryFile openLibraryFile(const std::filesystem::path& path);
 // Every .syx file (any case) under `folder`, subfolders included, hidden ones skipped, sorted by
-// path. A missing folder gives an empty Library.
+// path. Files in `folder`/Backups are marked isBackup. A missing folder gives an empty Library.
 std::vector<LibraryFile> scanLibrary(const std::filesystem::path& folder);
 
 // The name of the `index`-th entry of its kind (0-based) in a file holding several dumps.

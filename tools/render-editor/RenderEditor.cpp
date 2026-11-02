@@ -20,12 +20,14 @@
 #include "nl2x/CcParameters.h"
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Library.h"
+#include "nl2x/LibraryMetadata.h"
 #include "nl2x/MorphAmounts.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <CoreFoundation/CoreFoundation.h>
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -225,6 +227,23 @@ int render(const Options& options)
                                   *file);
     if (const auto file = nl2x::performanceFile(synth))
         nl2x::saveLibraryFile(library.getChildFile("Test Performance.syx").getFullPathName().toStdString(), *file);
+    // A Bank backup, listed under the Backups heading, and the user's own information for two sounds.
+    std::vector<std::uint8_t> backup;
+    for (auto slot : nl2x::kAllSlots)
+        if (const auto file = nl2x::slotProgramFile(synth, slot))
+            backup.insert(backup.end(), file->begin(), file->end());
+    nl2x::saveLibraryFile(library.getChildFile("Backups").getChildFile("Bank 3 backup.syx").getFullPathName().toStdString(),
+                          backup);
+    {
+        const auto libraryPath = std::filesystem::path(library.getFullPathName().toStdString());
+        auto metadata = nl2x::LibraryMetadata::load(libraryPath);
+        for (const auto& file : nl2x::scanLibrary(libraryPath)) {
+            if (file.name == "Slot A sound")
+                metadata.set(file.entries.front(), { "Warm lead", "Lead", true });
+            else if (file.name == "Slot B sound")
+                metadata.set(file.entries.front(), { {}, "Bass", false });
+        }
+    }
 
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditorAndMakeActive());
     editor->setVisible(true);
