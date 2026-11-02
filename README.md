@@ -32,6 +32,8 @@ Once version 0.1 is published, download `NL2X-Editor-<version>-macOS-universal.z
 1. Try to open the app (or load the plugin in your DAW) once, so that macOS shows the message and records the block.
 2. Open System Settings > Privacy & Security, scroll down to the Security section and click **Open Anyway** next to "NL2X Editor". Confirm with your password. For a plugin, load it again in the DAW and repeat if macOS asks again.
 
+On macOS 14 (Sonoma) and earlier there is a shorter way for the app: Control-click (or right-click) `NL2X Editor.app` in `/Applications`, choose **Open**, then **Open** again in the dialog. macOS 15 (Sequoia) and later removed this shortcut, so use System Settings there.
+
 Alternatively, in Terminal, remove the quarantine mark macOS put on the files you downloaded. This only affects the files you name, so check the path before pressing Return:
 
 ```sh

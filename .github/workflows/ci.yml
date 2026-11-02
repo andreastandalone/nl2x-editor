@@ -13,6 +13,12 @@ jobs:
     timeout-minutes: 60
     env:
       ARTEFACTS: build/plugin/NL2XEditor_artefacts/Release
+      # ccache keeps compiled objects between runs, so a run recompiles only what changed (JUCE
+      # alone is most of a clean build).
+      CCACHE_DIR: ${{ github.workspace }}/.ci-cache/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPRESS: 'true'
+      CCACHE_MAXSIZE: 1G
     steps:
       - uses: actions/checkout@v4
 
@@ -24,15 +30,36 @@ jobs:
             .ci-cache/pluginval
           key: deps-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake', 'tools/run-pluginval.sh') }}
 
+      # A cache entry is immutable, so every run saves a new one under its own key and the next
+      # run restores the most recent one by prefix. Pull requests also see the entries of main.
+      - name: Cache ccache objects
+        uses: actions/cache@v4
+        with:
+          path: .ci-cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ github.ref_name }}-
+            ccache-${{ runner.os }}-main-
+
+      - name: Install ccache
+        run: |
+          brew install ccache
+          ccache --zero-stats
+
       - name: Configure (Universal)
         run: >
           cmake -S . -B build -G "Unix Makefiles"
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DNL2X_DOWNLOAD_CACHE="$PWD/.ci-cache/downloads"
 
       - name: Build
         run: cmake --build build -j"$(sysctl -n hw.ncpu)"
+
+      - name: ccache statistics
+        run: ccache --show-stats
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
