@@ -66,11 +66,11 @@ Andrea ran the hardware discovery session (#3) on 2026-10-29 and 2026-11-02; eve
 
 ### Open
 
-- **Live Performance editing (#5)**: how to make the synth apply Performance settings sent from the editor (follow-up issue).
-- **Why Programs 1–4 and 17 of Bank 0 became empty**: the editor sent only read requests that day, and the only code that writes Banks (the Probe's write scripts) used dump type 4 and Bank 3 read back unchanged. Reread all Banks later and compare with factory to see whether it happens again (follow-up issue).
+- **Live Performance editing (#5)**: how to make the synth apply Performance settings sent from the editor (#31).
+- **Why Programs 1–4 and 17 of Bank 0 became empty**: the editor sent only read requests that day, and the only code that writes Banks (the Probe's write scripts) used dump type 4 and Bank 3 read back unchanged. Reread all Banks later and compare with factory to see whether it happens again (#32).
 - **Which Bank a Bank Program dump lands in**: the one named by its type byte or the one selected on the panel? Every write so far had both the same. Until known, the memory writer keeps both naming the target Bank.
-- **Kits**: Kit Bank locations (spec 99–108) answer, but with contents that change from read to read and match no factory Kit, and a Kit written as type 1 spec 99 did not read back. Reading and writing Kit Banks is unknown (follow-up issue). Also: a type 14 read of a Slot holding a Kit is unreliable, because the reply's format follows the active Slot; the editor still tells Kits apart by reply size, which is right only for the active Slot (`kSlotEditBufferReplyFormatFollowsActiveSlot`; follow-up issue).
-- **Performance Bank writes**: a type 31 dump in Program mode changed nothing; Performance mode is untested (follow-up issue). Bytes 648–653 of a Performance dump change between reads.
+- **Kits**: Kit Bank locations (spec 99–108) answer, but with contents that change from read to read and match no factory Kit, and a Kit written as type 1 spec 99 did not read back. Reading and writing Kit Banks is unknown (#33). Also: a type 14 read of a Slot holding a Kit is unreliable, because the reply's format follows the active Slot; the editor still tells Kits apart by reply size, which is right only for the active Slot (`kSlotEditBufferReplyFormatFollowsActiveSlot`; #33).
+- **Performance Bank writes**: a type 31 dump in Program mode changed nothing; Performance mode is untested (#34). Bytes 648–653 of a Performance dump change between reads.
 - **Not yet checked**: whether a type 0 dump cuts held notes for a Performance dump (moot while it is not applied); the LED names of value 0 for the stepped controls other than Filter Type and LFO2 Dest/Arp; reverse CC sweeps; C off and the knob prompt.
 
 ## Decisions taken on Andrea's behalf
