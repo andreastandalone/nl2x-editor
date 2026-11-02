@@ -222,7 +222,8 @@ PerformanceView::~PerformanceView()
 
 juce::Label& PerformanceView::addHeading(const juce::String& title)
 {
-    auto& heading = *headings.emplace_back(std::make_unique<juce::Label>(juce::String(), title));
+    // As drawSection prints section titles: uppercase.
+    auto& heading = *headings.emplace_back(std::make_unique<juce::Label>(juce::String(), title.toUpperCase()));
     heading.setFont(NordFonts::sectionTitle());
     heading.setColour(juce::Label::backgroundColourId, NordPalette::sectionTitle);
     heading.setColour(juce::Label::textColourId, NordPalette::sectionTitleText);

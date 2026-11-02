@@ -103,7 +103,7 @@ void ArcKnob::paint(juce::Graphics& g)
     const auto text = NordPalette::text;
     const bool enabled = isEnabled();
 
-    g.setColour(enabled ? NordPalette::text : NordPalette::textDim);
+    g.setColour(enabled ? NordPalette::textDim : NordPalette::textDim.withMultipliedAlpha(0.6f));
     g.setFont(NordFonts::controlName());
     g.drawFittedText(name, area.removeFromTop(kNameHeight).toNearestInt(), juce::Justification::centredBottom, 2,
                      0.9f);
@@ -134,10 +134,13 @@ void ArcKnob::paint(juce::Graphics& g)
     const bool outOfRange = currentValue < minValue || currentValue > maxValue;
     arc(kStartAngle, valueAngle, radius, thickness, outOfRange ? NordPalette::outOfRange : NordPalette::valueArc);
 
-    // The pointer: a short line from the centre towards the value.
+    // The cap in the middle, inside the Morph ring, with the pointer towards the value.
+    const auto capRadius = radius - 2.0f * thickness - 1.0f;
+    g.setColour(NordPalette::knobCap);
+    g.fillEllipse(juce::Rectangle<float>(capRadius * 2.0f, capRadius * 2.0f).withCentre(centre));
     g.setColour(text);
     const auto pointer = juce::Point<float>(std::sin(valueAngle), -std::cos(valueAngle));
-    g.drawLine(juce::Line<float>(centre + pointer * (radius * 0.35f), centre + pointer * (radius * 0.75f)), 2.0f);
+    g.drawLine(juce::Line<float>(centre + pointer * (capRadius * 0.3f), centre + pointer * (capRadius * 0.9f)), 2.0f);
 
     // The Morph Amount: inside the main arc, from the value towards where value + amount lands,
     // in the colour of its sign, with a dot at that end. When value + amount goes past the end of
