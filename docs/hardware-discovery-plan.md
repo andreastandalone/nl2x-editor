@@ -7,11 +7,11 @@ Budget about two hours. Nothing in this plan writes to the synth's Banks except 
 ## The Probe window
 
 - **Ports**: the same two menus as the main window (MIDI Input from the synth, MIDI Output to the synth); a change in one window shows in the other.
-- **Fields**: *Global Channel (1–16)*, *CC sweep: CC number*, *CC sweep: channel (1–16)*, *Bank request type (from step 5)*, *Bank dump type (1–10)*. Scripts read them when they start.
+- **Fields**: *Global Channel (1–16)*, *CC sweep: CC number*, *CC sweep: channel (1–16)*, *Bank scripts: Bank as shown on the panel (0–9)*; the line under the last one shows the dump type and request type that follow from it (dump type = Bank + 1, request type = dump type + 14, verified 2026-10-29). Scripts read them when they start. (Until 2026-11-02 the window had separate *Bank request type* and *Bank dump type* fields.)
 - **Script buttons**: one per script below. Hover a button for what it sends. The two scripts that write to the synth's memory are red, and each asks "Write to the synth's memory?" before it starts.
 - **Stop** ends the running script; it still prints its summary. Only one script runs at a time. The label next to Stop shows *Running…* or *Idle*.
 - **Raw entry + Send**: type any one MIDI message in hex (`F0 33 0F 04 0E 00 F7`, `B0 4A 40`) and press Send or Return. Anything that is not one complete, valid message is refused with a note in the log.
-- **Log**, **Clear log**, **Save log**: Save log offers `~/Documents/nl2x-probe-<date>-<time>.txt`.
+- **Log**, **Clear log**, **Save log**: Save log offers `nl2x-probe-<date>-<time>.txt` in the folder used last, at first `~/Documents/Nord Lead 2X/logs/`.
 
 Closing the Probe window only hides it; reopening it keeps the log and the session (including a Bank backup).
 
@@ -48,6 +48,7 @@ Each step below names the button to press, what to do on the synth, and what to 
 
 ## 1. Basic link
 
+- Result (2026-10-29): type 20 is not an All Controllers Request on the 2X; it returns a Program of the Bank shown as 5. The button is now **Type 20 request (manual: All Controllers)**.
 - Press **All Controllers Request A**: an All Controllers Request for Slot A (`F0 33 <dev> 04 14 00 F7`) to every dev 0–15, 300 ms apart (about 5 s). CCs arriving in the 300 ms after a request are credited to it.
 - Expect a burst of CCs from the synth after the dev that matches the Global Channel. The summary reads like `SUMMARY All Controllers Request A: 1 of 16 requests answered: dev 15 -> 38 CCs on channel 1`.
 - Write down: which dev answered; number of CCs; their channel.
@@ -119,13 +120,13 @@ Each step below names the button to press, what to do on the synth, and what to 
 Only with a Bank you can afford to lose; skip the whole step if step 5 found no Bank request. The test uses the last RAM Bank, the one the synth shows as **Bank 3** (the manual's SysEx Bank 4), and overwrites only its Program 99.
 
 - On the synth, select any Program in **Bank 3**: the synth stores incoming Bank dumps in the Bank selected on its panel, whatever the dump's type byte says [OFF-2X p.78].
-- Type the request type that reads Bank 3 (from step 5) into *Bank request type*. Leave *Bank dump type* at 4 (the manual's Bank 4).
+- Type 3 into *Bank scripts: Bank as shown on the panel*: the line under it reads "dump type 4, request type 18".
 - Press **Back up Bank** (reads only): it requests Programs 1–99 of that Bank one by one (about 10 s). The summary reads `captured all 99 Programs with request type <t>; reply type bytes: …; reply spec equals the location for 99 of 99`, and a note gives the file the backup was saved to, `~/Documents/Nord Lead 2X/Backups/probe-bank-backup-<date>-<time>-request-type-<t>.syx` (the replies exactly as received). If any Program does not answer, no backup is kept and the next two buttons refuse to run.
 - Press **Write test Program to Bank (writes to memory)** and confirm. It sends one Program dump to Program 99 (dump type 4, spec 98): the backed-up Program 99 with Filter Cutoff changed. After 500 ms it reads Program 99 back; the summary says whether the test Program was stored there, whether Program 99 is unchanged, or whether it differs from both.
 - Write down: did it store? Check on the synth too: select Bank 3, Program 99. If the summary says "unchanged", look for the change elsewhere (Program 99 of the Bank shown as 0, or of whichever Bank was selected).
 - Press **Restore Bank backup (writes to memory)** and confirm. It sends all 99 backed-up Programs into the selected Bank, 100 ms apart (`kBankWriteSpacingMs`), then reads each back; the summary ends `read-back: <n> of 99 match the backup`. Anything below 99 means 100 ms is too fast for Bank writes: send the saved backup file again with a slower tool and write the spacing down.
 
-Both writing scripts refuse to run (`Not started: …`) unless a complete backup of the Bank read with the same *Bank request type* was captured since the app started.
+Both writing scripts refuse to run (`Not started: …`) unless a complete backup of the same Bank was captured since the app started.
 
 ## 12. Sharing the MIDI output port with the DAW
 
