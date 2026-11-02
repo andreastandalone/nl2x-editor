@@ -32,6 +32,8 @@ using Item = ConnectionCheckItem;
 
 constexpr TimeMs kTickMs = 10;
 constexpr std::uint8_t kFilterCutoffCc = 74;
+// The knob the user turns when the check asks for one: LFO1 Rate.
+constexpr std::uint8_t kKnobTurnedCc = 19;
 constexpr std::size_t kFilterCutoffOffset = 3;
 
 SimulatedNordLead2X::Program someProgram(int seed)
@@ -79,6 +81,18 @@ struct EditorAndSynth {
     void startCheck()
     {
         engine.startConnectionCheck(now);
+        runCheckUntilItStops();
+    }
+
+    // Nothing asks the 2X to send its CCs, so the check ends by asking the user to turn a knob:
+    // the user does.
+    void startCheckAndTurnKnobWhenAsked()
+    {
+        startCheck();
+        REQUIRE(check().state == ConnectionCheckState::WaitingForUser);
+        REQUIRE_THAT(check().userPrompt, ContainsSubstring("turn a knob"));
+        synth.turnPanelControl(Slot::A, kKnobTurnedCc, 64);
+        tick();
         runCheckUntilItStops();
     }
 
@@ -131,13 +145,13 @@ void requireFinished(const EditorAndSynth& rig)
 
 } // namespace
 
-TEST_CASE("Connection check: all good, every test passes without asking the user anything")
+TEST_CASE("Connection check: all good, every test passes once the user turns a knob")
 {
     EditorAndSynth rig;
     rig.synth.setGlobalChannel(4);
     const auto cutoffBefore = rig.synth.editBuffer(Slot::A)[kFilterCutoffOffset];
 
-    rig.startCheck();
+    rig.startCheckAndTurnKnobWhenAsked();
 
     requireFinished(rig);
     for (const auto& result : rig.check().results) {
@@ -149,10 +163,10 @@ TEST_CASE("Connection check: all good, every test passes without asking the user
     CHECK(rig.check().answeringGlobalChannel == GlobalChannel { 4 });
     CHECK_THAT(rig.check().result(Item::GlobalChannel).explanation, ContainsSubstring("Global Channel 5"));
 
-    // It asked for Slot A's controllers, then moved Slot A's Filter Cutoff on Slot A's channel
-    // and put it back.
-    const auto& sent = rig.toSynth.messages();
-    CHECK(std::find(sent.begin(), sent.end(), allControllersRequest(4, Slot::A)) != sent.end());
+    // It never sent type 20 (on a 2X a Bank request, not All Controllers), and it moved Slot A's
+    // Filter Cutoff on Slot A's channel and put it back.
+    for (const auto& message : rig.toSynth.messages())
+        CHECK_FALSE((message.size() == 7 && message[4] == hardware::kManualAllControllersRequestType));
     const auto channel = hardware::kDefaultSlotChannels[0];
     const auto ccs = rig.ccsSent();
     REQUIRE(ccs.size() == 2);
@@ -232,9 +246,9 @@ TEST_CASE("Connection check: the synth does not transmit CCs, so turn on C")
 
     rig.startCheck();
 
-    // No CC answered the All Controllers Request: the check asks for a knob.
+    // After the reception test, the check asks for a knob.
     REQUIRE(rig.check().state == ConnectionCheckState::WaitingForUser);
-    CHECK_THAT(rig.check().userPrompt, ContainsSubstring("Turn a knob"));
+    CHECK_THAT(rig.check().userPrompt, ContainsSubstring("turn a knob"));
     // The knob turns, but no CC leaves the synth; the mod wheel always does, and proves nothing.
     rig.synth.turnPanelControl(Slot::A, kFilterCutoffCc, 99);
     rig.synth.turnPanelControl(Slot::A, 1, 99);
@@ -252,18 +266,35 @@ TEST_CASE("Connection check: the synth does not transmit CCs, so turn on C")
 TEST_CASE("Connection check: a knob turned on the synth proves CCs are transmitted")
 {
     EditorAndSynth rig;
-    // As if the All Controllers Request were not answered on this synth, though knobs send CCs.
-    rig.synth.setTransmitsControlChanges(false);
 
-    rig.startCheck();
-    REQUIRE(rig.check().state == ConnectionCheckState::WaitingForUser);
-    rig.synth.setTransmitsControlChanges(true);
-    rig.synth.turnPanelControl(Slot::A, kFilterCutoffCc, 99);
-    rig.tick();
-    rig.runCheckUntilItStops();
+    rig.startCheckAndTurnKnobWhenAsked();
 
     requireFinished(rig);
     CHECK(rig.outcome(Item::CcsTransmitted) == Outcome::Passed);
+    CHECK_THAT(rig.check().result(Item::CcsTransmitted).explanation, ContainsSubstring("turned a knob"));
+
+    SECTION("a knob turned earlier in the check is enough")
+    {
+        rig.engine.startConnectionCheck(rig.now);
+        rig.tick();
+        rig.synth.turnPanelControl(Slot::A, kKnobTurnedCc, 70);
+        rig.runCheckUntilItStops();
+
+        requireFinished(rig);
+        CHECK(rig.outcome(Item::CcsTransmitted) == Outcome::Passed);
+    }
+
+    SECTION("skipping the knob step leaves CC transmission untested")
+    {
+        rig.engine.startConnectionCheck(rig.now);
+        rig.runCheckUntilItStops();
+        REQUIRE(rig.check().state == ConnectionCheckState::WaitingForUser);
+        rig.engine.skipConnectionCheckStep(rig.now);
+
+        requireFinished(rig);
+        CHECK(rig.outcome(Item::CcsTransmitted) == Outcome::NotTested);
+        CHECK(rig.outcome(Item::CcsReceived) == Outcome::Passed);
+    }
 }
 
 TEST_CASE("Connection check: the synth does not receive CCs, so turn on C")
@@ -272,7 +303,7 @@ TEST_CASE("Connection check: the synth does not receive CCs, so turn on C")
     rig.synth.setReceivesControlChanges(false);
     const auto cutoffBefore = rig.synth.editBuffer(Slot::A)[kFilterCutoffOffset];
 
-    rig.startCheck();
+    rig.startCheckAndTurnKnobWhenAsked();
 
     requireFinished(rig);
     CHECK(rig.outcome(Item::CcsTransmitted) == Outcome::Passed);
@@ -302,7 +333,7 @@ TEST_CASE("Connection check: the CC reception test uses the first Slot that play
     rig.synth.playPercussionKit(Slot::A, {});
     const auto cutoffBefore = rig.synth.editBuffer(Slot::B)[kFilterCutoffOffset];
 
-    rig.startCheck();
+    rig.startCheckAndTurnKnobWhenAsked();
 
     requireFinished(rig);
     CHECK(rig.outcome(Item::CcsReceived) == Outcome::Passed);
@@ -319,7 +350,7 @@ TEST_CASE("Connection check: a wrong manual Global Channel names the one the syn
     rig.synth.setGlobalChannel(7);
     rig.engine.setManualGlobalChannel(GlobalChannel { 2 });
 
-    rig.startCheck();
+    rig.startCheckAndTurnKnobWhenAsked();
 
     requireFinished(rig);
     CHECK(rig.outcome(Item::SysExAnswered) == Outcome::Passed);

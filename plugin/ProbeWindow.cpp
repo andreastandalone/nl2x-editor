@@ -45,6 +45,20 @@ juce::String timestampForFileName()
     return juce::Time::getCurrentTime().formatted("%Y-%m-%d-%H%M%S");
 }
 
+juce::File nordLeadDocuments()
+{
+    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Nord Lead 2X");
+}
+
+// Where "Save log" remembers the last folder used, in the editor's user settings.
+constexpr const char* kLogFolderKey = "probeLogFolder";
+
+// The Bank shown on the panel (0–9) as its Bank dump type (1–10).
+int dumpTypeOfShownBank(int shownBank)
+{
+    return shownBank - nl2x::hardware::kShownBankOfSysExBank1 + nl2x::hardware::kFirstProgramBankDumpType;
+}
+
 } // namespace
 
 ProbeComponent::ProbeComponent(NL2XEditorProcessor& owner)
@@ -60,8 +74,12 @@ ProbeComponent::ProbeComponent(NL2XEditorProcessor& owner)
                juce::String(session.globalChannel() + nl2x::hardware::kShownGlobalChannelOfDev0));
     setUpField(sweepCcField, "CC sweep: CC number", "35");
     setUpField(sweepChannelField, "CC sweep: channel (1–16)", "1");
-    setUpField(bankRequestTypeField, "Bank request type (from step 5)", {});
-    setUpField(bankDumpTypeField, "Bank dump type (1–10)", "4");
+    setUpField(bankField, "Bank scripts: Bank as shown on the panel (0–9)", "3");
+    bankField.editor.setInputRestrictions(1, "0123456789");
+    bankField.editor.onTextChange = [this] { showBankTypes(); };
+    bankTypesLabel.setColour(juce::Label::textColourId, NordPalette::textDim);
+    addAndMakeVisible(bankTypesLabel);
+    showBankTypes();
 
     for (const auto& info : nl2x::probe::scripts()) {
         auto* button = scriptButtons.add(new juce::TextButton(fromUtf8(info.name)));
@@ -134,13 +152,13 @@ void ProbeComponent::resized()
 
     portSelector.setBounds(left.removeFromTop(MidiPortSelector::kPreferredHeight));
     left.removeFromTop(8);
-    for (auto* field : { &globalChannelField, &sweepCcField, &sweepChannelField, &bankRequestTypeField,
-                         &bankDumpTypeField }) {
+    for (auto* field : { &globalChannelField, &sweepCcField, &sweepChannelField, &bankField }) {
         auto row = left.removeFromTop(26);
-        field->label.setBounds(row.removeFromLeft(260));
+        field->label.setBounds(row.removeFromLeft(300));
         field->editor.setBounds(row.removeFromLeft(60));
         left.removeFromTop(4);
     }
+    bankTypesLabel.setBounds(left.removeFromTop(22));
     left.removeFromTop(8);
 
     auto bottom = left.removeFromBottom(28);
@@ -226,23 +244,14 @@ std::optional<nl2x::probe::ScriptOptions> ProbeComponent::readOptions()
 
     const auto cc = parseInRange(sweepCcField.editor.getText(), 0, 127);
     const auto channel = parseInRange(sweepChannelField.editor.getText(), 1, 16);
-    const auto dumpType = parseInRange(bankDumpTypeField.editor.getText(), 1, 10);
-    if (! cc || ! channel || ! dumpType) {
-        note("Check the fields: CC 0–127, CC sweep channel 1–16, Bank dump type 1–10");
+    const auto bank = parseInRange(bankField.editor.getText(), 0, nl2x::hardware::kProgramBankCount - 1);
+    if (! cc || ! channel || ! bank) {
+        note("Check the fields: CC 0–127, CC sweep channel 1–16, Bank 0–9");
         return std::nullopt;
     }
     options.sweepCc = static_cast<std::uint8_t>(*cc);
     options.sweepChannel = static_cast<nl2x::MidiChannel>(*channel - 1);
-    options.bankDumpType = static_cast<std::uint8_t>(*dumpType);
-
-    if (bankRequestTypeField.editor.getText().trim().isNotEmpty()) {
-        const auto requestType = parseInRange(bankRequestTypeField.editor.getText(), 0, 127);
-        if (! requestType) {
-            note("The Bank request type must be 0–127, or empty");
-            return std::nullopt;
-        }
-        options.bankRequestType = static_cast<std::uint8_t>(*requestType);
-    }
+    options.bankDumpType = static_cast<std::uint8_t>(dumpTypeOfShownBank(*bank));
     return options;
 }
 
@@ -262,8 +271,8 @@ void ProbeComponent::runScript(ScriptId id)
         return;
     }
 
-    const auto message = fromUtf8(info.description)
-                         + "\n\nSelect the Bank you backed up on the synth's panel before you go on.";
+    const auto message = fromUtf8(info.description) + "\n\nSelect Bank " + bankField.editor.getText().trim()
+                         + " on the synth's panel (the Bank you backed up) before you go on.";
     juce::AlertWindow::showAsync(juce::MessageBoxOptions()
                                      .withIconType(juce::MessageBoxIconType::WarningIcon)
                                      .withTitle("Write to the synth's memory?")
@@ -295,11 +304,20 @@ void ProbeComponent::sendRawMessage()
     processor.sendToSynth(parsed.bytes);
 }
 
+juce::File ProbeComponent::logFolder() const
+{
+    const auto saved = processor.midiPorts().userSettings().getValue(kLogFolderKey);
+    if (saved.isNotEmpty() && juce::File::isAbsolutePath(saved) && juce::File(saved).isDirectory())
+        return juce::File(saved);
+    const auto folder = nordLeadDocuments().getChildFile("logs");
+    folder.createDirectory();
+    return folder;
+}
+
 void ProbeComponent::saveLog()
 {
     flushLog();
-    const auto defaultFile = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                                 .getChildFile("nl2x-probe-" + timestampForFileName() + ".txt");
+    const auto defaultFile = logFolder().getChildFile("nl2x-probe-" + timestampForFileName() + ".txt");
     chooser = std::make_unique<juce::FileChooser>("Save the probe log", defaultFile, "*.txt");
     chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                              | juce::FileBrowserComponent::warnAboutOverwriting,
@@ -307,6 +325,9 @@ void ProbeComponent::saveLog()
                              const auto file = fileChooser.getResult();
                              if (file == juce::File())
                                  return;
+                             auto& settings = processor.midiPorts().userSettings();
+                             settings.setValue(kLogFolderKey, file.getParentDirectory().getFullPathName());
+                             settings.saveIfNeeded();
                              if (file.replaceWithText(fromUtf8(log.text())))
                                  note("Log saved to " + file.getFullPathName());
                              else
@@ -314,12 +335,26 @@ void ProbeComponent::saveLog()
                          });
 }
 
+void ProbeComponent::showBankTypes()
+{
+    const auto bank = parseInRange(bankField.editor.getText(), 0, nl2x::hardware::kProgramBankCount - 1);
+    if (! bank) {
+        bankTypesLabel.setText("Bank must be 0–9", juce::dontSendNotification);
+        return;
+    }
+    const auto dumpType = dumpTypeOfShownBank(*bank);
+    const auto requestType = nl2x::hardware::bankRequestTypeOfDumpType(static_cast<std::uint8_t>(dumpType));
+    juce::String text = "Bank " + juce::String(*bank) + ": dump type " + juce::String(dumpType) + ", request type "
+                        + juce::String(requestType);
+    if (*bank > nl2x::hardware::kLastRamProgramBank)
+        text << " (ROM: read only)";
+    bankTypesLabel.setText(text, juce::dontSendNotification);
+}
+
 void ProbeComponent::saveBankBackup(const nl2x::probe::BankBackup& backup)
 {
     // Saved at once, so the backup survives the app; the replies are kept exactly as received.
-    const auto folder = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                            .getChildFile("Nord Lead 2X")
-                            .getChildFile("Backups");
+    const auto folder = nordLeadDocuments().getChildFile("Backups");
     const auto file = folder.getChildFile("probe-bank-backup-" + timestampForFileName() + "-request-type-"
                                           + juce::String(backup.requestType) + ".syx");
 

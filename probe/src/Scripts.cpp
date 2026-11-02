@@ -745,10 +745,26 @@ private:
 // ---------------------------------------------------------------------------------------------
 // Bank backup, test write and restore. Only the write and the restore store anything.
 
-std::string bankRequestMissing(const ScriptOptions& options)
+// Why the Bank named by the options cannot be used; empty when it can.
+std::string bankDumpTypeRefusal(const ScriptOptions& options)
 {
-    return options.bankRequestType ? std::string()
-                                   : "set the Bank request type found by 'Scan Bank requests' (plan step 5)";
+    if (options.bankDumpType < hardware::kFirstProgramBankDumpType
+        || options.bankDumpType > hardware::kLastProgramBankDumpType)
+        return "the Bank must be one of the Banks shown as 0–9 (dump type 1–10)";
+    return {};
+}
+
+std::uint8_t bankRequestType(const ScriptOptions& options)
+{
+    return hardware::bankRequestTypeOfDumpType(options.bankDumpType);
+}
+
+// "Bank 3 (dump type 4, request type 18)": the Bank as the panel shows it, and its type bytes.
+std::string bankText(std::uint8_t dumpType)
+{
+    return "Bank " + std::to_string(dumpType - hardware::kFirstProgramBankDumpType + hardware::kShownBankOfSysExBank1)
+           + " (dump type " + std::to_string(dumpType) + ", request type "
+           + std::to_string(hardware::bankRequestTypeOfDumpType(dumpType)) + ")";
 }
 
 class BackUpBank final : public ProbeSession::Script {
@@ -758,11 +774,12 @@ public:
     {
     }
 
-    std::string preconditionFailure() const override { return bankRequestMissing(options); }
+    std::string preconditionFailure() const override { return bankDumpTypeRefusal(options); }
 
     void start(TimeMs nowMs) override
     {
-        backup.requestType = *options.bankRequestType;
+        backup.requestType = bankRequestType(options);
+        report("reading Programs 1–99 of " + bankText(options.bankDumpType));
         requestNext(nowMs);
     }
 
@@ -828,14 +845,11 @@ private:
 // Why a write to the Bank must not start; empty when it may.
 std::string bankWriteRefusal(const ProbeSession::State& state, const ScriptOptions& options)
 {
-    if (const auto missing = bankRequestMissing(options); ! missing.empty())
-        return missing;
-    if (! state.bankBackup || state.bankBackup->requestType != *options.bankRequestType)
-        return "no backup of the Bank read with request type " + std::to_string(*options.bankRequestType)
+    if (const auto refusal = bankDumpTypeRefusal(options); ! refusal.empty())
+        return refusal;
+    if (! state.bankBackup || state.bankBackup->requestType != bankRequestType(options))
+        return "no backup of " + bankText(options.bankDumpType)
                + " was captured in this session: run 'Back up Bank' first";
-    if (options.bankDumpType < hardware::kFirstProgramBankDumpType
-        || options.bankDumpType > hardware::kLastProgramBankDumpType)
-        return "the Bank dump type must be 1–10";
     for (const auto& reply : state.bankBackup->replies) {
         const auto parsed = parseSysEx(reply);
         if (parsed.kind != SysExKind::ProgramDump || ! parsed.values)
@@ -862,7 +876,8 @@ public:
 
     void start(TimeMs nowMs) override
     {
-        report("WRITES TO THE SYNTH'S MEMORY: storing a test Program at Program 99 of the Bank selected on the synth");
+        report("WRITES TO THE SYNTH'S MEMORY: storing a test Program at Program 99 of the Bank selected on the "
+               "synth, which should be " + bankText(options.bankDumpType));
         previous = backedUpProgram(*session.bankBackup, kTestLocation);
         test = previous;
         test[kCutoffOffset] = static_cast<std::int8_t>(previous[kCutoffOffset] < 64 ? 127 : 0);
@@ -886,7 +901,7 @@ public:
     {
         if (! readingBack && nowMs >= readBackAt) {
             readingBack = true;
-            sendRequest(bankLocationRequest(globalChannel(), *options.bankRequestType, kTestLocation),
+            sendRequest(bankLocationRequest(globalChannel(), bankRequestType(options), kTestLocation),
                         SysExKind::ProgramDump, nowMs);
         } else if (replyTimedOut(nowMs)) {
             verdict = "no reply to the read-back of Program 99";
@@ -922,7 +937,8 @@ public:
 
     void start(TimeMs nowMs) override
     {
-        report("WRITES TO THE SYNTH'S MEMORY: sending the 99 backed-up Programs into the Bank selected on the synth");
+        report("WRITES TO THE SYNTH'S MEMORY: sending the 99 backed-up Programs into the Bank selected on the "
+               "synth, which should be " + bankText(options.bankDumpType));
         writeNext(nowMs);
     }
 
@@ -974,7 +990,7 @@ private:
     void requestCurrent(TimeMs nowMs)
     {
         ++verified;
-        sendRequest(bankLocationRequest(globalChannel(), *options.bankRequestType, static_cast<std::uint8_t>(location)),
+        sendRequest(bankLocationRequest(globalChannel(), bankRequestType(options), static_cast<std::uint8_t>(location)),
                     SysExKind::ProgramDump, nowMs);
     }
 
@@ -1005,8 +1021,8 @@ std::unique_ptr<ProbeSession::Script> makeScript(ScriptId id, ProbeSession::Stat
     const auto name = scriptInfo(id).name;
 
     switch (id) {
-    case ScriptId::AllControllersRequest:
-        return makeSweep(state, id, everyDev(kAllControllersRequestType, 0), 300);
+    case ScriptId::Type20Request:
+        return makeSweep(state, id, everyDev(kManualAllControllersRequestType, 0), 300);
     case ScriptId::ProbeGlobalChannel:
         return makeSweep(state, id, everyDev(kSlotEditBufferRequestType, 0), 300, true);
     case ScriptId::RequestSlotsType14:

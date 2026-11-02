@@ -151,7 +151,7 @@ TEST_CASE("Undo of a Performance setting sends one coalesced Performance dump wi
     for (int value : { 64, 70, 80 })
         userSetsPerformanceSetting(rig, drag, PerformanceSetting::SplitPoint, Slot::A, value);
     rig.runFor(1000);
-    REQUIRE(rig.synth.performanceSettings()[353 - kPerformanceSlotChannelOffset] == 80);
+    REQUIRE(rig.synth.performanceEditBuffer()[353] == 80);
 
     rig.toSynth.clear();
     rig.engine.undo(rig.now);
@@ -160,13 +160,13 @@ TEST_CASE("Undo of a Performance setting sends one coalesced Performance dump wi
     REQUIRE(dumps.size() == 1);
     CHECK(rig.toSynth.messages().size() == 1);
     CHECK(parsePerformanceDump(dumps.front())->performance.setting(PerformanceSetting::SplitPoint) == 60);
-    CHECK(rig.synth.performanceSettings()[353 - kPerformanceSlotChannelOffset] == 60);
+    CHECK(rig.synth.performanceEditBuffer()[353] == 60);
 
     rig.toSynth.clear();
     rig.engine.redo(rig.now);
     rig.runFor(1000);
     REQUIRE(rig.performanceDumpsSent().size() == 1);
-    CHECK(rig.synth.performanceSettings()[353 - kPerformanceSlotChannelOffset] == 80);
+    CHECK(rig.synth.performanceEditBuffer()[353] == 80);
 }
 
 TEST_CASE("Undo puts back a Performance value outside the documented range exactly as it was read")
@@ -182,7 +182,7 @@ TEST_CASE("Undo puts back a Performance value outside the documented range exact
     rig.engine.undo(rig.now);
     rig.runFor(500);
 
-    CHECK(rig.synth.performanceSettings()[kPitchBendRangeOffset - kPerformanceSlotChannelOffset] == 14);
+    CHECK(rig.synth.performanceEditBuffer()[kPitchBendRangeOffset] == 14);
 }
 
 TEST_CASE("Changes that are not the user's edits in the plugin are not undoable")
@@ -295,7 +295,7 @@ TEST_CASE("When the synth's Edit Buffer replaces the plugin's copy, its edits le
         // Only Slot A's and the Performance's edits are left.
         rig.engine.undo(rig.now);
         rig.runFor(500);
-        CHECK(rig.synth.performanceSettings()[353 - kPerformanceSlotChannelOffset] != 40);
+        CHECK(rig.synth.performanceEditBuffer()[353] != 40);
         rig.toSynth.clear();
         rig.engine.undo(rig.now);
         CHECK(rig.toSynth.messages().size() == 1);

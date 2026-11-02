@@ -56,7 +56,7 @@ const std::vector<Expected> kExpected {
     { "lfo1Destination", 21, 57, kAll, Kind::Stepped, 4 },
     { "lfo1Amount", 22, 22, kAll, Kind::Knob, 127 },
     { "lfo2Rate", 23, 23, kAll, Kind::Knob, 127 },
-    { "lfo2DestinationArpMode", 24, 65, kAll, Kind::Stepped, 8 },
+    { "lfo2DestinationArpMode", 24, 65, kAll, Kind::Stepped, 7 },
     { "lfo2Amount", 25, 24, kAll, Kind::Knob, 127 },
     { "modEnvAttack", 26, 18, kAll, Kind::Knob, 127 },
     { "modEnvDecay", 27, 19, kAll, Kind::Knob, 127 },
@@ -177,7 +177,10 @@ TEST_CASE("CC parameters: kinds, ranges and named steps")
         }
     }
     CHECK(ccParameterInfo(CcParameter::RingModSync).choices[3] == "Sync + Ring Mod");
-    CHECK(ccParameterInfo(CcParameter::Lfo2DestinationArpMode).choices[8] == "Off");
+    // Verified on hardware (2026-11-02): 0 = Arp Down … 7 = LFO Filter, no "off".
+    CHECK(ccParameterInfo(CcParameter::Lfo2DestinationArpMode).choices[0] == "Arp Down");
+    CHECK(ccParameterInfo(CcParameter::Lfo2DestinationArpMode).choices[3] == "LFO Amp");
+    CHECK(ccParameterInfo(CcParameter::Lfo2DestinationArpMode).choices[7] == "LFO Filter");
 }
 
 TEST_CASE("CC parameters: DAW parameters are named after the Slot and the manual's term, with stable IDs")

@@ -57,12 +57,11 @@ std::vector<std::uint8_t> buildRequest(GlobalChannel globalChannel, std::uint8_t
 
 // Requests for the message types in research §3. Type codes come from HardwareAssumptions.h.
 std::vector<std::uint8_t> slotEditBufferRequest(GlobalChannel globalChannel, Slot slot);
-std::vector<std::uint8_t> allControllersRequest(GlobalChannel globalChannel, Slot slot);
 std::vector<std::uint8_t> performanceEditBufferRequest(GlobalChannel globalChannel);
 // `sysExBank` counts as the manual's SysEx tables do, 1–4 (see HardwareAssumptions.h).
 std::vector<std::uint8_t> performanceBankRequest(GlobalChannel globalChannel, int sysExBank, std::uint8_t location);
-// A request for a Program (0–98) or Percussion Kit (99–108) in a Bank location. The request type
-// for Banks is unknown on a 2X (HardwareAssumptions.h), so the caller names it.
+// A request for a Program (0–98) or Percussion Kit (99–108) in a Bank location. The caller names
+// the request type (hardware::bankRequestTypeOfDumpType for the Bank it wants).
 std::vector<std::uint8_t> bankLocationRequest(GlobalChannel globalChannel, std::uint8_t requestType,
                                               std::uint8_t location);
 
@@ -71,8 +70,9 @@ std::vector<std::uint8_t> programEditBufferDump(GlobalChannel globalChannel, Slo
                                                 std::span<const std::int8_t> program);
 std::vector<std::uint8_t> performanceEditBufferDump(GlobalChannel globalChannel,
                                                     std::span<const std::int8_t> performance);
-// Stored by the synth at `location` in the Bank selected on the synth; `type` is ignored on
-// receive [OFF-2X p.78] but must still be a valid Bank dump type.
+// Stored by the synth at `location` in the Bank selected on the synth [OFF-2X p.78]; `type` must
+// be a valid Bank dump type, and the editor makes it name that same Bank (whether the synth
+// heeds the type byte is open, HardwareAssumptions.h).
 std::vector<std::uint8_t> bankProgramDump(GlobalChannel globalChannel, std::uint8_t type, std::uint8_t location,
                                           std::span<const std::int8_t> program);
 

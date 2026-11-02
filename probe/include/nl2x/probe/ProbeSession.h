@@ -26,7 +26,7 @@ namespace nl2x::probe {
 
 // One per button of the Probe window, in the order of the plan.
 enum class ScriptId : std::uint8_t {
-    AllControllersRequest,
+    Type20Request,
     ProbeGlobalChannel,
     RequestSlotsType14,
     RequestSlotsType10,
@@ -66,11 +66,11 @@ struct ScriptOptions {
     // Send CC sweep.
     std::uint8_t sweepCc = 35;
     MidiChannel sweepChannel = 0;
-    // The request type that returned the target Bank's Programs in "Scan Bank requests" (plan
-    // step 5). Bank scripts refuse to run without it.
-    std::optional<std::uint8_t> bankRequestType;
-    // The type byte of the Program dumps written to the Bank. The synth ignores it and stores into
-    // the Bank selected on its panel [OFF-2X p.78], but it must be a Bank dump type (1–10).
+    // The Bank the Bank scripts work on, as its dump type (1–10 = the Bank shown as 0–9 on the
+    // panel, hardware::kShownBankOfSysExBank1). It is the type byte of the Program dumps written,
+    // and the request type that reads the Bank follows from it (hardware::bankRequestTypeOfDumpType),
+    // so the two cannot disagree. The synth stores into the Bank selected on its panel
+    // [OFF-2X p.78]; whether it also heeds the type byte is open.
     std::uint8_t bankDumpType = 4;
 };
 

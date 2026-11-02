@@ -108,19 +108,18 @@ struct ProbeRig {
     TimeMs now = 0;
 };
 
-ScriptOptions bankOptions(std::uint8_t requestType)
+// The Bank as its dump type: 4 = the Bank shown as 3, read with request type 18.
+ScriptOptions bankOptions(std::uint8_t dumpType)
 {
     ScriptOptions options;
-    options.bankRequestType = requestType;
-    options.bankDumpType = 4;
+    options.bankDumpType = dumpType;
     return options;
 }
 
-// The simulated synth answers Bank requests from type 15 (SysEx Bank 1) to 18 (SysEx Bank 4 =
-// the Bank shown as 3, the last RAM Bank), and has Bank 3 selected on its panel.
+// The simulated synth answers Bank requests as the hardware does (request type = dump type + 14),
+// and has Bank 3 selected on its panel.
 void prepareBanks(ProbeRig& rig)
 {
-    rig.synth.setBankRequestTypeOfSysExBank1(15);
     rig.synth.selectBank(3);
     for (int location = 0; location < SimulatedNordLead2X::kProgramsPerBank; ++location)
         rig.synth.setBankProgram(3, location, someProgram(static_cast<std::int8_t>(location)));
@@ -147,17 +146,18 @@ TEST_CASE("Probe: every incoming SysEx is described in the log")
     CHECK(rig.reported("SysEx in: 7 bytes, other Nord Lead message, dev 15, type 14, spec 0"));
 }
 
-TEST_CASE("Probe: All Controllers Request goes to every dev and credits the CCs to the one that answered")
+TEST_CASE("Probe: the type 20 request goes to every dev; on a 2X it reads a Bank Program")
 {
     ProbeRig rig;
 
-    REQUIRE(rig.start(ScriptId::AllControllersRequest));
+    REQUIRE(rig.start(ScriptId::Type20Request));
     rig.runUntilDone();
 
     REQUIRE(rig.sysExSent().size() == 16);
     for (GlobalChannel dev = 0; dev < 16; ++dev)
-        CHECK(rig.sysExSent()[dev] == allControllersRequest(dev, Slot::A));
-    CHECK(rig.lastSummary() == "SUMMARY All Controllers Request A: 1 of 16 requests answered: dev 15 -> 42 CCs on channel 1");
+        CHECK(rig.sysExSent()[dev] == buildRequest(dev, hardware::kManualAllControllersRequestType, 0));
+    CHECK(rig.lastSummary() == "SUMMARY Type 20 request (manual: All Controllers): 1 of 16 requests answered: dev 15 -> "
+                              "139 bytes, Program dump, dev 15, type 6, spec 0");
 }
 
 TEST_CASE("Probe: Probe Global Channel adopts the only dev that answers")
@@ -233,9 +233,12 @@ TEST_CASE("Probe: Scan Bank requests sweeps types 11–24 and lists every hit")
     CHECK_THAT(summary, ContainsSubstring("type 15 spec 0 -> 139 bytes, Program dump, dev 15, type 1, spec 0"));
     CHECK_THAT(summary, ContainsSubstring("type 18 spec 98 -> 139 bytes, Program dump, dev 15, type 4, spec 98"));
     CHECK_THAT(summary, ContainsSubstring("type 14 spec 0 -> 139 bytes"));
-    CHECK_THAT(summary, ContainsSubstring("type 20 spec 0 -> 42 CCs on channel 1"));
+    // As on the hardware: type 20 is a Bank request too (dump type 6), Kit locations answer for
+    // dump types 1–4 only, and 11–13 never answer.
+    CHECK_THAT(summary, ContainsSubstring("type 20 spec 0 -> 139 bytes, Program dump, dev 15, type 6, spec 0"));
+    CHECK_THAT(summary, ContainsSubstring("type 15 spec 99 -> 1063 bytes, Percussion Kit dump"));
+    CHECK_THAT(summary, !ContainsSubstring("type 19 spec 99 ->"));
     CHECK_THAT(summary, !ContainsSubstring("type 11 spec"));
-    CHECK_THAT(summary, !ContainsSubstring("spec 99 ->"));
 }
 
 TEST_CASE("Probe: cutoff low/high sends Slot A's own Program with only the cutoff changed, then restores")
@@ -304,13 +307,12 @@ TEST_CASE("Probe: Send Performance toggles the Keyboard Split in the Performance
 
     REQUIRE(rig.start(ScriptId::SendPerformanceToggleSplit));
     rig.runUntilDone();
-    const auto splitIndex = kPerformanceKeyboardSplitOffset - kPerformanceSlotChannelOffset;
-    CHECK(rig.synth.performanceSettings()[splitIndex] == 1);
+    CHECK(rig.synth.performanceEditBuffer()[kPerformanceKeyboardSplitOffset] == 1);
     CHECK_THAT(rig.lastSummary(), ContainsSubstring("Keyboard Split was 0"));
 
     REQUIRE(rig.start(ScriptId::SendPerformanceToggleSplit));
     rig.runUntilDone();
-    CHECK(rig.synth.performanceSettings()[splitIndex] == 0);
+    CHECK(rig.synth.performanceEditBuffer()[kPerformanceKeyboardSplitOffset] == 0);
 }
 
 TEST_CASE("Probe: Watch CCs prints the values seen per CC when stopped")
@@ -390,12 +392,14 @@ TEST_CASE("Probe: the stress test sends Slot A's Program every 50 ms for 30 s an
     CHECK(rig.synth.editBuffer(Slot::A) == original);
 }
 
-TEST_CASE("Probe: Bank scripts refuse to run without the Bank request type from step 5")
+TEST_CASE("Probe: Bank scripts refuse a Bank outside 0–9")
 {
     ProbeRig rig;
 
-    for (auto id : { ScriptId::BackUpBank, ScriptId::WriteTestProgramToBank, ScriptId::RestoreBankBackup })
-        CHECK_FALSE(rig.start(id));
+    for (auto id : { ScriptId::BackUpBank, ScriptId::WriteTestProgramToBank, ScriptId::RestoreBankBackup }) {
+        CHECK_FALSE(rig.start(id, bankOptions(0)));
+        CHECK_FALSE(rig.start(id, bankOptions(11)));
+    }
     CHECK(rig.toSynth.messages().empty());
 }
 
@@ -404,14 +408,14 @@ TEST_CASE("Probe: the Bank write refuses without a backup of that Bank from this
     ProbeRig rig;
     prepareBanks(rig);
 
-    CHECK_FALSE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(18)));
-    CHECK_FALSE(rig.start(ScriptId::RestoreBankBackup, bankOptions(18)));
-    CHECK(rig.reported("no backup of the Bank read with request type 18 was captured in this session"));
+    CHECK_FALSE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(4)));
+    CHECK_FALSE(rig.start(ScriptId::RestoreBankBackup, bankOptions(4)));
+    CHECK(rig.reported("no backup of Bank 3 (dump type 4, request type 18) was captured in this session"));
 
     // A backup of another Bank does not count.
-    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(15)));
+    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(1)));
     rig.runUntilDone();
-    CHECK_FALSE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(18)));
+    CHECK_FALSE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(4)));
 
     CHECK(rig.synth.bankProgram(3, 98) == someProgram(98));
 }
@@ -423,7 +427,7 @@ TEST_CASE("Probe: back up, write a test Program to Program 99, then restore the 
     std::optional<BankBackup> captured;
     rig.session.onBankBackupCaptured = [&](const BankBackup& backup) { captured = backup; };
 
-    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(18)));
+    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(4)));
     rig.runUntilDone();
     REQUIRE(captured);
     CHECK(captured->replies.size() == 99);
@@ -431,13 +435,13 @@ TEST_CASE("Probe: back up, write a test Program to Program 99, then restore the 
     CHECK_THAT(rig.lastSummary(), ContainsSubstring("captured all 99 Programs with request type 18; reply type bytes: 4; "
                                                     "reply spec equals the location for 99 of 99"));
 
-    REQUIRE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(18)));
+    REQUIRE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(4)));
     CHECK(rig.reported("WRITES TO THE SYNTH'S MEMORY"));
     rig.runUntilDone();
     CHECK(rig.synth.bankProgram(3, 98) != someProgram(98));
     CHECK_THAT(rig.lastSummary(), ContainsSubstring("the test Program was stored at Program 99"));
 
-    REQUIRE(rig.start(ScriptId::RestoreBankBackup, bankOptions(18)));
+    REQUIRE(rig.start(ScriptId::RestoreBankBackup, bankOptions(4)));
     rig.runUntilDone();
     for (int location = 0; location < 99; ++location)
         CHECK(rig.synth.bankProgram(3, location) == someProgram(static_cast<std::int8_t>(location)));
@@ -449,12 +453,12 @@ TEST_CASE("Probe: the Bank write reports when the Program did not land where it 
 {
     ProbeRig rig;
     prepareBanks(rig);
-    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(18)));
+    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(4)));
     rig.runUntilDone();
 
     // The user left Bank 0 selected on the panel: the synth stores there instead.
     rig.synth.selectBank(0);
-    REQUIRE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(18)));
+    REQUIRE(rig.start(ScriptId::WriteTestProgramToBank, bankOptions(4)));
     rig.runUntilDone();
 
     CHECK_THAT(rig.lastSummary(), ContainsSubstring("Program 99 is unchanged"));
@@ -466,7 +470,8 @@ TEST_CASE("Probe: an incomplete Bank backup is not kept")
     ProbeRig rig;
     prepareBanks(rig);
 
-    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(19)));
+    rig.synth.setAnswersSysEx(false);
+    REQUIRE(rig.start(ScriptId::BackUpBank, bankOptions(4)));
     rig.runUntilDone();
 
     CHECK_FALSE(rig.session.bankBackup().has_value());

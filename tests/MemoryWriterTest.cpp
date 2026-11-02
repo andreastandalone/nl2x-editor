@@ -88,7 +88,6 @@ struct Rig {
         });
         fromSynth.plugInto([this](auto message) { pending.emplace_back(message.begin(), message.end()); });
         synth.connectMidiOut(&fromSynth);
-        synth.setBankRequestTypeOfSysExBank1(kTestRequestTypeOfSysExBank1);
         for (auto slot : kAllSlots)
             synth.setEditBuffer(slot, patternProgram(100 + static_cast<int>(slotIndex(slot))));
         for (int bank = 0; bank < 4; ++bank)
@@ -406,11 +405,33 @@ TEST_CASE("Memory writer, locked: reading a Bank is experimental, and refused wh
     CHECK(rig.status().stage == MemoryStage::Finished);
     CHECK(rig.status().message.find("Experimental") != std::string::npos);
 
-    Rig assumed(hardware::Switches {}, "read-assumed");
-    // As printed, Bank 3 would be read with type 14, the Slot Edit Buffer request.
-    if (hardware::kBankRequestTypeOfSysExBank1 + 3 == hardware::kSlotEditBufferRequestType)
-        CHECK(assumed.memory().readBank(3, assumed.folder / "Bank 3.syx", ReplaceExisting::No, assumed.now)
-              == MemoryRefusal::RequestTypeCollides);
+    // With the manual's printed request types, Bank 3 would be read with type 14, the Slot Edit
+    // Buffer request: refused.
+    auto printed = kNotVerified;
+    printed.bankRequestTypeOfSysExBank1 = hardware::kPrintedFirstBankRequestType;
+    Rig asPrinted(printed, "read-as-printed");
+    CHECK(asPrinted.memory().readBank(3, asPrinted.folder / "Bank 3.syx", ReplaceExisting::No, asPrinted.now)
+          == MemoryRefusal::RequestTypeCollides);
+}
+
+TEST_CASE("Memory writer: as shipped, Bank reading is verified and reads the Bank shown as 3 with request type 18")
+{
+    CHECK(hardware::kBankReadingVerified);
+    Rig rig(hardware::Switches {}, "shipped");
+    CHECK(rig.memory().bankReadingVerified());
+    std::vector<Bytes> requests;
+    rig.onSend = [&requests](std::span<const std::uint8_t> message) {
+        if (isBankRequest(message))
+            requests.emplace_back(message.begin(), message.end());
+    };
+
+    REQUIRE(rig.memory().readBank(3, rig.folder / "Bank 3.syx", ReplaceExisting::No, rig.now) == MemoryRefusal::None);
+    rig.settle();
+
+    CHECK(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.status().message.find("Experimental") == std::string::npos);
+    REQUIRE(requests.size() == 99);
+    CHECK(requests.front()[4] == 18);
 }
 
 TEST_CASE("Memory writer: refusals")

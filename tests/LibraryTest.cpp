@@ -524,10 +524,13 @@ TEST_CASE("Auditioning a Performance sends it to the Performance Edit Buffer, th
     CHECK(parsed.spec == 0);
     CHECK(rig.synth.receivedDumpCount(DumpDestination::Bank) == 0);
 
-    // Read back: Slots A–C play the Performance's Programs, D keeps its Kit.
+    // Read back. Known limitation, verified on hardware (2026-10-29): the synth stores the
+    // Performance in its Edit Buffer but does not apply it, so the Slots keep their Programs (#5);
+    // the Performance read back is the auditioned one. D keeps its Kit.
     const auto& performance = std::get<PerformanceDump>(bank.entries[1].dump).performance;
     for (auto slot : { Slot::A, Slot::B, Slot::C })
-        CHECK(rig.engine.slotState(slot).program == performance.program(slot));
+        CHECK(rig.engine.slotState(slot).program != performance.program(slot));
+    CHECK(rig.engine.performance()->program(Slot::A) == performance.program(Slot::A));
     CHECK(rig.engine.slotState(Slot::D).content == SlotContent::PercussionKit);
     CHECK(rig.engine.performanceStatus() == PerformanceStatus::Read);
     CHECK(rig.engine.slotChannel(Slot::C) == MidiChannel { 2 });

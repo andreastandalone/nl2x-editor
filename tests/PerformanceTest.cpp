@@ -244,8 +244,9 @@ TEST_CASE("Editing the Split Point sends exactly one coalesced Performance dump"
         if (offset != 353)
             CHECK(dump->performance.bytes()[offset] == read.bytes()[offset]);
 
-    CHECK(rig.synth.performanceSettings()[settingIndex(353)] == 72);
-    CHECK(rig.synth.performanceSettings()[settingIndex(318)] == -12);
+    // The synth stores the dump in its Performance Edit Buffer (it does not apply it, #5).
+    CHECK(rig.synth.performanceEditBuffer()[353] == 72);
+    CHECK(rig.synth.performanceEditBuffer()[318] == -12);
     CHECK(rig.engine.performance()->setting(PerformanceSetting::SplitPoint) == 72);
 }
 
@@ -351,10 +352,12 @@ TEST_CASE("Settings the synth does not receive are never sent as edits")
     CHECK(rig.toSynth.messages().empty());
 }
 
-TEST_CASE("Editing a Slot Channel in the Performance moves that Slot's CCs and the synth's Slot")
+TEST_CASE("Editing a Slot Channel in the Performance moves that Slot's CCs, but not the synth's Slot")
 {
     EditorAndSynth rig;
     rig.connect();
+    const auto before = rig.synth.slotChannel(Slot::B);
+    const auto cutoffBefore = rig.synth.editBuffer(Slot::B)[kFilterCutoffOffset];
 
     rig.engine.setPerformanceSetting(PerformanceSetting::SlotChannel, Slot::B, 8);
     rig.runFor(500);
@@ -363,8 +366,11 @@ TEST_CASE("Editing a Slot Channel in the Performance moves that Slot's CCs and t
 
     const std::vector<Bytes> expected { cutoffCc(8, 66) };
     CHECK(rig.toSynth.messages() == expected);
-    CHECK(rig.synth.slotChannel(Slot::B) == MidiChannel { 8 });
-    CHECK(rig.synth.editBuffer(Slot::B)[kFilterCutoffOffset] == 66);
+    CHECK(rig.synth.performanceEditBuffer()[kPerformanceSlotChannelOffset + 1] == 8);
+    // Known limitation, verified on hardware (2026-10-29): the synth stores a Performance dump
+    // without applying it, so Slot B still listens on its old channel and misses the CC (#5).
+    CHECK(rig.synth.slotChannel(Slot::B) == before);
+    CHECK(rig.synth.editBuffer(Slot::B)[kFilterCutoffOffset] == cutoffBefore);
 }
 
 TEST_CASE("An edit made while the Performance is being read again survives the reply")
@@ -379,7 +385,7 @@ TEST_CASE("An edit made while the Performance is being read again survives the r
     rig.runFor(500);
 
     CHECK(rig.engine.performance()->setting(PerformanceSetting::UnisonDetune) == 6);
-    CHECK(rig.synth.performanceSettings()[settingIndex(313)] == 6);
+    CHECK(rig.synth.performanceEditBuffer()[313] == 6);
     CHECK(rig.performanceDumpsSent().size() == 1);
 }
 

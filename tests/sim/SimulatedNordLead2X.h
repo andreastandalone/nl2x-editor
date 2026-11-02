@@ -16,16 +16,22 @@
 namespace nl2x::test {
 
 // A test double for the synth, behaving as the real Nord Lead 2X does according to
-// docs/research/nl2x-midi-research.md and HardwareAssumptions.h. It deliberately does not use the
-// engine's parameter table: it is an independent reading of the manual, so a mistake in the
-// engine shows up as a disagreement.
+// docs/research/nl2x-midi-research.md, HardwareAssumptions.h and the hardware session
+// (docs/research/hardware-session-2026-10-29.md). It deliberately does not use the engine's
+// parameter table: it is an independent reading of the manual, so a mistake in the engine shows
+// up as a disagreement.
 //
 // It understands every panel CC of the CC chart on Slot Channels (with the value conventions of
-// HardwareAssumptions.h), the Slot Edit Buffer request, the All Controllers Request,
-// Program dumps into Edit Buffers and Bank locations, the Performance Edit Buffer request and
-// dump (ignoring the settings the synth does not receive), Slots listening on their Slot Channels
-// and, when layered, on the leftmost active Slot's channel, and Slots playing a Percussion Kit
-// (a Kit Edit Buffer dump reaches only a Slot playing a Kit, a Program only one playing a Program).
+// HardwareAssumptions.h), the Slot Edit Buffer request (type 14), Bank requests (type = dump type
+// + 14, so type 20 too: it reads a Program, as on a 2X, and never answers with CCs), Program
+// dumps into Edit Buffers and Bank locations, the Performance Edit Buffer request and dump (a
+// received dump is stored, read back as sent, but not applied: the Slots and settings stay as they
+// were, as on the hardware), Performance Bank requests (type 41–44), Slots listening on their
+// Slot Channels and, when layered, on the leftmost active Slot's channel, and Slots playing a
+// Percussion Kit (a Kit Edit Buffer dump reaches only a Slot playing a Kit, a Program only one
+// playing a Program). Performance Bank dumps (type 31–34) are ignored, as in Program mode on the
+// hardware. Kit Bank locations (spec 99–108) answer with a Kit whose contents change from read to
+// read, as on the hardware.
 // It records every dump it receives by destination, so tests can prove nothing writes to Banks.
 // It holds Program Banks 0–9 with Percussion Kits P0–P9 in Banks 0–3 and Performance Banks 1–4,
 // filled with distinct test contents, and selects them on Bank Select (CC32) and Program Change:
@@ -94,6 +100,10 @@ public:
     std::optional<MidiChannel> slotChannel(Slot slot) const { return slots[slotIndex(slot)].channel; }
     // How many Performance dumps to the Edit Buffer arrived.
     int receivedPerformanceDumpCount() const { return receivedPerformanceDumps; }
+    // The Performance Edit Buffer as a type 40 request reads it: the last Performance dump
+    // received (stored, not applied), or else the Slots and settings the synth plays. Selecting a
+    // Program or a Performance drops the received dump.
+    Performance performanceEditBuffer() const;
 
     // Every dump that arrived (and was not lost to a misbehaviour), by destination as its type byte
     // names it: an Edit Buffer (Program/Kit type 0, Performance type 30) or a Bank (any other
@@ -158,16 +168,18 @@ public:
     // Program Change go out on the Global Channel (HardwareAssumptions.h, [INF]).
     void selectPerformanceOnPanel(int bank, int number);
 
-    // The request type that reads SysEx Bank 1; Banks 2–4 follow. Unknown on a 2X
-    // (HardwareAssumptions.h), so by default the simulated synth answers no Bank request; tests
-    // that need Bank reads choose a type.
-    void setBankRequestTypeOfSysExBank1(std::optional<std::uint8_t> type) { bankRequestType = type; }
+    // How a type 14 request is answered when a Slot plays a Percussion Kit. By default the
+    // simplified reading the engine still relies on: each Slot answers in its own format (a Kit
+    // Slot with its Kit). With true, as on the hardware (kSlotEditBufferReplyFormatFollowsActiveSlot):
+    // the active Slot decides the format; if it plays a Program every Slot answers with a Program
+    // (a Kit Slot with the Program it held before), if it plays a Kit every Slot answers with a Kit
+    // (all zeros for a Slot playing a Program).
+    void setKitReplyFormatFollowsActiveSlot(bool follows) { kitReplyFormatFollowsActiveSlot = follows; }
 
     // The C setting under Shift + PROG/CTRL, which switches CC transmission and reception
     // together [OFF-2X p.66–67]. On by default.
     void setControlChangeOn(bool on) { transmitsCcs = receivesCcs = on; }
-    // Misbehaviour, for testing each half alone: no CC is transmitted (panel knobs, and the All
-    // Controllers Request when HardwareAssumptions.h says C gates it).
+    // Misbehaviour, for testing each half alone: no CC is transmitted (panel knobs).
     void setTransmitsControlChanges(bool transmits) { transmitsCcs = transmits; }
     // Misbehaviour: incoming CCs are ignored.
     void setReceivesControlChanges(bool receives) { receivesCcs = receives; }
@@ -203,8 +215,8 @@ private:
     void handleSysEx(std::span<const std::uint8_t> message);
     void handleRequest(std::uint8_t type, std::uint8_t spec);
     void sendSlotEditBuffer(Slot requested);
+    void sendBankLocation(int sysExBank, std::uint8_t location);
     void handleDump(const ParsedSysEx& dump);
-    void sendAllControllers(Slot slot);
     void sendPerformance();
     void transmit(std::span<const std::uint8_t> message);
 
@@ -221,7 +233,13 @@ private:
     int receivedProgramChanges = 0;
     std::vector<ReceivedMessage> received;
     GlobalChannel globalChannel;
-    std::optional<std::uint8_t> bankRequestType;
+    // The last Performance dump received into the Edit Buffer, until a selection drops it.
+    std::optional<Performance> receivedPerformance;
+    bool kitReplyFormatFollowsActiveSlot = false;
+    // Counts Kit Bank location reads: their contents change from read to read.
+    int kitBankReads = 0;
+    // Counts Performance Bank reads: a few values change from read to read.
+    int performanceBankReads = 0;
     bool answersSysEx = true;
     bool answersPerformanceRequests = true;
     int receivedPerformanceDumps = 0;

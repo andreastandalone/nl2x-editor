@@ -56,7 +56,10 @@ juce::String statusText(const nl2x::Engine& synth)
     case nl2x::PerformanceStatus::Reading:
         return "Reading the Performance from the synth...";
     case nl2x::PerformanceStatus::Read:
-        return "Read from the synth. Changes go to its Performance Edit Buffer.";
+        return nl2x::hardware::kPerformanceEditBufferDumpIsApplied
+                   ? "Read from the synth. Changes go to its Performance Edit Buffer."
+                   : "Read from the synth. Changes go to its Performance Edit Buffer, but the synth does not "
+                     "apply them yet: you will not hear them, and a changed Slot Channel is not followed.";
     case nl2x::PerformanceStatus::NoAnswer:
         return haveOne ? "The synth did not answer; showing the Performance read earlier."
                        : "The synth did not answer the Performance request: Slot Channels are the defaults or "
@@ -195,7 +198,9 @@ PerformanceView::PerformanceView(NL2XEditorProcessor& owner)
     for (auto* title : { &performanceChannelsTitle, &overridesTitle, &sendChannelsTitle })
         content.addAndMakeVisible(*title);
 
-    addHeading("Performance settings (sent to the synth)");
+    addHeading(nl2x::hardware::kPerformanceEditBufferDumpIsApplied
+                   ? "Performance settings (sent to the synth)"
+                   : "Performance settings (sent to the synth, which stores but does not apply them yet)");
     for (const auto& info : nl2x::performanceSettings())
         // The Slot Channels have their own section above.
         if (info.access == nl2x::PerformanceSettingAccess::Editable && info.id != nl2x::PerformanceSetting::SlotChannel)

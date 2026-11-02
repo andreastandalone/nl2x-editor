@@ -112,8 +112,8 @@ constexpr std::array<ProgramParameterInfo, kProgramParameterCount> kProgramParam
     plain(P::PortamentoAuto, "portamentoAuto", "Portamento Auto", 0, 1),
     plain(P::FilterVelocity, "filterVelocity", "Filter Velocity", 0, 1),
     plain(P::OctaveShift, "octaveShift", "Oct Shift", 0, 4),
-    // 8 = off.
-    plain(P::Lfo2DestinationArpMode, "lfo2DestinationArpMode", "LFO2 Dest/Arp Mode", 0, 8),
+    // The manual's "8 = off" is wrong: 0–7, the synth clamps 8 and 9 to 7 (HardwareAssumptions.h).
+    plain(P::Lfo2DestinationArpMode, "lfo2DestinationArpMode", "LFO2 Dest/Arp Mode", 0, 7),
 };
 
 constexpr bool tableIsInOffsetOrder()
