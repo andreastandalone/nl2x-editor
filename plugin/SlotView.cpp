@@ -43,12 +43,6 @@ SlotView::SlotView(NL2XEditorProcessor& owner)
     hintLabel.setText("Drag a knob up or down; Shift fine, Option for its Morph Amount", juce::dontSendNotification);
     addAndMakeVisible(hintLabel);
 
-    panel.onSlotChosen = [this](nl2x::Slot slot) {
-        if (onSlotChosen)
-            onSlotChosen(slot);
-        else
-            selectSlot(slot);
-    };
     panel.onValueEdit = [this](nl2x::CcParameter parameter, int value) {
         processor.editSlotParameter(selectedSlot, parameter, value);
     };
@@ -92,7 +86,6 @@ void SlotView::timerCallback()
 void SlotView::selectSlot(nl2x::Slot slot)
 {
     selectedSlot = slot;
-    panel.showSlot(slot);
     refresh();
 }
 

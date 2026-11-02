@@ -67,7 +67,6 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     tabs.addTab("Synth memory", NordPalette::casingRed, -1);
     tabs.setCurrentTabIndex(0, false);
     tabs.onTabChosen = [this](int index) { showTab(index); };
-    slotView.onSlotChosen = [this](nl2x::Slot slot) { tabs.setCurrentTabIndex(static_cast<int>(nl2x::slotIndex(slot))); };
 
     warningLabel.setColour(juce::Label::textColourId, NordPalette::warning);
     warningLabel.setFont(NordFonts::body());

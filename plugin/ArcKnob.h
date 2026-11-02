@@ -12,8 +12,7 @@
 // Dragging up or down edits the value (the mouse wheel is left to scrolling); with Morph mode on
 // (setMorphMode, the Morph button) or with Option held when the drag starts, it edits the Morph
 // Amount instead (user stories 23–24). Shift drags finely; double-click resets the Morph Amount
-// to 0 when it is the one being edited. A disabled knob (a panel control with no MIDI, such as
-// Master Level) draws only its track and a dash. Colours and fonts are NordLookAndFeel.h's. The
+// to 0 when it is the one being edited. A disabled knob draws only its track and a dash. Colours and fonts are NordLookAndFeel.h's. The
 // knob only shows what it is given and reports edits through the callbacks: the owner routes them
 // (through the DAW parameters) and feeds the engine's values back; it knows nothing about Slots
 // or the engine.

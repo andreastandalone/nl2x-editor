@@ -8,7 +8,6 @@ namespace {
 
 using C = nl2x::CcParameter;
 
-constexpr int kSlotButtonsGroup = 4401;
 constexpr int kGap = NordMetrics::gap;
 // Where controls start below a section's title bar.
 constexpr int kTop = NordMetrics::sectionTitleHeight + 6;
@@ -102,7 +101,6 @@ juce::String nameAndCc(const nl2x::CcParameterInfo& info)
 } // namespace
 
 ProgramPanel::ProgramPanel()
-    : masterLevel("Level", 0, 127, false)
 {
     for (const auto& info : nl2x::ccParameters()) {
         const auto index = static_cast<std::size_t>(info.id);
@@ -162,34 +160,10 @@ ProgramPanel::ProgramPanel()
         }
     }
 
-    masterLevel.setEnabled(false);
-    masterLevel.setTooltip("Master Level is not sent or received over MIDI: set it on the synth");
-    addAndMakeVisible(masterLevel);
-
-    for (auto slot : nl2x::kAllSlots) {
-        auto& button = slotButtons[nl2x::slotIndex(slot)];
-        button.setButtonText(juce::String::charToString(nl2x::slotLetter(slot)));
-        button.setComponentID(juce::String("slotButton") + nl2x::slotLetter(slot));
-        button.setClickingTogglesState(true);
-        button.setRadioGroupId(kSlotButtonsGroup);
-        button.setTooltip(juce::String("Show and edit Slot ") + nl2x::slotLetter(slot));
-        button.onClick = [this, slot] {
-            if (onSlotChosen)
-                onSlotChosen(slot);
-        };
-        addAndMakeVisible(button);
-    }
-    slotButtons[0].setToggleState(true, juce::dontSendNotification);
-
     setSize(kWidth, kHeight);
 }
 
 ProgramPanel::~ProgramPanel() = default;
-
-void ProgramPanel::showSlot(nl2x::Slot slot)
-{
-    slotButtons[nl2x::slotIndex(slot)].setToggleState(true, juce::dontSendNotification);
-}
 
 void ProgramPanel::showProgram(const nl2x::Program& program)
 {
@@ -279,8 +253,8 @@ void ProgramPanel::resized()
     const int top = kGap;
     const int bottom = top + kUpperHeight + kGap;
 
-    const auto section = [this](const juce::String& title, int x, int y, int w, int h, bool program = true) -> Section& {
-        return sections.emplace_back(Section { title, { x, y, w, h }, program });
+    const auto section = [this](const juce::String& title, int x, int y, int w, int h) -> Section& {
+        return sections.emplace_back(Section { title, { x, y, w, h } });
     };
 
     // Left: LFO 1, LFO 2/Arp, Mod Env.
@@ -350,38 +324,26 @@ void ProgramPanel::resized()
         place(C::FilterDistortion, filter, 6 + 4 * kColumn + 10, second + 4, kRightWidth - (6 + 4 * kColumn + 10) - 6);
     }
 
-    // Bottom row, under the columns as on the synth.
+    // Bottom row, in the synth's order, each pair of sections filling one column above.
     {
-        const auto& master = section("Master Level", left, bottom, 104, kBottomHeight, false);
-        placeKnob(masterLevel, master, (104 - NordMetrics::knobWidth) / 2, kTop);
+        constexpr int playWidth = 150;
+        const auto& play = section("Play Mode", left, bottom, playWidth, kBottomHeight);
+        place(C::VoiceMode, play, 12, kTop, 80);
 
-        const int slotWidth = kLeftWidth - 104 - kGap;
-        const auto& slot = section("Slot", left + 104 + kGap, bottom, slotWidth, kBottomHeight, false);
-        const int buttonWidth = 40;
-        const int buttonsWidth = 4 * buttonWidth + 3 * 6;
-        auto buttons = juce::Rectangle<int>(slot.bounds.getX() + (slotWidth - buttonsWidth) / 2,
-                                            slot.bounds.getY() + kTop + 30, buttonsWidth, 32);
-        for (auto& button : slotButtons) {
-            button.setBounds(buttons.removeFromLeft(buttonWidth));
-            buttons.removeFromLeft(6);
-        }
+        const auto& portamento = section("Portamento", left + playWidth + kGap, bottom,
+                                         kLeftWidth - playWidth - kGap, kBottomHeight);
+        place(C::PortamentoTime, portamento, 10, kTop);
+        place(C::PortamentoAuto, portamento, 10 + kColumn + 4, kTop + 34, 64);
 
-        const auto& play = section("Play Mode", centre, bottom, 96, kBottomHeight);
-        place(C::VoiceMode, play, 10, kTop, 80);
+        constexpr int unisonWidth = 130;
+        const auto& unison = section("Unison", centre, bottom, unisonWidth, kBottomHeight);
+        place(C::Unison, unison, 12, kTop + 34, unisonWidth - 24);
 
-        const auto& portamento = section("Portamento", centre + 96 + kGap, bottom, 130, kBottomHeight);
-        place(C::PortamentoTime, portamento, 4, kTop);
-        place(C::PortamentoAuto, portamento, 4 + kColumn - 2, kTop + 34, 58);
-
-        const int unisonX = centre + 96 + 130 + 2 * kGap;
-        const auto& unison = section("Unison", unisonX, bottom, centre + kCentreWidth - unisonX, kBottomHeight);
-        place(C::Unison, unison, 10, kTop + 34, unison.bounds.getWidth() - 20);
-
-        const auto& octave = section("Oct Shift", right, bottom, 150, kBottomHeight);
+        const auto& octave = section("Oct Shift", centre + unisonWidth + kGap, bottom,
+                                     kCentreWidth - unisonWidth - kGap, kBottomHeight);
         place(C::OctaveShift, octave, 12, kTop - 4, 80);
 
-        const auto& wheel = section("Mod Wheel Dest", right + 150 + kGap, bottom, kRightWidth - 150 - kGap,
-                                    kBottomHeight);
+        const auto& wheel = section("Mod Wheel Dest", right, bottom, kRightWidth, kBottomHeight);
         place(C::ModWheelDestination, wheel, 12, kTop - 4, 100);
     }
 
@@ -402,19 +364,18 @@ void ProgramPanel::paint(juce::Graphics& g)
     g.setColour(NordPalette::background);
     g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), NordMetrics::cornerRadius);
 
-    for (const auto& section : sections)
-        if (notice.isEmpty() || ! section.program)
-            NordLookAndFeel::drawSection(g, section.bounds, section.title);
-
     if (notice.isNotEmpty()) {
-        const auto upper = getLocalBounds().withHeight(kGap + kUpperHeight).reduced(kGap);
+        const auto area = getLocalBounds().reduced(kGap);
         g.setColour(NordPalette::panelGrey);
-        g.fillRoundedRectangle(upper.toFloat(), NordMetrics::cornerRadius);
+        g.fillRoundedRectangle(area.toFloat(), NordMetrics::cornerRadius);
         g.setColour(NordPalette::text);
         g.setFont(NordFonts::heading());
-        g.drawFittedText(notice, upper.reduced(24), juce::Justification::centred, 3);
+        g.drawFittedText(notice, area.reduced(24), juce::Justification::centred, 3);
         return;
     }
+
+    for (const auto& section : sections)
+        NordLookAndFeel::drawSection(g, section.bounds, section.title);
 
     g.setFont(NordFonts::controlName());
     g.setColour(NordPalette::text);
