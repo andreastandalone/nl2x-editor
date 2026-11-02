@@ -1,6 +1,6 @@
 # Clavia Nord Lead 2X: MIDI / SysEx implementation research
 
-Date of research: 2026-10-28.
+Date of research: 2026-10-28. Hardware results added 2026-11-02 (tags [HW …] below).
 
 ## Sources and tags
 
@@ -19,6 +19,7 @@ Every fact below carries one of these tags:
 - **[OFF-DL]**: Nord legacy downloads page, https://www.nordkeyboards.com/legacy-products/nord-lead-2x/downloads/
 - **[SEC-x]**: secondary sources (forums, third-party code), listed in section 6.
 - **[INF]**: my own inference. Verify on hardware.
+- **[HW 2026-10-29]**, **[HW 2026-11-02]**: observed on Andrea's Nord Lead 2X (OS 1.00) during hardware discovery (#3), on that date. Each finding, with its step of [docs/hardware-discovery-plan.md](../hardware-discovery-plan.md) and its log, is in [hardware-session-2026-10-29.md](hardware-session-2026-10-29.md). **Verified** = the hardware agrees; **Refuted** = the hardware disagrees. These override every other source.
 
 ---
 
@@ -63,8 +64,9 @@ Source: [OFF-2X p.103–104], verified against the rendered page images. The NL2
 Ranges:
 
 - Knobs are 0–127.
-- On/off buttons send 0 = off. The manual's wording for "on" is unclear; it says *a value of "on"*. [INF] Expect 1 or ≥64. Test on hardware.
-- Stepped buttons send 0, 1, 2, … from the lowest setting.
+- On/off buttons send 0 = off. The manual's wording for "on" is unclear; it says *a value of "on"*. **Verified [HW 2026-10-29, 2026-11-02]**: the panel sends 1 for on (CC16, 34, 45, 65, 80), and the synth takes any non-zero value as on (Unison: 0 off; 1, 64, 127 on).
+- Stepped buttons send 0, 1, 2, … from the lowest setting. **Verified [HW 2026-10-29]**: small indexes, not spread over 0–127 (CC15 0–2, CC17 0–4 with 2 = centre, CC18 0–4, CC20 0–4, CC21 0–4, CC28 0–3, CC30/31 0–3, CC46 0–3), stepping by one per press and wrapping; the CC value equals the SysEx value (CC24 0–7 read back at offset 65 [HW 2026-11-02]).
+- The CC numbers of every panel control tried match the table below [HW 2026-10-29].
 
 The SysEx offset column comes from the dump table (section 3). Pairing a CC with a SysEx offset is [INF], but the names match one to one.
 
@@ -82,7 +84,7 @@ The SysEx offset column comes from the dump table (section 3). Pairing a CC with
 | LFO1 Destination | 21 | 0–4 | 57 |
 | LFO1 Amount | 22 | 0–127 | 22 |
 | LFO2/Arp Rate | 23 | 0–127 | 23 |
-| LFO2 Dest / Arp Mode | 24 | 0–8 (8 = off) | 65 |
+| LFO2 Dest / Arp Mode | 24 | 0–8 (8 = off). **Refuted [HW 2026-11-02]**: 0 Arp Down, 1 Arp Up, 2 Arp Up/Down, 3 LFO Amp, 4 LFO Osc 1+2, 5 Arp Random, 6 Arp Echo, 7 LFO Filter; 8 and 9 act as 7, no "off" | 65 |
 | LFO2 Amount / Arp Range | 25 | 0–127 | 24 |
 | Mod Env Attack | 26 | 0–127 | 18 |
 | Mod Env Decay | 27 | 0–127 | 19 |
@@ -101,7 +103,7 @@ The SysEx offset column comes from the dump table (section 3). Pairing a CC with
 | Filter Env Release | 41 | 0–127 | 11 |
 | Filter Resonance | 42 | 0–127 | 4 |
 | Filter Env Amount | 43 | 0–127 | 5 |
-| Filter Mode (type) | 44 | 0–4 | 53 |
+| Filter Mode (type) | 44 | 0–4: LP 12, LP 24, HP 24, BP, Notch+LP (**verified [HW 2026-11-02]**) | 53 |
 | Filter Velocity | 45 | 0–1 | 63 |
 | Filter Keyboard Track | 46 | 0–3 | 55 |
 | Portamento Auto | 65 | 0–1 | 62 |
@@ -115,8 +117,8 @@ The SysEx offset column comes from the dump table (section 3). Pairing a CC with
 
 Notes on the table:
 
-- **CC35 (Oscillator Sync)**: the panel has one Ring Mod/Sync button that cycles through off, sync, ring and both [OFF-2X p.42]. The CC values for these states are **not documented**. [INF] Probably 0–3 matching bits 0–1 of SysEx byte 52.
-- **CC78 (Osc2 Semitones)**: the SysEx range is 0–120, but a CC can only carry 0–127. The CC scaling is **unknown**. Test on hardware.
+- **CC35 (Oscillator Sync)**: the panel has one Ring Mod/Sync button that cycles through off, sync, ring and both [OFF-2X p.42]. The CC values for these states are **not documented**. [INF] Probably 0–3 matching bits 0–1 of SysEx byte 52. **Verified [HW 2026-10-29]**: the button sends 0 → 1 → 2 → 3 → 0, shown as off → Sync → Ring Mod → both.
+- **CC78 (Osc2 Semitones)**: the SysEx range is 0–120, but a CC can only carry 0–127. The CC scaling is **unknown**. **Verified [HW 2026-10-29]**: the panel sends 0–120, the SysEx value unscaled.
 
 Code cross-references (#6): the CC table is `engine/src/CcParameters.cpp` (byte 52 split into Ring Mod/Sync, bits 0–1, and Filter Distortion, bit 4); the assumed switch "on" value (127) and read threshold (≥ 1), the order of every stepped CC's options, the CC35 encoding (0–3 = bits 0–1) and the CC78 scaling (CC value = SysEx value) are in `engine/include/nl2x/HardwareAssumptions.h`. The simulator's own copy of this table is in `tests/sim/SimulatedNordLead2X.cpp`.
 
@@ -137,7 +139,7 @@ Mod wheel and pedals are always Tx/Rx, even when the panel CC setting is off [OF
 **Not reachable by CC.** Use SysEx (patch or performance dump) for these:
 
 - All 25 **Velocity/Morph sensitivity** values (offsets 25–49, signed −128…127, 0 = off). The Morph target is set by pressing VELOCITY/MORPH ASSIGN and turning knobs. There is no CC for the morph amounts or for the assign button. The morph amount is driven by mod wheel CC1 (when the destination is Morph), by velocity, by the expression pedal, or by "External Velocity Morph". [OFF-2X p.26–27, 71, 111]
-- Ring Mod as a separate control (only the combined bits in byte 52; see the CC35 note).
+- Ring Mod as a separate control (only the combined bits in byte 52; see the CC35 note). In practice CC35 reaches it as value 2 [HW 2026-10-29].
 - All Performance-level settings:
   - Slot MIDI channels and LFO1/LFO2 MIDI clock sync.
   - Env/Morph trigger channel and note.
@@ -186,12 +188,23 @@ Source: [OFF-2X p.105–109].
 |---|---|---|---|
 | Patch dump (Tx/Rx) | 0 = Edit buffer; 1–10 = Bank 1–10 | Edit buffer: 0–3 = Slot A–D. Bank: 0–98 = Program 1–99 | 132 |
 | Perc Kit dump (Tx/Rx) | 0 = Edit buffer; 1–4 = Bank 1–4 | Edit buffer: 16–19 = Slot A–D. Bank: 99–108 = P0–P9 | 1056 |
-| Patch/Kit dump **request** (Rx only) | 10 ($0A) = Edit buffer; 11–14 = Bank 1–4 | Edit buffer: 0–3 = Slot. Bank: 0–98 = Program, 99–108 = Kit | none |
+| Patch/Kit dump **request** (Rx only) | 10 ($0A) = Edit buffer; 11–14 = Bank 1–4 | Edit buffer: 0–3 = Slot. Bank: 0–98 = Program, 99–108 = Kit | none. **Refuted on the 2X [HW 2026-10-29]**: 10–13 get no answer; see "Verified on the 2X" below. |
 | Performance dump (Tx/Rx) | 30 = Perf edit buffer; 31–34 = Perf Bank 1–4 | 0, or 0–99 | 708 |
 | Performance dump request (Rx only) | 40 = Edit buffer; 41–44 = Perf Bank 1–4 | 0, or 0–99 | none |
-| All Controllers Request (Rx only) | 20 ($14) | Slot 0–3 | none. The synth replies with **CC messages** for that Slot. |
+| All Controllers Request (Rx only) | 20 ($14) | Slot 0–3 | none. The synth replies with **CC messages** for that Slot. **Refuted on the 2X [HW 2026-10-29]**: type 20 spec 0 got a 139-byte Program dump (type 6 spec 0, Bank shown as 5, Program 1) and no CC. |
 
 On the Performance request row, the manual's body text says "41 or 42" while the table says 41–44.
+
+**Verified on the 2X** [HW 2026-10-29, 2026-11-02], details and logs in [hardware-session-2026-10-29.md](hardware-session-2026-10-29.md):
+
+- Only the dev equal to the Global Channel answers; the synth shows dev 15 as G.16 (shown = dev + 1).
+- **Type 14, spec 0–3** returns Slot A–D's **Edit Buffer** (unstored panel edits included), as type 0 spec = the requested Slot. With Programs on every Slot, each Slot answers with its own Program, whichever Slot is active.
+- **Kits on a Slot**: the reply's *format* follows the active Slot. With a Program active, a Slot holding a Kit answers with the 139-byte Program it held before the Kit; with a Kit active (or once an empty Program), every Slot answers with a 1063-byte Kit (all zeros for Slots playing Programs). Type 14 spec 0 with the Kit active returns its **Kit Edit Buffer** (panel edits included; contradicts [SEC-1]), header type 0 spec 16. Type 10 or 14 with spec 16 gets no answer.
+- **Bank requests: request type = dump type + 14.** Types 15–24 read the Program Banks shown as 0–9 (dump types 1–10); the reply has that dump type and spec = location. Dump type 1 = the Bank shown as 0: its Programs equal the factory `bank0.syx`, types 2–4 equal factory banks 1–3; types 5–10 are the ROM Banks. Types 11–13 get no answer.
+- **Kit Bank locations** (spec 99–108 of types 15–18) answer with 1063-byte Kits whose contents are **not trustworthy** [HW 2026-11-02]: none matches a factory Kit, two reads in a row differ at the same bytes of every Kit, and a factory Kit sent as type 1 spec 99 did not read back.
+- **Bank writes**: Program dumps of type 4 were stored at their location in the Bank shown as 3, selected on the panel; a whole Bank written 100 ms apart read back equal 99 of 99 [HW 2026-11-02]. Every write had the type byte naming the selected Bank, so whether the type byte or the panel decides is **open**.
+- **Type 0 Program dumps** to a Slot are applied at once and audibly, even during a held note; the display does not change [HW 2026-10-29].
+- **Performance**: type 40 returns a 715-byte type-30 dump of the live Edit Buffer; type 41 spec 0–99 returns type 31 spec = location. A **type 30 dump is stored but not applied**: the read-back equals the dump, but a Keyboard Split set that way does not split the keyboard nor light the LED, and leaving and re-entering Performance mode reloads the stored Performance [HW 2026-10-29]. A type 31 spec 0 dump in Program mode changed nothing [HW 2026-11-02]. Bytes 648–653 of a dump (counting F0 as 1; decoded values 320–323) change between two reads of the same Performance [HW 2026-11-02].
 
 **NL2 differences** [OFF-NL2 p.93–97]:
 
@@ -214,18 +227,20 @@ The NL2X manual copied the NL2 tables and only partly updated them.
 - [SEC-2], maxforlive.com device "Nord Lead 2X Remote" by Kampfer, https://maxforlive.com/library/device/1907/nord-lead-2x, quoted via search snippet:
   - "Patch Dump Request 14 (Edit Buffer) 0-3 (Slot A-D)" works on the 2X.
   - The same string does not work correctly on the original NL2.
-- **Conclusion**: the bank-location request type codes on the 2X are **unknown** and need a hardware probe. [INF] Candidates: 11–14 as printed, or 15–24 if the request table was shifted by +14. Probe with types 11–24 and specs 0–108, and log the replies.
+- **Conclusion**: the bank-location request type codes on the 2X are **unknown** and need a hardware probe. [INF] Candidates: 11–14 as printed, or 15–24 if the request table was shifted by +14. Probe with types 11–24 and specs 0–108, and log the replies. **Settled [HW 2026-10-29]**: 15–24 (dump type + 14).
+- [SEC-1] on hardware [HW 2026-10-29]: type 10 gives no output (**verified**); type 14 returns the Edit Buffer (**verified**); the Kit reply is the stored Kit (**refuted**: it is the Kit Edit Buffer); the reply depends on the active Slot (**verified for the format only**: see above).
 - [SEC-3], Nord User Forum thread "Nord lead 2x All Controllers Request" (https://www.norduserforum.com/viewtopic.php?p=145915, quoted via search snippet only; the forum returns 403):
   - `F0 33 00 04 14 00 F7` works on the NL2X for Slot A, with the global channel set to 1 (dev 0).
+  - **Refuted [HW 2026-10-29]**: on this 2X `F0 33 0F 04 14 00 F7` returns a Bank Program (see the table), never CCs. The dev counting (dev 0 = Global Channel 1) holds.
 
 **Receive-side rules** [OFF-2X p.78, 105–107, 30]:
 
 - A single patch with type 0 goes into that Slot's edit buffer and is not stored.
-- Bank-dump patches are stored at their program number **in the bank currently selected on the synth**. The type byte's bank number is effectively ignored.
+- Bank-dump patches are stored at their program number **in the bank currently selected on the synth**. The type byte's bank number is effectively ignored. Storing at the location is **verified [HW 2026-11-02]**; that the type byte is ignored is **open** (every write so far had both naming the same Bank).
 - A kit can only be received into a Slot that currently plays a kit, and a program only into a Slot playing a program. Otherwise "nothing will happen".
 - A Performance dump from Performance mode holds only kit *references*. Kit data must be dumped from Program mode.
 
-**[OFF-FB] observation**: the official factory .syx files use type 2 for "bank0", 3 for "bank1", 4 for "bank2", and 2 again for "bank3". The type byte in bank dumps is therefore unreliable. Do not trust it as a location.
+**[OFF-FB] observation**: the official factory .syx files use type 2 for "bank0", 3 for "bank1", 4 for "bank2", and 2 again for "bank3". The type byte in bank dumps is therefore unreliable. Do not trust it as a location. (Checked again [HW 2026-11-02]; Banks 0–3 were reset to factory by sending the files with the type rewritten to 1–4, the same Bank selected on the panel.)
 
 ### Patch layout (66 bytes, offsets in decoded parameters)
 
@@ -265,7 +280,7 @@ Source: [OFF-2X p.111–112] = [OFF-NL2 p.98–99].
 | 29 | resonance_sens | " | 62 | auto (portamento) | 0–1 |
 | 30 | filterenvamt_sens | " | 63 | filtervel | 0–1 |
 | 31 | pw_sens | " | 64 | octshift | 0–4 |
-| 32 | fmdepth_sens | " | 65 | lfo2dest/arpmode | 0–8 (8 = off) |
+| 32 | fmdepth_sens | " | 65 | lfo2dest/arpmode | 0–8 (8 = off); **refuted [HW 2026-11-02]**: 0–7, see the CC24 row in §2 |
 
 [OFF-FB] range check across all 436 factory programs and kit sounds:
 
@@ -298,7 +313,7 @@ Source: [OFF-2X p.112] = [OFF-NL2 p.100]. Offsets are in decoded parameters. `[A
 | 319 | pedaltype | 0–2, **not received** |
 | 320 | localcontrol | 0–1, **not received** |
 | 321 | keyboard octave shift | 0–4, **not received** |
-| 322 | selected_channel (active Slot) | 0–3 |
+| 322 | selected_channel (active Slot) | 0–3. Lies in bytes that change between reads [HW 2026-11-02]. |
 | 323 | Arp MIDI Out | 0–1, **not received** |
 | 324 | channel_actived[A–D] (layer on/off) | 0–1 |
 | 328 | pgmselect[A–D] | 0–98 |
@@ -339,7 +354,7 @@ Code cross-references (#5): the settings table is `engine/include/nl2x/Performan
 7. **Layering**: layered Slots also receive on the leftmost active Slot's channel. An editor sending per-Slot CCs should warn or force a single active Slot [OFF-2X p.76–77].
 8. **Kits in Performances** are references only [OFF-2X p.31–32].
 9. **Timing**: no official inter-message delay is documented. [INF]
-   - The synth writes flash or RAM per received bank patch, so pace bank uploads; a starting point is ≥ 50–100 ms between 139-byte messages, then tune.
+   - The synth writes flash or RAM per received bank patch, so pace bank uploads; a starting point is ≥ 50–100 ms between 139-byte messages, then tune. **[HW 2026-11-02]**: 100 ms between Bank dumps worked (99 of 99); Edit Buffer dumps 0–50 ms apart, each followed by a read-back, all read back right, and 600 dumps 50 ms apart while a DAW played through the same MIDI output caused no errors or stuck notes.
    - Wait for each reply before sending the next request.
    - Avoid sending dense CC streams while a SysEx transfer is in progress.
 10. **OS versions**: the Nord downloads page lists **no OS updates. The final version is 1.00 (2003-01-01)** [OFF-DL, via search snippet]. Manual "Edition 1.1" is a document revision, not an OS version. The MIDI chart is dated 2003-04-01 [OFF-2X p.113]. No version-specific SysEx differences are documented.
@@ -372,11 +387,14 @@ I found no permissively licensed open-source NL2/NL2X editor. The official manua
 
 ## 7. Open questions to settle on hardware
 
-1. Request type codes for bank locations on the 2X. Is the edit-buffer request type 14 confirmed for all Slots? How do you request a kit edit buffer?
+Status after the hardware session of 2026-10-29 and 2026-11-02 ([hardware-session-2026-10-29.md](hardware-session-2026-10-29.md)):
+
+1. Request type codes for bank locations on the 2X. Is the edit-buffer request type 14 confirmed for all Slots? How do you request a kit edit buffer? **Answered**: Bank requests are dump type + 14; type 14 works for all four Slots; the Kit Edit Buffer comes from type 14 spec = Slot while the Kit's Slot is active. **Open**: reading and writing Kit Bank locations.
 2. CC value encoding:
-   - CC35 sync/ring states.
-   - CC78 scaling against SysEx 0–120.
-   - The "on" value for switch CCs.
-   - The enumeration order for CC18 / CC20 / CC21 / CC24 / CC28 / CC44 / CC46.
-3. Whether a Performance edit-buffer dump (type 30) applies immediately, and how long the synth needs to digest a 715-byte message.
-4. Whether type-0 patch dumps sent to a Slot are audible immediately. This matters for "send on edit" of the morph/sens parameters that have no CC.
+   - CC35 sync/ring states. **Answered** (0–3).
+   - CC78 scaling against SysEx 0–120. **Answered** (unscaled).
+   - The "on" value for switch CCs. **Answered** (panel sends 1; any non-zero is on).
+   - The enumeration order for CC18 / CC20 / CC21 / CC24 / CC28 / CC44 / CC46. **Answered** for CC24 and CC44; for the others the panel order is the value order, and which name value 0 has was not checked on the LEDs.
+3. Whether a Performance edit-buffer dump (type 30) applies immediately, and how long the synth needs to digest a 715-byte message. **Answered: it is stored but not applied.** How to edit a Performance live is open (#5 follow-up).
+4. Whether type-0 patch dumps sent to a Slot are audible immediately. This matters for "send on edit" of the morph/sens parameters that have no CC. **Answered: yes.**
+5. New: does a Bank Program dump land in the Bank named by its type byte or in the Bank selected on the panel? Why were Programs 1–4 and 17 of Bank 0 found empty? Are Performance Bank dumps accepted in Performance mode?

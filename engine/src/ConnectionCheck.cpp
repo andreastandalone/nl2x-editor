@@ -203,7 +203,7 @@ void ConnectionCheck::synthFound(GlobalChannel channel, std::span<const std::uin
                 + howToSeeGlobalChannel() + "; it reads G." + shown(channel) + ".");
     }
 
-    startAllControllers(timeMs);
+    startCcReceive(timeMs);
 }
 
 void ConnectionCheck::noSysExAnswer(TimeMs timeMs)
@@ -239,38 +239,37 @@ void ConnectionCheck::noMidiAtAll()
     finish();
 }
 
-void ConnectionCheck::startAllControllers(TimeMs timeMs)
+void ConnectionCheck::startCcTransmit(TimeMs timeMs)
 {
-    step = Step::AllControllers;
-    ccSeen = false;
     set(ConnectionCheckItem::CcsTransmitted, ConnectionCheckOutcome::Running);
-    request(allControllersRequest(*currentReport.answeringGlobalChannel, Slot::A),
-            [](auto message) { return isPanelCc(message); },
-            [this](auto reply, TimeMs doneMs) {
-                if (reply || ccSeen)
-                    ccsTransmitted("The synth sends CCs: it answered the All Controllers Request.", doneMs);
-                else
-                    waitForUser(Step::WaitingForKnob,
-                                "No CCs came from the synth. Turn a knob on the synth now, for example the Filter "
-                                "FREQUENCY knob.",
-                                doneMs);
-            },
-            timeMs);
+    if (ccSeen) {
+        ccsTransmitted("The synth sends CCs: one arrived from a panel control during the check.");
+        return;
+    }
+    waitForUser(Step::WaitingForKnob,
+                "To test whether the synth sends CCs, turn a knob on the synth now, for example the Filter "
+                "FREQUENCY knob.",
+                timeMs);
 }
 
-void ConnectionCheck::ccsTransmitted(const std::string& explanation, TimeMs timeMs)
+void ConnectionCheck::ccsTransmitted(const std::string& explanation)
 {
     set(ConnectionCheckItem::CcsTransmitted, ConnectionCheckOutcome::Passed, explanation);
-    startCcReceive(timeMs);
+    finish();
 }
 
-void ConnectionCheck::ccsNotTransmitted(TimeMs timeMs)
+void ConnectionCheck::ccsNotTransmitted()
 {
     set(ConnectionCheckItem::CcsTransmitted, ConnectionCheckOutcome::Failed,
-        "No CC arrived from the synth: not in answer to the All Controllers Request, and not when you turned a "
-        "knob. Turning a knob on the synth will not move it in the editor.",
+        "No CC arrived from the synth when you turned a knob. Turning a knob on the synth will not move it in the "
+        "editor.",
         kTurnOnC);
-    startCcReceive(timeMs);
+    finish();
+}
+
+void ConnectionCheck::ccReceiveDone(TimeMs timeMs)
+{
+    startCcTransmit(timeMs);
 }
 
 void ConnectionCheck::startCcReceive(TimeMs timeMs)
@@ -301,7 +300,7 @@ void ConnectionCheck::testNextSlot(TimeMs timeMs)
                     if (! reply) {
                         set(ConnectionCheckItem::CcsReceived, ConnectionCheckOutcome::NotTested,
                             "Not tested: the synth stopped answering.", "Run the check again.");
-                        finish();
+                        ccReceiveDone(doneMs);
                         return;
                     }
                     readings[slotIndex(slot)].emplace(programOf(*reply));
@@ -315,7 +314,7 @@ void ConnectionCheck::testNextSlot(TimeMs timeMs)
         "Not tested: no Slot plays a Program on a MIDI channel (the test changes a Program's Filter Cutoff and puts "
         "it back).",
         "Select a Program (not a Percussion Kit) on Slot A and run the check again.");
-    finish();
+    ccReceiveDone(timeMs);
 }
 
 void ConnectionCheck::testSlot(Slot slot, const SlotReading& reading, TimeMs timeMs)
@@ -344,13 +343,13 @@ void ConnectionCheck::readBack(TimeMs timeMs)
     step = Step::ReadingBack;
     const auto slot = kAllSlots[slotUnderTest];
     request(slotEditBufferRequest(*currentReport.answeringGlobalChannel, slot), isSlotEditBufferReply,
-            [this, slot](auto reply, TimeMs) {
+            [this, slot](auto reply, TimeMs doneMs) {
                 const auto program = reply ? programOf(*reply) : std::nullopt;
                 if (! program) {
                     set(ConnectionCheckItem::CcsReceived, ConnectionCheckOutcome::NotTested,
                         "Not tested: the synth did not answer when " + slotName(slot) + " was read back.",
                         "Run the check again.");
-                    finish();
+                    ccReceiveDone(doneMs);
                     return;
                 }
 
@@ -373,7 +372,7 @@ void ConnectionCheck::readBack(TimeMs timeMs)
                             "press MIDI CH and select " + slotName(slot) + "; the editor expects channel " + shownChannel
                             + ".");
                 }
-                finish();
+                ccReceiveDone(doneMs);
             },
             timeMs);
 }
@@ -387,7 +386,7 @@ void ConnectionCheck::waitForUser(Step newStep, std::string prompt, TimeMs timeM
     changed();
 }
 
-void ConnectionCheck::skipUserStep(TimeMs timeMs)
+void ConnectionCheck::skipUserStep(TimeMs)
 {
     if (currentReport.state != ConnectionCheckState::WaitingForUser)
         return;
@@ -405,14 +404,15 @@ void ConnectionCheck::skipUserStep(TimeMs timeMs)
         finish();
     } else if (skipped == Step::WaitingForKnob) {
         set(ConnectionCheckItem::CcsTransmitted, ConnectionCheckOutcome::NotTested,
-            "Not tested: the synth did not answer the All Controllers Request, and the step was skipped.",
-            "Run the check again and turn a knob when asked.");
-        startCcReceive(timeMs);
+            "Not tested: the step was skipped.", "Run the check again and turn a knob when asked.");
+        finish();
     }
 }
 
-void ConnectionCheck::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs timeMs)
+void ConnectionCheck::handleIncomingMidi(std::span<const std::uint8_t> message, TimeMs)
 {
+    if (step != Step::None)
+        ccSeen = ccSeen || isPanelCc(message);
     switch (step) {
     case Step::FindingSynth:
         midiSeen = midiSeen || isFromSynth(message);
@@ -424,16 +424,11 @@ void ConnectionCheck::handleIncomingMidi(std::span<const std::uint8_t> message, 
             midiButNoSysEx();
         }
         break;
-    case Step::AllControllers:
-        ccSeen = ccSeen || isPanelCc(message);
-        break;
     case Step::WaitingForKnob:
         if (isPanelCc(message)) {
             currentReport.state = ConnectionCheckState::Running;
             currentReport.userPrompt.clear();
-            ccsTransmitted("The synth sends CCs: a CC arrived when you turned a knob (it did not answer the All "
-                           "Controllers Request).",
-                           timeMs);
+            ccsTransmitted("The synth sends CCs: a CC arrived when you turned a knob.");
         }
         break;
     case Step::None:
@@ -452,7 +447,7 @@ void ConnectionCheck::advanceTime(TimeMs timeMs)
         if (step == Step::WaitingForAnyMidi)
             noMidiAtAll();
         else if (step == Step::WaitingForKnob)
-            ccsNotTransmitted(timeMs);
+            ccsNotTransmitted();
         return;
     }
 

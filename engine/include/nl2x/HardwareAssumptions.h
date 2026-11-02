@@ -7,7 +7,10 @@
 //
 // Status words: "documented" = printed in the manual but not yet checked on hardware (the manual
 // is known to be partly wrong, research §3); "secondary" = reported by other users of a 2X;
-// "[INF]" = our own inference; "contradicted" = a source says the documented value is wrong.
+// "[INF]" = our own inference; "contradicted" = a source says the documented value is wrong;
+// "verified [HW date]" / "refuted [HW date]" = settled on Andrea's Nord Lead 2X during hardware
+// discovery (#3), recorded with its log in docs/research/hardware-session-2026-10-29.md (the
+// session ran on 2026-10-29 and 2026-11-02).
 
 #include "nl2x/Slot.h"
 #include "nl2x/SysEx.h"
@@ -53,8 +56,8 @@ inline constexpr bool kLayeredSlotsAlsoReceiveOnLeftmostActiveSlotChannel = true
 
 // The SysEx Device ID byte equals the Global Channel, counted 0–15 [OFF-2X p.105]. The synth
 // shows it as "G.x"; [SEC-3] reports dev 0 answering with the Global Channel set to 1, so the
-// display presumably counts 1–16 (dev = shown value − 1).
-// Status: secondary, not verified on this synth (plan step 1–2).
+// display counts 1–16 (dev = shown value − 1).
+// Status: verified [HW 2026-10-29, step 2]: with the synth showing G.16 only dev 15 answered.
 inline constexpr std::uint8_t kShownGlobalChannelOfDev0 = 1;
 
 // Global Channel of a synth with factory settings: every factory Performance stores 15 at
@@ -67,51 +70,56 @@ inline constexpr std::uint8_t kFactoryGlobalChannel = 15;
 // factory files [OFF-FB] and live in SysEx.h; the meaning of each type code is not.
 
 // Program dump into a Slot's Edit Buffer: type 0, spec 0–3 = Slot A–D [OFF-2X p.105].
-// Status: documented. Whether it takes effect immediately and audibly is unverified (research §7.4,
-// plan step 7).
+// Status: verified [HW 2026-10-29, step 7]: the synth applies it at once, audibly, even during a
+// held note (the display does not change); a Morph Amount sent this way is heard too.
 inline constexpr std::uint8_t kProgramEditBufferDumpType = 0;
 
 // Program dump into a Bank location: types 1–10 = "Bank 1–10", spec 0–98 = Program 1–99
-// [OFF-2X p.105]. On receive the type byte is ignored and the Program is stored in the Bank
-// currently selected on the synth [OFF-2X p.78]; the factory files use inconsistent type bytes
-// [OFF-FB]. So the type byte is never a storage location (CODING_STANDARDS.md).
-// Status: documented.
+// [OFF-2X p.105]. The manual says that on receive the type byte is ignored and the Program is
+// stored in the Bank currently selected on the synth [OFF-2X p.78]; the factory files carry type
+// bytes 2, 3, 4, 2 for Banks 0–3 [OFF-FB, checked HW 2026-11-02]. So the type byte is never a
+// storage location (CODING_STANDARDS.md).
+// Status: storing verified [HW 2026-11-02, step 11]: a type-4 dump to spec 98 was stored at
+// Program 99 of the selected Bank (shown as 3). Open: every write so far had the type byte naming
+// the selected Bank, so whether the type or the panel decides is not known.
 inline constexpr std::uint8_t kFirstProgramBankDumpType = 1;
 inline constexpr std::uint8_t kLastProgramBankDumpType = 10;
 
 // The manual's SysEx tables count Banks from 1 ("Bank 1–4" for the four RAM Banks); the synth's
 // display counts Program Banks from 0, and Banks 0–3 are the RAM Banks [OFF-2X p.13]. So the
-// manual's SysEx Bank 1 is presumably the Bank shown as 0, and SysEx Bank 4 the Bank shown as 3.
-// Status: [INF], settled by plan step 5.
+// manual's SysEx Bank 1 is the Bank shown as 0, and SysEx Bank 4 the Bank shown as 3.
+// Status: verified [HW 2026-10-29, step 5]: the replies of dump type 1–4 equal the factory Banks
+// 0–3 byte for byte; types 5–10 are the ROM Banks shown as 4–9.
 inline constexpr int kShownBankOfSysExBank1 = 0;
 
 // Percussion Kit dumps: Edit Buffer spec 16–19 = Slot A–D; Bank locations 99–108 = P0–P9
-// [OFF-2X p.105–106]. Status: documented; the Bank spec is consistent with [OFF-FB].
+// [OFF-2X p.105–106]. Status: documented; the Bank spec is consistent with [OFF-FB]. The Bank
+// locations could not be read reliably (kPercussionKitBankReadingVerified below).
 inline constexpr std::uint8_t kPercussionKitEditBufferSpecOfSlotA = 16;
 inline constexpr std::uint8_t kFirstPercussionKitLocation = 99;
 
 // The documented Program/Kit Edit Buffer request: type 10, spec = Slot [OFF-2X p.106].
-// Status: contradicted, it gives no output on a 2X [SEC-1]; type 10 also collides with the
-// "Bank 10" dump type (research §3).
+// Status: refuted [HW 2026-10-29, steps 3–4]: type 10 gets no answer on a 2X, as [SEC-1] said;
+// type 10 also collides with the "Bank 10" dump type (research §3).
 inline constexpr std::uint8_t kDocumentedEditBufferRequestType = 10;
 
-// The request that returns a Slot's Program Edit Buffer: type 14, spec 0–3 = Slot A–D.
-// Reportedly it answers with an "empty" Program unless the active Slot plays a Program, and with a
-// stored Percussion Kit when the active Slot plays a Kit [SEC-1].
-// Status: secondary [SEC-1, SEC-2], not verified on this synth (plan step 3).
+// The request that returns a Slot's Program Edit Buffer: type 14, spec 0–3 = Slot A–D [SEC-1].
+// It reads the Edit Buffer, not the stored Program: unstored panel edits are in the reply.
+// Status: verified [HW 2026-10-29, step 3]; only the dev of the Global Channel answers (step 2).
 inline constexpr std::uint8_t kSlotEditBufferRequestType = 14;
 
-// The reply to a Slot Edit Buffer request is assumed to be a Program dump with the Edit Buffer
-// type and spec = Slot. Code must match a reply to its request by order and size, not by header.
-// Status: [INF] (plan step 3 records the real header).
+// The reply to a Slot Edit Buffer request is a Program dump with the Edit Buffer type and
+// spec = the requested Slot. Code still matches a reply to its request by order and size, not by
+// header. Status: verified [HW 2026-10-29, step 3].
 inline constexpr std::uint8_t kSlotEditBufferReplyType = kProgramEditBufferDumpType;
 
 // How a reply to a Slot Edit Buffer request tells a Program from a Percussion Kit: by its size
-// alone. 139 bytes (kProgramDumpSize) = the Slot plays a Program; 1063 bytes
-// (kPercussionKitDumpSize) = the Slot plays a Percussion Kit, whatever the header says [SEC-1].
-// Caveats [SEC-1]: the Kit may be the stored Kit rather than its Edit Buffer, and the reply may
-// follow the *active* Slot rather than the requested one (see the next constant).
-// Status: secondary, not verified on this synth (plan steps 3–4).
+// alone. 139 bytes (kProgramDumpSize) = a Program; 1063 bytes (kPercussionKitDumpSize) = a
+// Percussion Kit, whatever the header says.
+// Status: sizes verified [HW 2026-10-29, steps 3–4]; but the *format* of the reply follows the
+// active Slot, not the requested one, so for a Slot holding a Kit the size is unreliable (see
+// kSlotEditBufferReplyFormatFollowsActiveSlot). The Kit reply reads the Kit's Edit Buffer (panel
+// edits are in it), contrary to [SEC-1].
 enum class SlotEditBufferReply : std::uint8_t { Program, PercussionKit, NotAReply };
 
 constexpr SlotEditBufferReply classifySlotEditBufferReply(std::size_t messageSize)
@@ -124,46 +132,76 @@ constexpr SlotEditBufferReply classifySlotEditBufferReply(std::size_t messageSiz
 }
 
 // Whether a Slot Edit Buffer request is answered with the requested Slot's content (true) or
-// with the active Slot's (false). [SEC-1] reports the reply depends on the active Slot: a Kit on
-// the active Slot makes every request return that Kit, and a Program reply is "empty" unless the
-// active Slot plays a Program. We assume the requested Slot answers, the only reading under
-// which four separate reads are meaningful; if plan step 3 shows otherwise, reading the Slots
-// needs the active Slot changed between requests, or the Performance dump instead (#5).
-// Status: [INF], plan step 3 ("whether the reply follows the requested Slot or the active Slot").
+// with the active Slot's (false). [SEC-1] reported that the reply depends on the active Slot.
+// Status: verified true for Programs [HW 2026-10-29, step 3]: with Programs on every Slot, each
+// request returned that Slot's own Edit Buffer (A and B on the same Program gave identical
+// dumps, C and D differed), whichever Slot was active.
 inline constexpr bool kSlotEditBufferReplyFollowsRequestedSlot = true;
+
+// What the synth does when a Slot holds a Percussion Kit [HW 2026-10-29, steps 3–4]: the reply's
+// *format* follows the active Slot. With a Program active on Slot A and a Kit on Slot C, every
+// Slot answered with a 139-byte Program, C with the Program it held before the Kit; with the
+// active Slot on a Kit (or, once, on an empty Program), every Slot answered with a 1063-byte Kit,
+// all zeros for Slots playing Programs. So a type 14 read of a Slot holding a Kit is unreliable,
+// and the reply's size alone cannot tell whether a non-active Slot plays a Kit.
+// The engine still classifies replies by size (classifySlotEditBufferReply), which is right for
+// the active Slot only; telling Kits apart on the other Slots needs another source (the
+// Performance's pgmselect, [INF]) and is a follow-up. The simulated synth models this behaviour
+// on request (SimulatedNordLead2X::setKitReplyFormatFollowsActiveSlot).
+// Status: verified [HW 2026-10-29].
+inline constexpr bool kSlotEditBufferReplyFormatFollowsActiveSlot = true;
 
 // Header of the Kit reply to a Slot Edit Buffer request: the Kit Edit Buffer dump of the manual,
 // type 0, spec 16–19 = Slot A–D [OFF-2X p.105]. Only the simulated synth uses it: the engine
-// matches replies by size. Status: [INF] (plan step 4 records the real header).
+// matches replies by size. Status: verified for Slot A [HW 2026-10-29, step 4]: type 0, spec 16.
+// Requests with spec 16 (type 10 or 14) get no answer.
 inline constexpr std::uint8_t kSlotEditBufferKitReplySpecOfSlotA = kPercussionKitEditBufferSpecOfSlotA;
 
 // Bank location requests as printed: types 11–14 = Bank 1–4, spec 0–98 = Program, 99–108 = Kit
-// [OFF-2X p.106]. Status: contradicted, type 14 is the Slot Edit Buffer request on a 2X [SEC-1].
+// [OFF-2X p.106]. Status: refuted [HW 2026-10-29, step 5]: types 11–13 get no answer and 14 is
+// the Slot Edit Buffer request.
 inline constexpr std::uint8_t kPrintedFirstBankRequestType = 11;
 
-// Candidate request types for Bank locations: as printed (11–14), or shifted like the 2X's
-// extended dump types (15–24) [INF, research §3]. The probe scans this range (plan step 5).
+// On a 2X a Bank location is read with request type = dump type + 14: types 15–24 read the
+// Program Banks of dump types 1–10 (shown as 0–9); the reply is a Bank dump of that type with
+// spec = location. Type 20, the manual's All Controllers Request, is one of them (Bank shown as
+// 5). Status: verified [HW 2026-10-29, step 5; HW 2026-11-02, step 11].
+inline constexpr std::uint8_t kBankRequestTypeOffset = 14;
+
+constexpr std::uint8_t bankRequestTypeOfDumpType(std::uint8_t bankDumpType)
+{
+    return static_cast<std::uint8_t>(bankDumpType + kBankRequestTypeOffset);
+}
+
+// The request types the probe's "Scan Bank requests" sweeps: as printed (11–14) and shifted
+// (15–24). Kept for the probe; the answer is bankRequestTypeOfDumpType above.
 inline constexpr std::uint8_t kFirstBankRequestTypeCandidate = 11;
 inline constexpr std::uint8_t kLastBankRequestTypeCandidate = 24;
+
+// Percussion Kit Bank locations (spec 99–108 of request types 15–18) answer with 1063-byte Kit
+// dumps, but their contents are not trustworthy: none matched a factory Kit (380+ bytes differ),
+// two reads in a row differed at the same bytes of every Kit, and a factory Kit sent as type 1
+// spec 99 did not read back. So the editor neither reads nor writes Kit Bank locations.
+// Status: verified unreliable [HW 2026-11-02]; how to read and write Kits is open.
+inline constexpr bool kPercussionKitBankReadingVerified = false;
 
 // ---------------------------------------------------------------------------------------------
 // Writing to the synth's memory (#12, MemoryWriter.h)
 
-// THE LOCK. Set to true only after hardware discovery step 5 has confirmed the request type that
-// reads a Bank location (kBankRequestTypeOfSysExBank1 below), and step 11 has shown that a Bank
-// read that way restores correctly. While false, the editor cannot back up a Bank: sending a whole
-// Bank or storing a Program then needs the user's explicit "no backup possible" confirmation,
-// and reading a Bank is offered as experimental only. While true, every overwrite is preceded by
-// an automatic backup of the target Bank.
-// Status: not verified (research §3, "the bank-location request type codes on the 2X are unknown").
-inline constexpr bool kBankReadingVerified = false;
+// THE LOCK. True once hardware discovery step 5 confirmed the request type that reads a Bank
+// location (kBankRequestTypeOfSysExBank1 below), and step 11 showed that a Bank read that way
+// restores correctly. While false, the editor cannot back up a Bank: sending a whole Bank or
+// storing a Program then needs the user's explicit "no backup possible" confirmation, and reading
+// a Bank is offered as experimental only. While true, every overwrite is preceded by an automatic
+// backup of the target Bank, and every write is read back.
+// Status: verified [HW 2026-11-02, step 11]: Bank shown as 3 read with request type 18 (99 of 99,
+// reply type 4, spec = location), written back as 99 dumps of type 4 100 ms apart, read back
+// equal 99 of 99.
+inline constexpr bool kBankReadingVerified = true;
 
 // The request type that reads SysEx Bank 1 (the Bank shown as 0); SysEx Banks 2–4 follow.
-// Choice: as printed (11) [OFF-2X p.106]. Known to be wrong for SysEx Bank 4, whose printed type
-// 14 is the Slot Edit Buffer request on a 2X [SEC-1]; reading a Bank whose type collides with it
-// is refused. Plan step 5 finds the real one: write it here, together with kBankReadingVerified.
-// Status: contradicted in part, not verified.
-inline constexpr std::uint8_t kBankRequestTypeOfSysExBank1 = kPrintedFirstBankRequestType;
+// Status: verified [HW 2026-10-29, step 5]: 15 = dump type 1 + kBankRequestTypeOffset.
+inline constexpr std::uint8_t kBankRequestTypeOfSysExBank1 = bankRequestTypeOfDumpType(kFirstProgramBankDumpType);
 
 // The writable Program Banks, as the synth shows them: Banks 0–3 are RAM, 4–9 ROM [OFF-2X p.13].
 // Status: documented.
@@ -185,23 +223,51 @@ constexpr int sysExBankOfShownBank(int shownBank)
 // memory writer reads the Performance Edit Buffer just before writing and refuses unless it names
 // the target Bank. If plan step 11 shows the Performance does not follow the panel, set this to
 // false: the writer then relies on the user having selected the Bank, as its confirmation asks.
-// Status: [INF], not verified (plan steps 6 and 11).
+// Status: [INF], not verified (plan steps 6 and 11). Step 6 [HW 2026-10-29] showed type 40 reads
+// the live Performance Edit Buffer; but offset 322 lies in the bytes that vary between reads
+// (kFirstVolatilePerformanceValue), so it may not be trustworthy.
 inline constexpr bool kPerformanceNamesSelectedBank = true;
 
 // Performance dumps: type 30 = Edit Buffer, 31–34 = Performance Bank 1–4, spec 0 or 0–99
-// [OFF-2X p.107]. Status: documented; Bank dumps match [OFF-FB]; the Edit Buffer dump and whether
-// it applies immediately are unverified (research §7.3, plan steps 6 and 8).
+// [OFF-2X p.107]. Status: documented; Bank dumps match [OFF-FB].
 inline constexpr std::uint8_t kPerformanceEditBufferDumpType = 30;
 inline constexpr std::uint8_t kFirstPerformanceBankDumpType = 31;
 
+// Whether the synth *applies* a Performance dump received into its Edit Buffer (type 30).
+// It stores it: a type 40 read-back equals the dump sent. But it does not apply it: with Keyboard
+// Split 1 in the Edit Buffer the split LED stayed off and the keyboard was not split, and leaving
+// and re-entering Performance mode reloaded the stored Performance instead. So editing
+// Performance settings by type 30 dumps (#5) does not change what the synth plays.
+// Status: verified [HW 2026-10-29, step 8].
+inline constexpr bool kPerformanceEditBufferDumpIsApplied = false;
+
+// Whether a Performance Bank dump (type 31 spec 0) is stored. A factory Performance sent as type
+// 31 spec 0, with the synth in Program mode and Bank 3 selected, changed nothing.
+// Status: verified not accepted in that state [HW 2026-11-02]; Performance mode is untested.
+inline constexpr bool kPerformanceBankDumpStoredInProgramMode = false;
+
 // Performance requests: type 40 = Edit Buffer, 41–44 = Performance Bank 1–4 [OFF-2X p.108; the
-// body text says "41 or 42"]. Status: documented, not verified (plan step 6).
+// body text says "41 or 42"]. Status: verified [HW 2026-10-29, step 6; HW 2026-11-02]: type 40
+// answers with a 715-byte type-30 dump of the Edit Buffer (unstored panel changes are in it);
+// type 41 spec 0–99 answers with type 31, spec = location.
 inline constexpr std::uint8_t kPerformanceEditBufferRequestType = 40;
 inline constexpr std::uint8_t kFirstPerformanceBankRequestType = 41;
 
-// All Controllers Request: type 20, spec = Slot; the synth answers with CCs for that Slot
-// [OFF-2X p.109]. Status: secondary, works for Slot A with dev 0 on a 2X [SEC-3] (plan step 1).
-inline constexpr std::uint8_t kAllControllersRequestType = 20;
+// Bytes 648–653 of a 715-byte Performance dump change between two reads of the same stored
+// Performance (type 41); the rest is stable. Counting F0 as byte 1 they hold decoded values
+// 320–323 (counting from 0, 321–323): Local On/Off, Keyboard Octave Shift, selected_channel (the
+// active Slot, 322) and Arp MIDI Out, three of them marked "not received" [OFF-2X p.112]. Two
+// Performances must be compared without these values; and the active Slot read from a dump may
+// be stale (kPerformanceNamesSelectedBank). Status: verified [HW 2026-11-02]; which of the four
+// values really vary is not known.
+inline constexpr std::size_t kFirstVolatilePerformanceValue = 320;
+inline constexpr std::size_t kLastVolatilePerformanceValue = 323;
+
+// The manual's All Controllers Request: type 20, spec = Slot; the synth would answer with CCs for
+// that Slot [OFF-2X p.109; SEC-3]. Status: refuted [HW 2026-10-29, step 1]: on a 2X type 20 is a
+// Bank request (dump type 6 + kBankRequestTypeOffset) and answers with a Program of the Bank shown
+// as 5, never with CCs. Nothing in the editor sends it; the probe keeps it as a raw type.
+inline constexpr std::uint8_t kManualAllControllersRequestType = 20;
 
 // ---------------------------------------------------------------------------------------------
 // CC values of the panel controls (research §2). The CC numbers are printed in the manual's CC
@@ -209,40 +275,44 @@ inline constexpr std::uint8_t kAllControllersRequestType = 20;
 // its SysEx offset is [INF], but the names match one to one. How a CC value maps to the stored
 // byte is mostly undocumented; every rule below is used by the engine *and* the simulated synth.
 
-// Knobs: the CC value is the SysEx value, 0–127 both ways. Status: [INF] (research §2 pairing).
+// Knobs: the CC value is the SysEx value, 0–127 both ways. Status: [INF] (research §2 pairing);
+// the CC numbers of every panel control seen in step 9 match CcParameters.cpp [HW 2026-10-29].
 
 // On/off buttons: "0" = off and "a value of 'on'" = on [OFF-2X p.103], the on value is not
-// printed. The editor sends 127 for on, which a synth testing "≥ 64" or "not 0" reads as on, and
-// reads any value from 1 up as on, which covers a synth sending 1 or 127. The stored byte is 0 or
-// 1 (research §3). Status: [INF], plan step 9.
+// printed. The panel sends 1 for on; the synth takes any non-zero value as on (0 turned Unison
+// off, 1, 64 and 127 turned it on). The editor sends 127 and reads any value from 1 up as on.
+// The stored byte is 0 or 1 (research §3).
+// Status: verified [HW 2026-10-29 and 2026-11-02, step 9].
 inline constexpr std::uint8_t kSwitchOnCcValue = 127;
 inline constexpr std::uint8_t kSwitchOnCcThreshold = 1;
 
 // Stepped buttons send 0, 1, 2, … "from the lowest setting" [OFF-2X p.103]: the CC value is the
-// step number and the SysEx value. Which setting is the lowest is not printed (research §2,
-// "order [INF]"); the choice lists below give our guess, lowest first. A step number read from
-// the synth beyond the list is kept as it is (the factory data has such values, research §3).
-// Status: [INF], plan step 9.
+// step number and the SysEx value (CC24 0–7 read back as the same number at offset 65), not a
+// value spread over 0–127. A step number read from the synth beyond the list is kept as it is
+// (the factory data has such values, research §3).
+// Status: verified [HW 2026-10-29 and 2026-11-02, step 9]. The order of each choice list below:
+// see its own comment.
 
-// Osc2 Semitones (CC78): SysEx 0–120 with 60 = centre, but a CC carries 0–127 and the scaling is
-// unknown (research §2). Assumed: the CC value is the SysEx value, so 121–127 never come from the
-// panel and are kept as they are if they do. Status: [INF], plan step 9.
+// Osc2 Semitones (CC78): SysEx 0–120 with 60 = centre. The panel sends 0–120, the SysEx value
+// unscaled, so 121–127 never come from the panel and are kept as they are if they do.
+// Status: verified [HW 2026-10-29, step 9].
 
 // The RING MOD/SYNC button (CC35) cycles off, sync, ring mod, both [OFF-2X p.42–43]; byte 52 holds
-// bit 0 = sync, bit 1 = ring mod [OFF-2X p.111]. Assumed: one 4-state control whose CC value 0–3
-// is bits 0–1 of byte 52 (so 1 = Sync, 2 = Ring Mod, 3 = both). A CC35 value above 3 cannot be
-// stored in those bits and is ignored. Status: [INF] (research §2 note), plan step 9.
+// bit 0 = sync, bit 1 = ring mod [OFF-2X p.111]. One 4-state control whose CC value 0–3 is bits
+// 0–1 of byte 52 (1 = Sync, 2 = Ring Mod, 3 = both). A CC35 value above 3 cannot be stored in
+// those bits and is ignored.
+// Status: verified [HW 2026-10-29, step 9]: the panel sends 0 → 1 → 2 → 3 → 0, shown as off →
+// Sync → Ring Mod → both.
 inline constexpr std::uint8_t kRingModSyncCc = 35;
 inline constexpr std::uint8_t kRingModSyncBits = 0x03;
 inline constexpr std::array<std::string_view, 4> kRingModSyncChoices { "Off", "Sync", "Ring Mod", "Sync + Ring Mod" };
 
-// Whether CC35 reaches the ring-mod bit (bit 1 of byte 52) at all. The research lists "Ring Mod as
-// a separate control" among the things not reachable by CC (research §2): the CC chart names CC35
-// "Oscillator Sync" only [OFF-2X p.103]. We assume it carries both bits (the 4-state control
-// above). If plan step 9 shows it carries sync only, set this to false: CC35 then carries the sync
-// bit as 0/1 (values above 1 from the synth are ignored), and a change of the ring-mod bit goes to
-// the synth as a throttled Program dump to the Slot's Edit Buffer instead (#7).
-// Status: [INF], plan step 9.
+// Whether CC35 reaches the ring-mod bit (bit 1 of byte 52) at all. The CC chart names CC35
+// "Oscillator Sync" only [OFF-2X p.103], so research §2 listed Ring Mod as not reachable by CC.
+// If it were false, CC35 would carry the sync bit as 0/1 and a change of the ring-mod bit would go
+// to the synth as a throttled Program dump to the Slot's Edit Buffer instead (#7); the code keeps
+// that path, which tests cover.
+// Status: verified true [HW 2026-10-29, step 9].
 inline constexpr bool kRingModReachableByCc35 = true;
 
 // The bits of byte 52 that CC35 carries, under either reading of the switch above.
@@ -251,9 +321,9 @@ constexpr std::uint8_t ringModSyncCcBits(bool ringModReachableByCc35)
     return ringModReachableByCc35 ? kRingModSyncBits : std::uint8_t { 0x01 };
 }
 
-// The switches above that tests flip to cover both readings until hardware discovery (#3) settles
-// them. Production code always uses the defaults, which are the constants; only tests construct
-// an Engine or the simulated synth with other values.
+// Switches that tests flip to cover both readings (and the locked memory writer). Production code
+// always uses the defaults, which are the constants; only tests construct an Engine or the
+// simulated synth with other values.
 struct Switches {
     bool ringModReachableByCc35 = kRingModReachableByCc35;
     // The memory writer's lock and Bank request type (#12).
@@ -267,26 +337,35 @@ inline constexpr std::uint8_t kFilterDistortionBit = 0x10;
 
 // Named steps, lowest first. Names are the manual's panel terms [OFF-2X p.37–61]; the order is
 // the order the manual describes them in, except where the patch layout fixes one value
-// [OFF-2X p.111]. Status: [INF] for every list, plan step 9.
+// [OFF-2X p.111]. Step 9 [HW 2026-10-29] showed that each of these buttons (but Filter Type and
+// LFO2 Dest/Arp, pressed irregularly) steps its CC by one per press and wraps, so the panel order
+// is the value order; which name value 0 has was checked on the LEDs only where a list says so.
+// Status: [INF] order of names unless stated otherwise.
 
 // Osc1: "3 = sine"; Osc 2 shares the first three waveforms with Osc 1 and has Noise instead of
-// Sine, "3 = noise" [OFF-2X p.39, 111].
+// Sine, "3 = noise" [OFF-2X p.39, 111]. CC30/31 send 0–3 [HW 2026-10-29].
 inline constexpr std::array<std::string_view, 4> kOsc1WaveformChoices { "Triangle", "Sawtooth", "Pulse", "Sine" };
 inline constexpr std::array<std::string_view, 4> kOsc2WaveformChoices { "Triangle", "Sawtooth", "Pulse", "Noise" };
 inline constexpr std::array<std::string_view, 5> kLfo1WaveformChoices { "Soft Random", "Square", "Triangle",
                                                                         "Sawtooth", "Random" };
 inline constexpr std::array<std::string_view, 5> kLfo1DestinationChoices { "FM", "Osc 1+2", "Osc 2", "Filter", "PW" };
-// LFO 2 destinations in LFO mode, then the Arpeggio modes; "8 = off" [OFF-2X p.111].
-inline constexpr std::array<std::string_view, 9> kLfo2DestinationArpModeChoices {
-    "Osc 1+2", "Amp", "Filter", "Arp Up", "Arp Down", "Arp Up/Down", "Rnd Arp", "Echo", "Off"
+// The LFO 2 destinations and the Arpeggio modes share one button and one byte (offset 65). The
+// manual's order (LFO destinations, then Arp modes, "8 = off" [OFF-2X p.111]) is wrong. Each value
+// sent as CC24 on Slot B's channel and read on the LEDs: 0–7 as below; 8 and 9 act as 7 (the synth
+// clamps them), so there is no "off" value; and Slot B's dump held the same number at offset 65.
+// Status: verified [HW 2026-11-02, step 9].
+inline constexpr std::array<std::string_view, 8> kLfo2DestinationArpModeChoices {
+    "Arp Down", "Arp Up", "Arp Up/Down", "LFO Amp", "LFO Osc 1+2", "Arp Random", "Arp Echo", "LFO Filter"
 };
 inline constexpr std::array<std::string_view, 4> kModEnvDestinationChoices { "None", "FM Amt", "PW", "Osc 2" };
 inline constexpr std::array<std::string_view, 5> kModWheelDestinationChoices { "Morph", "LFO 1", "Osc 2", "FM",
                                                                                "Filter" };
 inline constexpr std::array<std::string_view, 3> kVoiceModeChoices { "Poly", "Legato", "Mono" };
+// Each value sent as CC44 and read on the LEDs. Status: verified [HW 2026-11-02, step 9].
 inline constexpr std::array<std::string_view, 5> kFilterTypeChoices { "LP 12dB", "LP 24dB", "HP 24dB", "BP",
                                                                       "Notch+LP" };
 inline constexpr std::array<std::string_view, 4> kFilterKeyboardTrackChoices { "Off", "1/3", "2/3", "Full" };
+// CC17 sends 0–4 with 2 at the centre [HW 2026-10-29, step 9].
 inline constexpr std::array<std::string_view, 5> kOctaveShiftChoices { "-2", "-1", "0", "+1", "+2" };
 
 // The CC value sent for a control's value: 0–127 always (a CC data byte has 7 bits).
@@ -315,11 +394,9 @@ constexpr std::optional<int> valueFromCcData(std::uint8_t cc, bool isSwitch, std
 
 // The C setting (hold SHIFT, press PROG/CTRL until the display shows C, UP/DOWN for on/oF)
 // switches transmission *and* reception of CCs together; mod wheel and pedals are always
-// transmitted [OFF-2X p.66–67, 77]. Whether C off also silences the CCs that answer an All
-// Controllers Request is not documented. We assume it does, so no CC after the request points to
-// C being off; the check then asks the user to turn a knob before concluding, so a wrong guess
-// costs one extra step. Status: [INF] (plan step 1 with C off would settle it).
-inline constexpr bool kAllControllersReplyNeedsControlChangeOn = true;
+// transmitted [OFF-2X p.66–67, 77]. No request makes the 2X send its CCs (type 20 is a Bank
+// request, kManualAllControllersRequestType), so the check asks the user to turn a knob to test
+// CC transmission. Status: documented; type 20 refuted [HW 2026-10-29, step 1].
 
 // Controllers sent and received whatever the C setting says: mod wheel (CC1), expression pedal
 // (CC11) and sustain pedal (CC64) [OFF-2X p.74, 77, 104]. Their arrival proves nothing about C.
@@ -344,7 +421,9 @@ inline constexpr int kControlChangeSettleMs = 50;
 // Timing
 
 // Spacing between consecutive Program dumps written to Bank locations: the synth stores each one,
-// so give it time. No official figure exists. Status: [INF], research §4.9 (plan steps 10–11).
+// so give it time. No official figure exists. Status: verified enough [HW 2026-11-02, step 11]: a
+// whole Bank written 100 ms apart read back equal 99 of 99; shorter spacings were not tried for
+// Bank writes.
 inline constexpr int kBankWriteSpacingMs = 100;
 
 // How long the editor waits for the answer to a request before giving up on it. A Kit reply is
@@ -362,16 +441,20 @@ inline constexpr int kRequestSpacingMs = 20;
 // the wire at 31 250 baud) to the Performance Edit Buffer. Rapid edits (a slider being dragged)
 // are coalesced into at most one dump per this interval. Whether the synth applies a type-30 dump
 // at once, and how long it needs to digest one, is unknown (research §7.3).
-// Status: [INF] (plan steps 6 and 8).
+// Status: [INF]. The synth stores such a dump but does not apply it (kPerformanceEditBufferDumpIsApplied,
+// [HW 2026-10-29, step 8]), so these edits do not reach the sound yet (#5 follow-up).
 inline constexpr int kPerformanceDumpIntervalMs = 100;
 
 // Parameters without a CC (the Morph Amounts, and the ring-mod bit if CC35 does not reach it) are
 // sent as whole Program dumps (139 bytes, about 45 ms on the wire) to the Slot's Edit Buffer
 // (type 0, spec = Slot). Rapid edits are coalesced into at most one dump per Slot per this
 // interval, about 10 per second (spec #1, "Sync"): the first edit goes out at once, later ones
-// within the interval are sent together when it has passed. Whether a type-0 dump is applied at
-// once and audibly, and how fast the synth can take them, is unknown (research §7.4).
-// Status: [INF] pacing (plan step 7).
+// within the interval are sent together when it has passed. A type-0 dump is applied at once and
+// audibly [HW 2026-10-29, step 7]. Pacing: dumps 0, 10, 20 and 50 ms apart, each followed by a
+// read-back, all read back right (step 10), and 600 dumps 50 ms apart while Live played through
+// the same MIDI output caused no errors, stuck notes or wrong sounds (step 12)
+// [HW 2026-11-02]. So 100 ms is conservative.
+// Status: verified safe [HW 2026-11-02]; the synth is not the bottleneck.
 inline constexpr int kProgramDumpIntervalMs = 100;
 
 // ---------------------------------------------------------------------------------------------
@@ -379,12 +462,11 @@ inline constexpr int kProgramDumpIntervalMs = 100;
 
 // A Performance holds full copies of the four Programs [OFF-2X p.31–33], so a Performance dump to
 // the Performance Edit Buffer (type 30) should by itself put the project's Programs into the
-// Slots. Whether the synth applies a type-30 dump at once is unknown (research §7.3), and how it
-// treats the Programs inside one is not documented. So project recall also sends each Slot
-// playing a Program its own Program dump (type 0) after the Performance dump: a few hundred bytes
-// more, and the Slots end up right either way. Set to false once hardware shows the Performance
-// dump alone restores the Slots. Status: [INF] (plan step 6: send a type-30 dump and read the
-// Slots back).
+// Slots. But the synth stores a type-30 dump without applying it
+// (kPerformanceEditBufferDumpIsApplied, [HW 2026-10-29, step 8]). So project recall also sends
+// each Slot playing a Program its own Program dump (type 0) after the Performance dump, which the
+// synth does apply (step 7): the Slots' sounds come back; the Performance settings do not (#5
+// follow-up). Status: verified necessary [HW 2026-10-29].
 inline constexpr bool kProjectRecallSendsSlotDumpsAfterPerformance = true;
 
 // ---------------------------------------------------------------------------------------------
@@ -394,7 +476,9 @@ inline constexpr bool kProjectRecallSendsSlotDumpsAfterPerformance = true;
 // synth transmits them on the active Slot's channel [OFF-2X p.76, 104]. Both need the P setting
 // (Shift + PROG/CTRL) on, which covers transmission and reception [OFF-2X p.66–67]. The editor
 // cannot tell whether P is on: with P off a selection simply changes nothing.
-// Status: documented, not verified on hardware.
+// Status: transmission seen [HW 2026-10-29, step 5]: selecting Programs on the panel sent
+// CC32 (B0 20 00) then Program Change on Slot A's channel, and the editor re-read the Slot and the
+// Performance as #10 intends. Reception not tested.
 inline constexpr std::uint8_t kBankSelectController = 32;
 
 // Whether CC32 is governed by the P setting (Program Change) rather than by C (Control Change).

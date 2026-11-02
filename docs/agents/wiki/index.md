@@ -5,7 +5,7 @@ Historical notes kept by the coordinating agent so the next session inherits wha
 ## Decisions
 
 - [architecture.md](architecture.md): engine/shell split, the MIDI seam, time injection, threading (2026-10-28).
-- [toolchain.md](toolchain.md): JUCE and Catch2 versions, build commands, pluginval, CI (2026-10-28).
+- [toolchain.md](toolchain.md): JUCE and Catch2 versions, build commands and the `.local/deps` cache, pluginval, CI (2026-10-28, 2026-11-02).
 
 ## Process
 

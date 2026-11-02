@@ -84,15 +84,6 @@ int lowestBit(std::uint8_t bits)
     return shift;
 }
 
-// The control's value as stored in its byte.
-int controlValue(const SimulatedNordLead2X::Program& program, const PanelCc& control)
-{
-    const auto byte = program[control.offset];
-    if (control.bits == kAll)
-        return byte;
-    return (static_cast<std::uint8_t>(byte) & control.bits) >> lowestBit(control.bits);
-}
-
 void setControlValue(SimulatedNordLead2X::Program& program, const PanelCc& control, int value)
 {
     if (control.bits == kAll) {
@@ -361,24 +352,51 @@ void SimulatedNordLead2X::handleRequest(std::uint8_t type, std::uint8_t spec)
         return;
     }
 
-    if (type == hardware::kAllControllersRequestType) {
-        if (const auto slot = slotFromSpec(spec))
-            sendAllControllers(*slot);
-        return;
-    }
-
     if (type == hardware::kPerformanceEditBufferRequestType) {
         if (answersPerformanceRequests)
             sendPerformance();
         return;
     }
 
-    if (bankRequestType && type >= *bankRequestType && type < *bankRequestType + kRamBankCount
-        && spec < kProgramsPerBank) {
-        const auto sysExBank = type - *bankRequestType + 1;
-        const auto shownBank = sysExBank - 1 + hardware::kShownBankOfSysExBank1;
-        transmit(bankProgramDump(globalChannel, static_cast<std::uint8_t>(sysExBank), spec,
-                                 bankProgram(shownBank, spec)));
+    if (type >= hardware::kFirstPerformanceBankRequestType
+        && type < hardware::kFirstPerformanceBankRequestType + hardware::kPerformanceBankCount
+        && spec < hardware::kPerformancesPerBank) {
+        if (! answersPerformanceRequests)
+            return;
+        const auto bank = type - hardware::kFirstPerformanceBankRequestType + 1;
+        auto performance = storedPerformance(bank, spec);
+        // A few values change from read to read on the hardware (HardwareAssumptions.h); here the
+        // last of them alternates.
+        performance[hardware::kLastVolatilePerformanceValue] = byte(performanceBankReads++ % 2);
+        transmit(buildSysEx(globalChannel, static_cast<std::uint8_t>(hardware::kFirstPerformanceBankDumpType + bank - 1),
+                            spec, performance));
+        return;
+    }
+
+    // Bank requests: type = dump type + 14 (so the manual's All Controllers Request, type 20, reads
+    // a Program of the Bank shown as 5). switches.bankRequestTypeOfSysExBank1 lets a test move it.
+    const auto first = switches.bankRequestTypeOfSysExBank1;
+    if (type >= first && type < first + kProgramBankCount)
+        sendBankLocation(type - first + 1, spec);
+}
+
+void SimulatedNordLead2X::sendBankLocation(int sysExBank, std::uint8_t location)
+{
+    const auto shownBank = sysExBank - 1 + hardware::kShownBankOfSysExBank1;
+    if (location < kProgramsPerBank) {
+        transmit(bankProgramDump(globalChannel, static_cast<std::uint8_t>(sysExBank), location,
+                                 bankProgram(shownBank, location)));
+        return;
+    }
+    const int kit = location - hardware::kFirstPercussionKitLocation;
+    if (shownBank < hardware::kPercussionKitBankCount && kit >= 0 && kit < hardware::kPercussionKitsPerBank) {
+        // A Kit dump, but not the stored Kit: on the hardware its contents change from read to read
+        // and match no factory Kit (kPercussionKitBankReadingVerified).
+        auto unreliable = storedPercussionKit(shownBank, kit);
+        const auto noise = static_cast<std::int8_t>(++kitBankReads);
+        for (std::size_t i = 0; i < unreliable.size(); i += 16)
+            unreliable[i] = static_cast<std::int8_t>(unreliable[i] ^ noise);
+        transmit(buildSysEx(globalChannel, static_cast<std::uint8_t>(sysExBank), location, unreliable));
     }
 }
 
@@ -387,11 +405,14 @@ void SimulatedNordLead2X::sendSlotEditBuffer(Slot requested)
     const auto slot = hardware::kSlotEditBufferReplyFollowsRequestedSlot ? requested : activeSlot();
     const auto& state = slots[slotIndex(slot)];
     const auto spec = static_cast<std::uint8_t>(slotIndex(slot));
-    // A Kit answers with a Kit dump, whose size is what tells it apart (HardwareAssumptions.h).
-    if (state.percussionKit)
+    // A Kit answers with a Kit dump, whose size is what tells it apart (HardwareAssumptions.h); on
+    // the hardware the active Slot decides which format every Slot answers in.
+    const bool kitFormat = kitReplyFormatFollowsActiveSlot ? playsPercussionKit(activeSlot())
+                                                           : state.percussionKit.has_value();
+    if (kitFormat)
         transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType,
                             static_cast<std::uint8_t>(hardware::kSlotEditBufferKitReplySpecOfSlotA + spec),
-                            *state.percussionKit));
+                            state.percussionKit ? *state.percussionKit : PercussionKit {}));
     else
         transmit(buildSysEx(globalChannel, hardware::kSlotEditBufferReplyType, spec, state.editBuffer));
 }
@@ -449,8 +470,15 @@ void SimulatedNordLead2X::handleDump(const ParsedSysEx& dump)
 
     if (dump.kind == SysExKind::PerformanceDump && dump.type == hardware::kPerformanceEditBufferDumpType) {
         ++receivedPerformanceDumps;
-        applyPerformance(values);
+        // Stored, read back as sent, but not applied (kPerformanceEditBufferDumpIsApplied).
+        Performance performance;
+        std::copy(values.begin(), values.end(), performance.begin());
+        receivedPerformance = performance;
+        if (hardware::kPerformanceEditBufferDumpIsApplied)
+            applyPerformance(values);
     }
+    // Performance Bank dumps (type 31–34) are not stored in Program mode
+    // (kPerformanceBankDumpStoredInProgramMode); the simulated synth has no Performance mode.
 }
 
 void SimulatedNordLead2X::applyPerformance(std::span<const std::int8_t> values)
@@ -522,6 +550,7 @@ void SimulatedNordLead2X::handleProgramChange(MidiChannel channel, std::uint8_t 
 
 void SimulatedNordLead2X::loadStoredProgram(Slot slot, int shownBank, int location)
 {
+    receivedPerformance.reset();
     auto& state = slots[slotIndex(slot)];
     const int kit = location + hardware::kProgramChangeOfProgram1 - hardware::kProgramChangeOfPercussionKitP0;
     if (kit >= 0) {
@@ -541,6 +570,7 @@ void SimulatedNordLead2X::loadStoredProgram(Slot slot, int shownBank, int locati
 
 void SimulatedNordLead2X::loadStoredPerformance(int bank, int number)
 {
+    receivedPerformance.reset();
     performanceBank = bank;
     // A newly selected Performance plays its own Programs; Kit references are not simulated.
     for (auto& state : slots)
@@ -585,22 +615,16 @@ void SimulatedNordLead2X::selectPerformanceOnPanel(int bank, int number)
     transmit(programMessage);
 }
 
-void SimulatedNordLead2X::sendAllControllers(Slot slot)
-{
-    const auto& state = slots[slotIndex(slot)];
-    if (! state.channel || (hardware::kAllControllersReplyNeedsControlChangeOn && ! transmitsCcs))
-        return;
-
-    for (const auto& control : kPanelCcs) {
-        const auto data = hardware::ccDataFromValue(control.cc, control.isSwitch, controlValue(state.editBuffer, control));
-        const std::array<std::uint8_t, 3> message { static_cast<std::uint8_t>(kControlChange | *state.channel),
-                                                    control.cc, data };
-        transmit(message);
-    }
-}
-
 void SimulatedNordLead2X::sendPerformance()
 {
+    transmit(performanceEditBufferDump(globalChannel, performanceEditBuffer()));
+}
+
+SimulatedNordLead2X::Performance SimulatedNordLead2X::performanceEditBuffer() const
+{
+    if (receivedPerformance)
+        return *receivedPerformance;
+
     std::vector<std::int8_t> performance;
     performance.reserve(kPerformanceParameterCount);
     for (const auto& state : slots)
@@ -614,7 +638,9 @@ void SimulatedNordLead2X::sendPerformance()
     performance.insert(performance.end(), current.begin(), current.end());
     assert(performance.size() == kPerformanceParameterCount);
 
-    transmit(performanceEditBufferDump(globalChannel, performance));
+    Performance result;
+    std::copy(performance.begin(), performance.end(), result.begin());
+    return result;
 }
 
 void SimulatedNordLead2X::transmit(std::span<const std::uint8_t> message)

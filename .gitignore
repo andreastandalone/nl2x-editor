@@ -21,3 +21,6 @@ cmake-build-*/
 
 # Agent worktrees
 .worktrees/
+
+# Local working files: dependency cache, logs, scratch (never committed)
+.local/

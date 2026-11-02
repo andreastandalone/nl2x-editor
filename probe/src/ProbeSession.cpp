@@ -13,9 +13,10 @@ namespace nl2x::probe {
 namespace {
 
 constexpr std::array kScripts {
-    ScriptInfo { ScriptId::AllControllersRequest, "All Controllers Request A",
-                 "All Controllers Request for Slot A (type 20, spec 0) to every dev 0–15, 300 ms apart; counts the "
-                 "CCs that come back after each.",
+    ScriptInfo { ScriptId::Type20Request, "Type 20 request (manual: All Controllers)",
+                 "The manual's All Controllers Request for Slot A (type 20, spec 0) to every dev 0–15, 300 ms apart; "
+                 "lists what comes back after each. On a 2X it reads a Program of the Bank shown as 5, not CCs "
+                 "(hardware session 2026-10-29).",
                  false },
     ScriptInfo { ScriptId::ProbeGlobalChannel, "Probe Global Channel",
                  "Slot A Edit Buffer request (type 14, spec 0) to every dev 0–15, 300 ms apart; adopts the Global "

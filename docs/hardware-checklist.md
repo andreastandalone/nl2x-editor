@@ -26,7 +26,7 @@ Starting state for every section unless stated otherwise: synth connected with b
 - [ ] First use with the synth connected: the check opens by itself, five OK lines, indicator "Connected, Global Channel N" with N equal to G.N (Shift + MIDI CH, then MIDI CH).
 - [ ] Unplug the synth's MIDI OUT, press Connection check, play a key when asked (after about 16 s): "return cable" problem.
 - [ ] Cables back. Unplug only the synth's MIDI IN, run the check, play a key: SysEx problem; MIDI from the synth is OK.
-- [ ] Turn C off (Shift + PROG/CTRL until C, DOWN to oF), run the check, turn a knob when asked: both CC tests show the C instruction. Note whether the knob prompt appears at all (tells whether the All Controllers Request still answers with C off). Turn C on again.
+- [ ] Turn C off (Shift + PROG/CTRL until C, DOWN to oF), run the check, turn a knob when asked: both CC tests show the C instruction. (Since 2026-11-02 the check always ends by asking for a knob: type 20 is not an All Controllers Request on the 2X.) Turn C on again.
 - [ ] Change the synth's Global Channel so it differs from the editor's manual choice: "Global Channel" problem naming the synth's channel. With Automatic it simply connects.
 - [ ] Switch the synth off while connected: indicator red "Not answering", the check opens. Switch on again and recover.
 - [ ] Standalone app, run a Probe script: indicator "Paused while the Probe runs".
@@ -101,7 +101,7 @@ With P on and C on.
 
 Do this after the hardware session. Use Bank 3 as the test Bank and back it up first with the Probe.
 
-- [ ] Plan step 5 identifies the request type that reads each Bank; `kBankRequestTypeOfSysExBank1` is set, and only after plan step 11 restores correctly is `kBankReadingVerified = true`.
+- [x] Plan step 5 identifies the request type that reads each Bank; `kBankRequestTypeOfSysExBank1` is set, and only after plan step 11 restores correctly is `kBankReadingVerified = true`. (Done 2026-11-02: 15, verified.)
 - [ ] Synth memory tab, Bank 3, "Read Bank from synth...": the file appears in the Library as a Program Bank with 99 entries and matches the Probe backup.
 - [ ] Select Bank 0 on the synth, then "Store Slot A to Bank/Program..." with Bank 3, Program 99: after the confirmation it says "Bank 0 is selected on the synth, not Bank 3" and writes nothing.
 - [ ] Select a Program in Bank 3 on the synth, store again: Program 99 of Bank 3 changes and a backup appears in `~/Documents/Nord Lead 2X/Backups/`.

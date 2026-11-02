@@ -49,6 +49,9 @@ private:
     bool applyGlobalChannel();
     void sendRawMessage();
     void saveLog();
+    // The folder the log was last saved to, or ~/Documents/Nord Lead 2X/logs.
+    juce::File logFolder() const;
+    void showBankTypes();
     void saveBankBackup(const nl2x::probe::BankBackup& backup);
 
     void note(const juce::String& text);
@@ -65,8 +68,10 @@ private:
     Field globalChannelField;
     Field sweepCcField;
     Field sweepChannelField;
-    Field bankRequestTypeField;
-    Field bankDumpTypeField;
+    // The Bank the Bank scripts work on, as the panel shows it (0–9); its dump and request types
+    // follow from it and are shown next to it.
+    Field bankField;
+    juce::Label bankTypesLabel;
     juce::OwnedArray<juce::TextButton> scriptButtons;
     juce::TextButton stopButton { "Stop" };
     juce::Label statusLabel;

@@ -25,10 +25,12 @@ namespace nl2x {
 // 1. Ask each Global Channel for Slot A's Edit Buffer (the manual or known one first).
 // 2. If none answers: did any MIDI arrive at all? If not yet, ask the user to play a key; MIDI
 //    arriving means the synth ignores SysEx, nothing arriving means the return cable is missing.
-// 3. All Controllers Request: CCs in reply mean CCs are transmitted; none, ask the user to turn
-//    a knob; still none means C is off.
-// 4. Send Filter Cutoff to the first Slot playing a Program, read the Slot back, restore it:
+// 3. Send Filter Cutoff to the first Slot playing a Program, read the Slot back, restore it:
 //    no change means CCs are not received.
+// 4. CC transmission: a panel CC seen during the check proves it; otherwise ask the user to turn a
+//    knob; none means C is off. No request makes the 2X send its CCs (the manual's All
+//    Controllers Request, type 20, reads a Bank Program on a 2X: HardwareAssumptions.h), so this
+//    step needs the user, and comes last.
 class ConnectionCheck {
 public:
     struct Setup {
@@ -61,7 +63,6 @@ private:
         None,
         FindingSynth,
         WaitingForAnyMidi,
-        AllControllers,
         WaitingForKnob,
         ReadingSlot,
         SettlingCc,
@@ -76,10 +77,12 @@ private:
     void noSysExAnswer(TimeMs timeMs);
     void midiButNoSysEx();
     void noMidiAtAll();
-    void startAllControllers(TimeMs timeMs);
-    void ccsTransmitted(const std::string& explanation, TimeMs timeMs);
-    void ccsNotTransmitted(TimeMs timeMs);
     void startCcReceive(TimeMs timeMs);
+    // Ends the reception test (any outcome) and goes on to the transmission test.
+    void ccReceiveDone(TimeMs timeMs);
+    void startCcTransmit(TimeMs timeMs);
+    void ccsTransmitted(const std::string& explanation);
+    void ccsNotTransmitted();
     void testNextSlot(TimeMs timeMs);
     void testSlot(Slot slot, const SlotReading& reading, TimeMs timeMs);
     void readBack(TimeMs timeMs);
@@ -105,6 +108,7 @@ private:
     std::vector<GlobalChannel> candidates;
     std::size_t candidateIndex = 0;
     bool midiSeen = false;
+    // A CC from a panel control arrived since the check started.
     bool ccSeen = false;
 
     // The CC reception test.

@@ -58,11 +58,15 @@ TEST_CASE("Requests are framed F0 33 <dev> 04 <type> <spec> F7")
 {
     CHECK(buildRequest(0x0F, 0x0E, 0x02) == Bytes { 0xF0, 0x33, 0x0F, 0x04, 0x0E, 0x02, 0xF7 });
     CHECK(slotEditBufferRequest(3, Slot::C) == Bytes { 0xF0, 0x33, 0x03, 0x04, hardware::kSlotEditBufferRequestType, 2, 0xF7 });
-    CHECK(allControllersRequest(0, Slot::A) == Bytes { 0xF0, 0x33, 0x00, 0x04, 0x14, 0x00, 0xF7 });
     CHECK(performanceEditBufferRequest(15) == Bytes { 0xF0, 0x33, 0x0F, 0x04, 40, 0, 0xF7 });
     CHECK(performanceBankRequest(15, 1, 7) == Bytes { 0xF0, 0x33, 0x0F, 0x04, 41, 7, 0xF7 });
     CHECK(performanceBankRequest(15, 4, 99) == Bytes { 0xF0, 0x33, 0x0F, 0x04, 44, 99, 0xF7 });
     CHECK(bankLocationRequest(15, 17, 98) == Bytes { 0xF0, 0x33, 0x0F, 0x04, 17, 98, 0xF7 });
+    // Verified on hardware: the Bank shown as 3 (dump type 4) is read with request type 18, and
+    // type 20 (the manual's All Controllers Request) reads the Bank of dump type 6.
+    CHECK(hardware::bankRequestTypeOfDumpType(4) == 18);
+    CHECK(hardware::bankRequestTypeOfDumpType(6) == hardware::kManualAllControllersRequestType);
+    CHECK(hardware::kBankRequestTypeOfSysExBank1 == 15);
 }
 
 TEST_CASE("Dumps have the documented sizes: Program 139, Percussion Kit 1063, Performance 715")

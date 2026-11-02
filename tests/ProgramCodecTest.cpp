@@ -184,5 +184,5 @@ TEST_CASE("Parameter table: the released identity of Filter Cutoff is unchanged"
     CHECK(ccParameterInfo(CcParameter::FilterCutoff).cc == 74);
     CHECK(cutoff.sysExOffset == 3);
     CHECK(programParameterInfo(ProgramParameter::Osc2Semitones).maxValue == 120);
-    CHECK(programParameterInfo(ProgramParameter::Lfo2DestinationArpMode).maxValue == 8);
+    CHECK(programParameterInfo(ProgramParameter::Lfo2DestinationArpMode).maxValue == 7);
 }

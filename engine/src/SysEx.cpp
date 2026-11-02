@@ -54,11 +54,6 @@ std::vector<std::uint8_t> slotEditBufferRequest(GlobalChannel globalChannel, Slo
     return buildRequest(globalChannel, hardware::kSlotEditBufferRequestType, static_cast<std::uint8_t>(slotIndex(slot)));
 }
 
-std::vector<std::uint8_t> allControllersRequest(GlobalChannel globalChannel, Slot slot)
-{
-    return buildRequest(globalChannel, hardware::kAllControllersRequestType, static_cast<std::uint8_t>(slotIndex(slot)));
-}
-
 std::vector<std::uint8_t> performanceEditBufferRequest(GlobalChannel globalChannel)
 {
     return buildRequest(globalChannel, hardware::kPerformanceEditBufferRequestType, 0);

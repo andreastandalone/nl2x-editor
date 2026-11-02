@@ -26,7 +26,7 @@ namespace {
 
 using Bytes = std::vector<std::uint8_t>;
 
-constexpr std::size_t kSplitPointSetting = 353 - kPerformanceSlotChannelOffset;
+constexpr std::size_t kSplitPointOffset = 353;
 // Long enough for a Performance dump and four Program dumps, and any reads after them.
 constexpr TimeMs kRecallTimeMs = 3000;
 
@@ -86,7 +86,8 @@ std::size_t countIf(const std::vector<Bytes>& messages, auto predicate)
 }
 
 // The synth's Edit Buffers equal the project's: every Slot playing a Program, and the Performance
-// settings the synth receives (Split Point stands for them).
+// Edit Buffer's settings (Split Point stands for them; the synth stores them but does not apply
+// them, HardwareAssumptions.h).
 void requireSynthHoldsProject(const EditorAndSynth& rig, const Bytes& project)
 {
     const auto sounds = decodeProjectState(project);
@@ -97,7 +98,7 @@ void requireSynthHoldsProject(const EditorAndSynth& rig, const Bytes& project)
             CHECK(rig.synth.editBuffer(slot) == saved.program->bytes());
     }
     REQUIRE(sounds->performance);
-    CHECK(rig.synth.performanceSettings()[kSplitPointSetting] == 72);
+    CHECK(rig.synth.performanceEditBuffer()[kSplitPointOffset] == 72);
 }
 
 } // namespace

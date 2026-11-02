@@ -148,20 +148,55 @@ TEST_CASE("Simulated synth: a Program dump is ignored by a Slot playing a Percus
     CHECK_FALSE(rig.synth.playsPercussionKit(Slot::A));
 }
 
-TEST_CASE("Simulated synth: the All Controllers Request answers with the Slot's CCs on its channel")
+TEST_CASE("Simulated synth: type 20, the manual's All Controllers Request, reads a Program of the Bank shown as 5")
 {
     SynthWithCables rig;
-    rig.synth.setEditBuffer(Slot::A, programWithCutoff(90));
 
-    rig.synth.receive(allControllersRequest(hardware::kFactoryGlobalChannel, Slot::A));
+    rig.synth.receive(buildRequest(hardware::kFactoryGlobalChannel, hardware::kManualAllControllersRequestType, 0));
 
-    // One CC per panel control of the CC chart [OFF-2X p.103–104], all on Slot A's channel.
-    const auto status = static_cast<std::uint8_t>(0xB0 | hardware::kDefaultSlotChannels[0]);
-    const auto& sent = rig.fromSynth.messages();
-    CHECK(sent.size() == 42);
-    for (const auto& message : sent)
-        CHECK(message[0] == status);
-    CHECK(std::find(sent.begin(), sent.end(), std::vector<std::uint8_t> { status, 74, 90 }) != sent.end());
+    // As on the hardware (2026-10-29): a 139-byte Program dump, type 6 spec 0, and no CC.
+    REQUIRE(rig.fromSynth.messages().size() == 1);
+    const auto reply = parseSysEx(rig.fromSynth.messages().front());
+    CHECK(reply.kind == SysExKind::ProgramDump);
+    CHECK(reply.type == 6);
+    CHECK(reply.spec == 0);
+    CHECK(reply.values == std::vector<std::int8_t>(rig.synth.bankProgram(5, 0).begin(), rig.synth.bankProgram(5, 0).end()));
+}
+
+TEST_CASE("Simulated synth: with the hardware's reply format, the active Slot decides Program or Kit")
+{
+    SynthWithCables rig;
+    rig.synth.setKitReplyFormatFollowsActiveSlot(true);
+    const auto before = programWithCutoff(21);
+    rig.synth.setEditBuffer(Slot::C, before);
+    SimulatedNordLead2X::PercussionKit kit {};
+    kit.fill(4);
+    rig.synth.playPercussionKit(Slot::C, kit);
+
+    SECTION("a Program on the active Slot: the Kit Slot answers with the Program it held before")
+    {
+        rig.synth.setActiveSlot(Slot::A);
+        rig.synth.receive(slotEditBufferRequest(hardware::kFactoryGlobalChannel, Slot::C));
+        REQUIRE(rig.fromSynth.messages().size() == 1);
+        const auto reply = parseSysEx(rig.fromSynth.messages().front());
+        CHECK(reply.kind == SysExKind::ProgramDump);
+        CHECK(reply.values == std::vector<std::int8_t>(before.begin(), before.end()));
+    }
+
+    SECTION("a Kit on the active Slot: every Slot answers with a Kit, zeros for a Program")
+    {
+        rig.synth.setActiveSlot(Slot::C);
+        rig.synth.receive(slotEditBufferRequest(hardware::kFactoryGlobalChannel, Slot::C));
+        rig.synth.receive(slotEditBufferRequest(hardware::kFactoryGlobalChannel, Slot::A));
+        REQUIRE(rig.fromSynth.messages().size() == 2);
+        const auto kitReply = parseSysEx(rig.fromSynth.messages()[0]);
+        const auto programSlotReply = parseSysEx(rig.fromSynth.messages()[1]);
+        CHECK(kitReply.kind == SysExKind::PercussionKitDump);
+        CHECK(kitReply.values == std::vector<std::int8_t>(kit.begin(), kit.end()));
+        CHECK(programSlotReply.kind == SysExKind::PercussionKitDump);
+        CHECK(programSlotReply.spec == hardware::kSlotEditBufferKitReplySpecOfSlotA);
+        CHECK(programSlotReply.values == std::vector<std::int8_t>(kPercussionKitParameterCount, 0));
+    }
 }
 
 TEST_CASE("Simulated synth: the Performance Edit Buffer request returns the four Slots and the settings")
@@ -182,9 +217,12 @@ TEST_CASE("Simulated synth: the Performance Edit Buffer request returns the four
     CHECK((*reply.values)[kPerformanceSlotChannelOffset + 1] == -1);
 }
 
-TEST_CASE("Simulated synth: a Performance dump to the Edit Buffer replaces the Slots and settings")
+TEST_CASE("Simulated synth: a Performance dump to the Edit Buffer is stored but not applied")
 {
     SynthWithCables rig;
+    const auto slotABefore = rig.synth.editBuffer(Slot::A);
+    const auto settingsBefore = rig.synth.performanceSettings();
+    const auto slotCChannel = rig.synth.slotChannel(Slot::C);
     std::vector<std::int8_t> performance(kPerformanceParameterCount, 0);
     performance[3] = 120;
     performance[kPerformanceSlotChannelOffset + 2] = 9;
@@ -193,10 +231,51 @@ TEST_CASE("Simulated synth: a Performance dump to the Edit Buffer replaces the S
     rig.synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
     rig.synth.receive(performanceEditBufferRequest(hardware::kFactoryGlobalChannel));
 
-    CHECK(rig.synth.editBuffer(Slot::A)[3] == 120);
-    CHECK(rig.synth.performanceSettings()[kPerformanceKeyboardSplitOffset - kPerformanceSlotChannelOffset] == 1);
+    // As on the hardware (2026-10-29): read back as sent, but the synth plays as before.
     REQUIRE(rig.fromSynth.messages().size() == 1);
     CHECK(parseSysEx(rig.fromSynth.messages().front()).values == performance);
+    CHECK(rig.synth.editBuffer(Slot::A) == slotABefore);
+    CHECK(rig.synth.performanceSettings() == settingsBefore);
+    CHECK(rig.synth.slotChannel(Slot::C) == slotCChannel);
+
+    SECTION("selecting a Performance drops it")
+    {
+        rig.synth.selectPerformanceOnPanel(1, 0);
+        CHECK(rig.synth.performanceEditBuffer()[kPerformanceKeyboardSplitOffset]
+              == rig.synth.storedPerformance(1, 0)[kPerformanceKeyboardSplitOffset]);
+        CHECK(rig.synth.performanceEditBuffer()[3] == rig.synth.storedPerformance(1, 0)[3]);
+    }
+}
+
+TEST_CASE("Simulated synth: Performance Bank requests answer with type 31–34, a few values changing between reads")
+{
+    SynthWithCables rig;
+
+    rig.synth.receive(performanceBankRequest(hardware::kFactoryGlobalChannel, 2, 7));
+    rig.synth.receive(performanceBankRequest(hardware::kFactoryGlobalChannel, 2, 7));
+
+    REQUIRE(rig.fromSynth.messages().size() == 2);
+    const auto first = parseSysEx(rig.fromSynth.messages()[0]);
+    const auto second = parseSysEx(rig.fromSynth.messages()[1]);
+    CHECK(first.type == 32);
+    CHECK(first.spec == 7);
+    REQUIRE(first.values);
+    REQUIRE(second.values);
+    CHECK(*first.values != *second.values);
+    for (std::size_t i = 0; i < first.values->size(); ++i)
+        if (i < hardware::kFirstVolatilePerformanceValue || i > hardware::kLastVolatilePerformanceValue)
+            CHECK((*first.values)[i] == (*second.values)[i]);
+}
+
+TEST_CASE("Simulated synth: a Performance Bank dump is ignored")
+{
+    SynthWithCables rig;
+    const auto before = rig.synth.storedPerformance(1, 0);
+    std::vector<std::int8_t> performance(kPerformanceParameterCount, 9);
+
+    rig.synth.receive(buildSysEx(hardware::kFactoryGlobalChannel, hardware::kFirstPerformanceBankDumpType, 0, performance));
+
+    CHECK(rig.synth.storedPerformance(1, 0) == before);
 }
 
 TEST_CASE("Simulated synth: Bank dumps are stored in the Bank selected on the panel, whatever their type")
@@ -211,15 +290,15 @@ TEST_CASE("Simulated synth: Bank dumps are stored in the Bank selected on the pa
     CHECK(rig.synth.bankProgram(0, 98) == bank0Program99);
 }
 
-TEST_CASE("Simulated synth: Bank requests are answered only once a request type is chosen")
+TEST_CASE("Simulated synth: Bank requests are type = dump type + 14, as on the hardware")
 {
     SynthWithCables rig;
     rig.synth.setBankProgram(3, 5, programWithCutoff(44));
 
-    rig.synth.receive(bankLocationRequest(hardware::kFactoryGlobalChannel, 18, 5));
+    // As printed (type 11–13) nothing answers.
+    rig.synth.receive(bankLocationRequest(hardware::kFactoryGlobalChannel, 13, 5));
     CHECK(rig.fromSynth.messages().empty());
 
-    rig.synth.setBankRequestTypeOfSysExBank1(15);
     rig.synth.receive(bankLocationRequest(hardware::kFactoryGlobalChannel, 18, 5));
 
     REQUIRE(rig.fromSynth.messages().size() == 1);
@@ -227,6 +306,24 @@ TEST_CASE("Simulated synth: Bank requests are answered only once a request type 
     CHECK(reply.type == 4);
     CHECK(reply.spec == 5);
     CHECK((*reply.values)[3] == 44);
+}
+
+TEST_CASE("Simulated synth: Kit Bank locations answer with a Kit that changes from read to read")
+{
+    SynthWithCables rig;
+
+    rig.synth.receive(bankLocationRequest(hardware::kFactoryGlobalChannel, 15, hardware::kFirstPercussionKitLocation));
+    rig.synth.receive(bankLocationRequest(hardware::kFactoryGlobalChannel, 15, hardware::kFirstPercussionKitLocation));
+
+    REQUIRE(rig.fromSynth.messages().size() == 2);
+    const auto first = parseSysEx(rig.fromSynth.messages()[0]);
+    const auto second = parseSysEx(rig.fromSynth.messages()[1]);
+    CHECK(first.kind == SysExKind::PercussionKitDump);
+    CHECK(first.type == 1);
+    CHECK(first.spec == hardware::kFirstPercussionKitLocation);
+    CHECK(first.values != second.values);
+    const auto& stored = rig.synth.storedPercussionKit(0, 0);
+    CHECK(first.values != std::vector<std::int8_t>(stored.begin(), stored.end()));
 }
 
 TEST_CASE("Simulated synth misbehaving: SysEx arriving too soon after the previous one is lost")
@@ -252,47 +349,6 @@ TEST_CASE("Simulated synth misbehaving: no SysEx answers at all")
     CHECK(rig.fromSynth.messages().empty());
 }
 
-TEST_CASE("Simulated synth: a Performance dump ignores the settings the synth does not receive")
-{
-    SimulatedNordLead2X synth;
-    auto before = synth.performanceSettings();
-    before[318 - kPerformanceSlotChannelOffset] = -12; // Master Tune
-    synth.setPerformanceSettings(before);
-
-    std::vector<std::int8_t> performance(kPerformanceParameterCount, 0);
-    for (std::size_t offset = 315; offset <= 323; ++offset)
-        performance[offset] = 3;
-    performance[kPerformanceKeyboardSplitOffset] = 1;
-    synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
-
-    const auto& after = synth.performanceSettings();
-    for (std::size_t offset : { 315u, 316u, 317u, 318u, 319u, 320u, 321u, 323u })
-        CHECK(after[offset - kPerformanceSlotChannelOffset] == before[offset - kPerformanceSlotChannelOffset]);
-    CHECK(after[322 - kPerformanceSlotChannelOffset] == 3); // Selected Slot is received
-    CHECK(after[kPerformanceKeyboardSplitOffset - kPerformanceSlotChannelOffset] == 1);
-}
-
-TEST_CASE("Simulated synth: after a Performance dump the Slots listen on its Slot Channels only")
-{
-    SimulatedNordLead2X synth;
-    std::vector<std::int8_t> performance(kPerformanceParameterCount, 0);
-    performance[kPerformanceSlotChannelOffset + 0] = 7;
-    performance[kPerformanceSlotChannelOffset + 1] = 7;
-    performance[kPerformanceSlotChannelOffset + 2] = 9;
-    performance[kPerformanceSlotChannelOffset + 3] = hardware::kPerformanceSlotChannelOff;
-    synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
-
-    synth.receive(std::array<std::uint8_t, 3> { 0xB0, 74, 11 }); // channel 1: nobody now
-    synth.receive(std::array<std::uint8_t, 3> { 0xB7, 74, 22 }); // channel 8: A and B
-    synth.receive(std::array<std::uint8_t, 3> { 0xB3, 74, 33 }); // channel 4: D used to be here
-
-    CHECK(synth.editBuffer(Slot::A)[3] == 22);
-    CHECK(synth.editBuffer(Slot::B)[3] == 22);
-    CHECK(synth.editBuffer(Slot::C)[3] == 0);
-    CHECK(synth.editBuffer(Slot::D)[3] == 0);
-    CHECK_FALSE(synth.slotChannel(Slot::D));
-}
-
 TEST_CASE("Simulated synth: layered Slots also receive on the leftmost active Slot's channel")
 {
     SimulatedNordLead2X synth;
@@ -308,16 +364,3 @@ TEST_CASE("Simulated synth: layered Slots also receive on the leftmost active Sl
     CHECK(synth.editBuffer(Slot::D)[3] == 44);
 }
 
-TEST_CASE("Simulated synth: a Performance dump leaves a Slot playing a Percussion Kit alone")
-{
-    SimulatedNordLead2X synth;
-    synth.playPercussionKit(Slot::B, {});
-    std::vector<std::int8_t> performance(kPerformanceParameterCount, 5);
-    performance[kPerformanceSlotChannelOffset + 1] = 1;
-
-    synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, performance));
-
-    CHECK(synth.playsPercussionKit(Slot::B));
-    CHECK(synth.editBuffer(Slot::B)[3] == 0);
-    CHECK(synth.editBuffer(Slot::A)[3] == 5);
-}
