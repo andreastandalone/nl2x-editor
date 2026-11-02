@@ -73,7 +73,7 @@ jobs:
           mkdir -p ~/Library/Audio/Plug-Ins/Components
           cp -R "$ARTEFACTS/AU/NL2X Editor.component" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
-          auval -v aumu Nl2x Astd
+          auval -v aumu Nl2x CrSm
 
       - name: Package
         run: |
