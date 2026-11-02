@@ -21,7 +21,7 @@
 // Everything inside the editor window (docs/design/visual-style.md), laid out at one fixed design
 // size; the window (NL2XPluginEditor) scales it as a whole when it is resized:
 //
-// - a red header bar: the connection indicator (#9), Connection check, Undo and Redo (#14, also
+// - the header bar: the connection indicator (#9), Connection check, Undo and Redo (#14, also
 //   Cmd+Z and Cmd+Shift+Z while the plugin window has keyboard focus), Settings, About, and in the
 //   standalone app only the Probe button (#3);
 // - tabs for Slots A–D (the front panel of the Slot's Program, SlotView), the Performance (#5) and
