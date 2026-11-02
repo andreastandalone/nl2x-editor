@@ -47,7 +47,7 @@ Su `main`: 231 test automatici al confine MIDI contro il Nord simulato, tutti ve
 
 Le decisioni che ho preso al posto tuo sono nella tabella "Decisions taken on Andrea's behalf". Quelle che costano di più da cambiare dopo la release sono gli **identificatori del plugin e dei parametri DAW** (`Astd`/`Nl2x`, `A_filterCutoff` …), perché i progetti salvati vi fanno riferimento: meglio guardarle prima della v0.1.
 
-Fuori dal progetto, sul tuo Mac, è rimasto solo un file di lock vuoto creato da pluginval: `~/Library/Caches/com.juce.locks/io.github.andreastandalone.nl2x-editor.synth-control`. È innocuo e lo puoi cancellare.
+Fuori dal progetto, sul tuo Mac, è rimasto solo un file di lock vuoto creato da pluginval: `~/Library/Caches/com.juce.locks/io.github.andreastandalone.nl2x-editor.synth-control` (dal 2026-11-02 il bundle ID è `com.creativesum.nl2x-editor`, quindi quel file non verrà più usato). È innocuo e lo puoi cancellare.
 
 ## After the hardware session (2026-11-02)
 
@@ -83,6 +83,7 @@ Andrea ran the hardware discovery session (#3) on 2026-10-29 and 2026-11-02; eve
 | #2 | Slot Channels before the Performance is read | 1, 2, 3, 4 (`HardwareAssumptions.h`) | Factory-Performance majority 1, 1, 3, 4 | Low: one constant; #5 reads the real ones |
 | #2 | Audio output of the Instrument | One silent stereo output bus | No output bus at all | Low, but changes the plugin's bus layout in saved projects |
 | #2 | Plugin identity | Manufacturer code `Astd`, plugin code `Nl2x`, company "andreastandalone", bundle ID `io.github.andreastandalone.nl2x-editor` | Other codes | High after release: hosts identify the plugin by these codes |
+| — | Plugin identity (2026-11-02, Andrea; supersedes the row above) | Company "CreativeSum", manufacturer code `CrSm`, plugin code `Nl2x`, bundle ID `com.creativesum.nl2x-editor`; the repository stays `andreastandalone/nl2x-editor` | Keep `Astd` | Changed before v0.1, so no saved project refers to the old codes |
 | #2 | Minimum macOS | macOS 11 | 10.15 (JUCE allows 10.11) | Low |
 | #2 | DAW parameter IDs | `A_filterCutoff` (Slot letter + stable key) | Numeric IDs | High after release: automation refers to them |
 | #3 | Where the probe code lives | `probe/`, a plain C++20 library (`nl2x::probe`) under the engine's rules; the JUCE window only wires it up | Inside `engine/`; logic in the JUCE window | Low: move a folder |

@@ -2,10 +2,10 @@
 
 juce_add_plugin(NL2XEditor
     PRODUCT_NAME "NL2X Editor"
-    COMPANY_NAME "andreastandalone"
-    BUNDLE_ID "io.github.andreastandalone.nl2x-editor"
+    COMPANY_NAME "CreativeSum"
+    BUNDLE_ID "com.creativesum.nl2x-editor"
     DESCRIPTION "An editor for the Nord Lead 2X"
-    PLUGIN_MANUFACTURER_CODE Astd
+    PLUGIN_MANUFACTURER_CODE CrSm
     PLUGIN_CODE Nl2x
     FORMATS VST3 AU Standalone
     # An Instrument, because Ableton Live does not host VST3 MIDI effects (spec #1). It keeps a
