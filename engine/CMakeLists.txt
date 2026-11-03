@@ -15,6 +15,7 @@ add_library(nl2x_engine STATIC
     src/LibraryMetadata.cpp
     src/MorphAmounts.cpp
     src/EngineSelection.cpp
+    src/Librarian.cpp
     src/MemoryWriter.cpp
     src/Program.cpp
     src/ProgramDumpThrottle.cpp

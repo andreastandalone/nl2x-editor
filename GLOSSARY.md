@@ -48,6 +48,14 @@ _Avoid_: Browser, patch folder
 Sending a Program from the Library to a Slot's Edit Buffer to hear it, without storing it in any Bank.
 _Avoid_: Preview, load
 
+**Librarian**:
+The part of the editor that shows the Library beside the synth's RAM Program Banks (0–3) as last read, and puts Library Programs into Bank locations.
+_Avoid_: Bank manager, organizer
+
+**Composed Bank**:
+The Librarian's version of one RAM Bank: the synth's Bank (or a Bank file) with the locations the user changed, which stay pending ("to send") until they are written to the synth.
+_Avoid_: Working copy, draft Bank
+
 **Connection check**:
 The editor's test of the MIDI link with the synth: whether MIDI arrives from it, whether it answers SysEx requests and on which Global Channel, and whether it transmits and receives CCs (the C setting under Shift + PROG/CTRL). Each problem comes with the setting to change.
 _Avoid_: Diagnostics, self-test

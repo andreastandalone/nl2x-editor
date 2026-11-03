@@ -11,6 +11,7 @@ add_executable(nl2x_tests
     LibraryFactoryTest.cpp
     LibraryMetadataTest.cpp
     LibraryTest.cpp
+    LibrarianTest.cpp
     MemoryWriterTest.cpp
     MorphAmountsTest.cpp
     ParameterToCcTest.cpp

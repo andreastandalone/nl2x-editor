@@ -1,8 +1,7 @@
 // The memory writer (#12): storing a Program, sending and reading whole Banks, through the
 // simulated synth. Tests assert on what crosses the MIDI boundary and on files written.
 
-#include "MidiCable.h"
-#include "SimulatedNordLead2X.h"
+#include "MemoryRig.h"
 
 #include "nl2x/Engine.h"
 #include "nl2x/HardwareAssumptions.h"
@@ -24,151 +23,6 @@ using namespace nl2x;
 using namespace nl2x::test;
 
 namespace {
-
-using Bytes = std::vector<std::uint8_t>;
-
-constexpr std::uint8_t kTestRequestTypeOfSysExBank1 = 15;
-hardware::Switches bankReading(bool verified)
-{
-    hardware::Switches switches;
-    switches.bankReadingVerified = verified;
-    switches.bankRequestTypeOfSysExBank1 = kTestRequestTypeOfSysExBank1;
-    return switches;
-}
-
-const hardware::Switches kVerified = bankReading(true);
-const hardware::Switches kNotVerified = bankReading(false);
-constexpr WallClockTime kNow { 2026, 10, 28, 14, 3, 7 };
-
-SimulatedNordLead2X::Program patternProgram(int seed)
-{
-    SimulatedNordLead2X::Program program {};
-    for (std::size_t i = 0; i < program.size(); ++i)
-        program[i] = static_cast<std::int8_t>(static_cast<std::uint8_t>(i * 13 + static_cast<std::size_t>(seed) * 7));
-    return program;
-}
-
-Bytes readFile(const std::filesystem::path& path)
-{
-    std::ifstream stream(path, std::ios::binary);
-    return { std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>() };
-}
-
-// A Bank dump to the synth's memory: a Program dump with a Bank type.
-bool isBankDump(std::span<const std::uint8_t> message)
-{
-    const auto parsed = parseSysEx(message);
-    return parsed.kind == SysExKind::ProgramDump && parsed.type != hardware::kProgramEditBufferDumpType;
-}
-
-bool isBankRequest(std::span<const std::uint8_t> message)
-{
-    const auto parsed = parseSysEx(message);
-    return parsed.kind == SysExKind::Other && parsed.type >= kTestRequestTypeOfSysExBank1
-           && parsed.type < kTestRequestTypeOfSysExBank1 + 4;
-}
-
-// The engine and the simulated synth cabled both ways, as the shell drives them (see
-// EditorAndSynth.h), with the lock chosen by the test and a clean folder for files.
-struct Rig {
-    explicit Rig(const hardware::Switches& switches, const std::string& testName)
-        : engine(toSynth, switches),
-          folder(std::filesystem::path(NL2X_TEST_OUTPUT_DIR) / "memory-writer" / testName)
-    {
-        std::filesystem::remove_all(folder);
-        backupFolder = folder / "Backups";
-        toSynth.plugInto([this](auto message) {
-            if (isBankDump(message)) {
-                bankDumpTimes.push_back(now);
-                backupExistedAtBankDump.push_back(std::filesystem::exists(backupFolder));
-            }
-            if (onSend)
-                onSend(message);
-            synth.receive(message, now);
-        });
-        fromSynth.plugInto([this](auto message) { pending.emplace_back(message.begin(), message.end()); });
-        synth.connectMidiOut(&fromSynth);
-        for (auto slot : kAllSlots)
-            synth.setEditBuffer(slot, patternProgram(100 + static_cast<int>(slotIndex(slot))));
-        for (int bank = 0; bank < 4; ++bank)
-            for (int location = 0; location < 99; ++location)
-                synth.setBankProgram(bank, location, patternProgram(bank * 100 + location));
-        synth.selectBank(2);
-
-        engine.connect(std::nullopt, now);
-        runWhile([this] {
-            const auto status = engine.connectionStatus();
-            return status == ConnectionStatus::SearchingGlobalChannel || status == ConnectionStatus::ReadingSlots
-                   || engine.performanceStatus() == PerformanceStatus::Reading;
-        });
-        REQUIRE(engine.connectionStatus() == ConnectionStatus::Connected);
-    }
-
-    void tick()
-    {
-        now += 10;
-        while (! pending.empty()) {
-            const auto message = pending.front();
-            pending.pop_front();
-            engine.handleIncomingMidi(message, now);
-        }
-        engine.advanceTime(now);
-    }
-
-    void runWhile(const std::function<bool()>& condition)
-    {
-        for (int i = 0; i < 100000 && condition(); ++i)
-            tick();
-        REQUIRE_FALSE(condition());
-    }
-
-    void runFor(TimeMs durationMs)
-    {
-        const auto end = now + durationMs;
-        while (now < end)
-            tick();
-    }
-
-    MemoryWriter& memory() { return engine.memoryWriter(); }
-    const MemoryTaskStatus& status() { return engine.memoryWriter().status(); }
-
-    // Runs until the writer waits for a confirmation or has finished.
-    void settle()
-    {
-        runWhile([this] {
-            const auto stage = status().stage;
-            return stage != MemoryStage::AwaitingConfirmation && stage != MemoryStage::Finished
-                   && stage != MemoryStage::Failed && stage != MemoryStage::Idle;
-        });
-    }
-
-    MemoryConfirmResult confirm(NoBackupConsent consent)
-    {
-        REQUIRE(status().plan);
-        return memory().confirm(status().plan->token, consent, now);
-    }
-
-    std::vector<std::filesystem::path> backups() const
-    {
-        std::vector<std::filesystem::path> files;
-        if (std::filesystem::exists(backupFolder))
-            for (const auto& entry : std::filesystem::directory_iterator(backupFolder))
-                files.push_back(entry.path());
-        return files;
-    }
-
-    MidiCable toSynth;
-    MidiCable fromSynth;
-    SimulatedNordLead2X synth;
-    Engine engine;
-    std::filesystem::path folder;
-    std::filesystem::path backupFolder;
-    std::deque<Bytes> pending;
-    std::vector<TimeMs> bankDumpTimes;
-    std::vector<bool> backupExistedAtBankDump;
-    std::function<void(std::span<const std::uint8_t>)> onSend;
-    TimeMs now = 1000;
-};
 
 LibraryFile bankFile(int programs, int kits = 0)
 {
@@ -546,4 +400,60 @@ TEST_CASE("Memory writer: no Edit Buffer dump goes out between the confirmation 
     // The held edit goes out afterwards.
     rig.runFor(500);
     CHECK(std::any_of(sent.begin() + static_cast<std::ptrdiff_t>(writeEndedAt), sent.end(), isEditBufferProgramDump));
+}
+
+TEST_CASE("Memory writer: a set of Programs is written in ascending order, one dump per location")
+{
+    Rig rig(kVerified, "program-writes");
+    std::vector<ProgramWrite> writes;
+    for (int program : { 90, 2, 40, 7, 11, 13, 17, 19, 23, 29, 31, 37 })
+        writes.push_back({ program, Program(patternProgram(6000 + program)) });
+
+    CHECK(rig.memory().prepareProgramWrites(2, {}, "x", rig.backupFolder, kNow, rig.now) == MemoryRefusal::NothingToWrite);
+    CHECK(rig.memory().prepareProgramWrites(2, { { 3, {} }, { 3, {} } }, "x", rig.backupFolder, kNow, rig.now)
+          == MemoryRefusal::DuplicateProgram);
+    CHECK(rig.memory().prepareProgramWrites(2, { { 100, {} } }, "x", rig.backupFolder, kNow, rig.now)
+          == MemoryRefusal::ProgramOutOfRange);
+    CHECK(rig.memory().prepareProgramWrites(5, writes, "x", rig.backupFolder, kNow, rig.now) == MemoryRefusal::NotARamBank);
+
+    REQUIRE(rig.memory().prepareProgramWrites(2, writes, "my picks", rig.backupFolder, kNow, rig.now)
+            == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    // Too many to list in the question.
+    CHECK(rig.status().plan->question == "Overwrite 12 Programs in Bank 2 on the synth?");
+    CHECK(rig.status().plan->programs == std::vector<int> { 2, 7, 11, 13, 17, 19, 23, 29, 31, 37, 40, 90 });
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+
+    CHECK(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.status().message.find("Read back: 12 of 12") != std::string::npos);
+    std::vector<int> specs;
+    for (const auto& dump : rig.synth.receivedDumps())
+        specs.push_back(dump.spec);
+    CHECK(specs == std::vector<int> { 1, 6, 10, 12, 16, 18, 22, 28, 30, 36, 39, 89 });
+    for (int location = 0; location < 99; ++location) {
+        const bool written = std::any_of(writes.begin(), writes.end(),
+                                         [location](const auto& write) { return write.program == location + 1; });
+        CHECK(rig.synth.bankProgram(2, location)
+              == (written ? patternProgram(6000 + location + 1) : patternProgram(200 + location)));
+    }
+}
+
+TEST_CASE("Memory writer: reading several Banks writes no file and nothing to the synth")
+{
+    Rig rig(kVerified, "read-banks");
+    CHECK(rig.memory().readBanks({}, rig.now) == MemoryRefusal::NothingToWrite);
+    CHECK(rig.memory().readBanks({ 0, 4 }, rig.now) == MemoryRefusal::NotARamBank);
+
+    REQUIRE(rig.memory().readBanks({ 1, 3 }, rig.now) == MemoryRefusal::None);
+    CHECK(rig.status().total == 198);
+    rig.settle();
+    CHECK(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.status().message == "Read Programs 1–99 of Banks 1 and 3 from the synth.");
+    CHECK(rig.status().done == 198);
+    CHECK_FALSE(rig.status().bankFile);
+    CHECK_FALSE(std::filesystem::exists(rig.folder));
+    CHECK(std::count_if(rig.toSynth.messages().begin(), rig.toSynth.messages().end(), isBankRequest) == 198);
+    CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 0);
 }

@@ -9,6 +9,7 @@
 #include "SynthConnection.h"
 
 #include "nl2x/HardwareAssumptions.h"
+#include "nl2x/Librarian.h"
 #include "nl2x/Program.h"
 
 #include <algorithm>
@@ -69,8 +70,10 @@ Engine::Engine(MidiOutput& midiOutput, hardware::Switches hardwareSwitches)
       switches(hardwareSwitches),
       check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); })),
       memory(std::make_unique<MemoryWriter>(*this, *connection, hardwareSwitches, [this] { changed(); })),
+      librarianPart(std::make_unique<Librarian>(*this, *memory, [this] { changed(); })),
       history(std::make_unique<EditHistory>())
 {
+    memory->setListener(librarianPart.get());
 }
 
 Engine::~Engine() = default;

@@ -1,11 +1,13 @@
 #pragma once
 
-// The memory writer (spec #1, user stories 58–63): stores a Slot's Program into a Bank location,
-// sends a whole Bank file to the synth and reads a whole Bank into a .syx file.
+// The memory writer (spec #1, user stories 58–63): stores a Slot's or a Library Program into a Bank
+// location, sends a whole Bank file or a set of Programs (the Librarian's pending locations, #44)
+// to the synth, reads a whole Bank into a .syx file and reads Banks for the Librarian.
 //
 // Nothing is ever written without a confirmation: prepareStoreProgram() and prepareBankSend()
 // only read (the backup) and then hold a MemoryWritePlan naming exactly what will be overwritten;
-// only confirm() with that plan's token writes. The order is fixed: backup → confirmation → check
+// only confirm() with that plan's token writes. Every write goes one Program dump per location, so
+// only the locations named in the plan change. The order is fixed: backup → confirmation → check
 // of the Bank selected on the synth → write. While reading Banks is not verified on hardware
 // (hardware::kBankReadingVerified, the lock), no backup can be made and every plan needs the
 // user's separate "no backup possible" consent.
@@ -46,7 +48,36 @@ struct WallClockTime {
     int second = 0;
 };
 
-enum class MemoryOperation : std::uint8_t { StoreProgram, SendBank, ReadBank };
+enum class MemoryOperation : std::uint8_t {
+    StoreProgram,
+    SendBank,
+    ReadBank,
+    // Reading several Banks into the Librarian (no file, nothing written).
+    ReadBanks,
+    // Writing a set of locations of one Bank (the Librarian's send).
+    SendPrograms,
+};
+
+// One location to write: Program `program` (1–99) of the target Bank will hold `value`.
+struct ProgramWrite {
+    int program = 1;
+    Program value;
+};
+
+// Told what the memory writer learns about the synth's Banks, whatever the task (the Librarian
+// keeps its copy of the synth's Banks with it). Called before the writer's own change callback.
+class MemoryWriterListener {
+public:
+    virtual ~MemoryWriterListener() = default;
+    // Program `program` (1–99) of `bank` was read from the synth: a backup, a Bank read or a
+    // read-back after writing.
+    virtual void programRead(int bank, int program, const Program& value) = 0;
+    // A dump storing `value` at Program `program` of `bank` was sent (read back afterwards when
+    // Bank reading is verified, through programRead).
+    virtual void programWritten(int bank, int program, const Program& value) = 0;
+    // The task ended (finished, failed or cancelled): status() says how.
+    virtual void taskEnded() = 0;
+};
 
 enum class MemoryStage : std::uint8_t {
     Idle,
@@ -60,7 +91,7 @@ enum class MemoryStage : std::uint8_t {
     Writing,
     // Reading the written locations back (only when Bank reading is verified).
     Verifying,
-    // ReadBank: requesting the Bank's Programs one by one.
+    // ReadBank, ReadBanks: requesting the Bank's Programs one by one.
     ReadingBank,
     Finished,
     Failed,
@@ -76,6 +107,8 @@ struct MemoryWritePlan {
     int bank = 0;
     int firstProgram = 1;
     int programCount = 0;
+    // Every Program (1–99) that will be overwritten, ascending; firstProgram is the first of them.
+    std::vector<int> programs;
     // The backup of the whole target Bank, written before the plan was offered; empty when no
     // backup is possible (Bank reading not verified).
     std::optional<std::filesystem::path> backupFile;
@@ -89,8 +122,9 @@ struct MemoryWritePlan {
 struct MemoryTaskStatus {
     MemoryStage stage = MemoryStage::Idle;
     MemoryOperation operation = MemoryOperation::StoreProgram;
+    // ReadBanks: the Bank being read.
     int bank = 0;
-    // Progress of the current stage (locations read or written).
+    // Progress of the current stage (locations read or written; ReadBanks: of all its Banks).
     int done = 0;
     int total = 0;
     // Set while AwaitingConfirmation.
@@ -119,6 +153,11 @@ enum class MemoryRefusal : std::uint8_t {
     // The assumed request type for this Bank is the Slot Edit Buffer request (type 14).
     RequestTypeCollides,
     FileExists,
+    // A set of Programs to write is empty, or names a location twice.
+    NothingToWrite,
+    DuplicateProgram,
+    // The Library entry is a Percussion Kit or a Performance.
+    NotAProgram,
 };
 
 std::string memoryRefusalText(MemoryRefusal refusal);
@@ -142,10 +181,22 @@ public:
 
     bool bankReadingVerified() const { return reading.verified; }
 
+    // At most one listener (the Engine's Librarian); nullptr removes it.
+    void setListener(MemoryWriterListener* newListener) { listener = newListener; }
+
     // Store the Slot's Program (as the engine holds it when confirmed) as Program `program` (1–99)
     // of Bank `bank` (0–3). Backs up that Bank first when Bank reading is verified.
     MemoryRefusal prepareStoreProgram(Slot slot, int bank, int program, const std::filesystem::path& backupFolder,
                                       WallClockTime now, TimeMs timeMs);
+    // Store `value` (a Library Program, named `sourceName` in the question) the same way.
+    MemoryRefusal prepareStoreProgram(const Program& value, const std::string& sourceName, int bank, int program,
+                                      const std::filesystem::path& backupFolder, WallClockTime now, TimeMs timeMs);
+    // Write `writes` into Bank `bank` (0–3), one Program dump per location, in ascending order;
+    // `sourceName` says in the question where they come from ("the Librarian's Bank 2"). Backs up
+    // that Bank first when Bank reading is verified.
+    MemoryRefusal prepareProgramWrites(int bank, std::vector<ProgramWrite> writes, const std::string& sourceName,
+                                       const std::filesystem::path& backupFolder, WallClockTime now,
+                                       TimeMs timeMs);
     // Send the Programs of a Program Bank file, in file order, to Programs 1… of Bank `bank`
     // (0–3); the file's type and spec bytes are ignored and its Percussion Kits are not sent.
     // Backs up that Bank first when Bank reading is verified.
@@ -154,6 +205,9 @@ public:
     // Read Programs 1–99 of Bank `bank` into `file`, replies kept exactly as received. Writes nothing
     // to the synth, so it needs no confirmation; experimental while Bank reading is not verified.
     MemoryRefusal readBank(int bank, const std::filesystem::path& file, ReplaceExisting replace, TimeMs timeMs);
+    // Read Programs 1–99 of each Bank in `banks` (0–3), in order, for the listener only: no file,
+    // nothing written to the synth, no confirmation.
+    MemoryRefusal readBanks(std::vector<int> banks, TimeMs timeMs);
 
     // The only way anything is written.
     MemoryConfirmResult confirm(std::uint64_t token, NoBackupConsent consent, TimeMs timeMs);
@@ -180,11 +234,19 @@ public:
     void selectionChangedOnSynth();
 
 private:
+    struct Task;
+
     MemoryRefusal startRefusal(int bank) const;
     std::uint8_t requestTypeOf(int bank) const;
-    void begin(MemoryOperation operation, int bank, int firstLocation, int count);
+    void begin(MemoryOperation operation, int bank, std::vector<int> locations);
+    // Every write: `programs` by index of `locations` (empty for a Slot's Program, taken on
+    // confirm); `setUp` adds what only this kind of write needs.
+    MemoryRefusal startWrite(MemoryOperation operation, int bank, std::vector<int> locations,
+                             std::vector<Program> programs, const std::filesystem::path& backupFolder,
+                             WallClockTime now, TimeMs timeMs, const std::function<void(Task&)>& setUp);
     void readLocation(int location, TimeMs timeMs);
     void locationRead(int location, std::optional<std::span<const std::uint8_t>> reply, TimeMs timeMs);
+    void nextBankRead(TimeMs timeMs);
     void backupComplete(TimeMs timeMs);
     void readComplete();
     void offerPlan(std::string message);
@@ -197,20 +259,27 @@ private:
     void fail(std::string message);
     std::string locationsText() const;
     void changed() { onChange(); }
+    void ended();
 
     struct Task {
         MemoryOperation operation = MemoryOperation::StoreProgram;
         int bank = 0;
-        int firstLocation = 0;
-        int count = 0;
-        Slot slot = Slot::A;
-        // What will be written, set on confirm for a Store, on prepare for a Bank send.
+        // The locations (0–98) written, ascending.
+        std::vector<int> locations;
+        // A Store of a Slot's Program, taken when confirmed.
+        std::optional<Slot> slot;
+        // What will be written, by index of `locations`: set on confirm for a Slot's Program, on
+        // prepare otherwise.
         std::vector<Program> programs;
+        // ReadBanks: the Banks to read, and which of them is being read.
+        std::vector<int> banksToRead;
+        std::size_t bankIndex = 0;
         std::filesystem::path backupFolder;
         WallClockTime time;
         std::filesystem::path readFile;
         ReplaceExisting replace = ReplaceExisting::No;
-        // A Bank send: the file's name and how many of its Percussion Kits are left out.
+        // Where the Programs come from (a Bank file, a Library entry, the Librarian), and how many
+        // Percussion Kits of a Bank file are left out.
         std::string sourceName;
         std::size_t skippedKits = 0;
         std::vector<std::vector<std::uint8_t>> replies;
@@ -228,6 +297,7 @@ private:
     };
     BankReading reading;
     std::function<void()> onChange;
+    MemoryWriterListener* listener = nullptr;
     std::optional<Task> task;
     MemoryTaskStatus current;
     std::uint64_t lastToken = 0;
