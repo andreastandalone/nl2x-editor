@@ -248,6 +248,21 @@ public:
     bool mightContainSubItems() override { return true; }
 };
 
+// The outline of a small folder, 11 x 9, its left edge at `left` and centred on `mid`: the mark
+// of a group heading and the icon of the Finder button.
+juce::Path folderMark(float left, float mid)
+{
+    juce::Path folder;
+    folder.startNewSubPath(left, mid - 4.0f);
+    folder.lineTo(left + 4.0f, mid - 4.0f);
+    folder.lineTo(left + 5.5f, mid - 2.5f);
+    folder.lineTo(left + 11.0f, mid - 2.5f);
+    folder.lineTo(left + 11.0f, mid + 5.0f);
+    folder.lineTo(left, mid + 5.0f);
+    folder.closeSubPath();
+    return folder;
+}
+
 // A subfolder of the Library folder (#44): a heading named after it, with a small folder drawn
 // where a sound's star goes, opened and closed by a click. Closed until the user opens it; the
 // tree remembers it (keyed by the folder's name among its siblings).
@@ -263,17 +278,8 @@ public:
     bool canBeSelected() const override { return false; }
     void paintItem(juce::Graphics& g, int width, int height) override
     {
-        const auto mid = static_cast<float>(height) * 0.5f;
-        juce::Path folder;
-        folder.startNewSubPath(2.0f, mid - 4.0f);
-        folder.lineTo(6.0f, mid - 4.0f);
-        folder.lineTo(7.5f, mid - 2.5f);
-        folder.lineTo(13.0f, mid - 2.5f);
-        folder.lineTo(13.0f, mid + 5.0f);
-        folder.lineTo(2.0f, mid + 5.0f);
-        folder.closeSubPath();
         g.setColour(NordPalette::textDim);
-        g.strokePath(folder, juce::PathStrokeType(1.2f));
+        g.strokePath(folderMark(2.0f, static_cast<float>(height) * 0.5f), juce::PathStrokeType(1.2f));
 
         const juce::Font font(NordFonts::body());
         g.setFont(font);
@@ -364,6 +370,20 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
 {
     refreshButton.setTooltip("Read the Library folder again");
     refreshButton.onClick = [this] { rescan(); };
+    juce::DrawablePath finderIcon;
+    finderIcon.setPath(folderMark(0.0f, 4.5f));
+    finderIcon.setFill(juce::FillType());
+    finderIcon.setStrokeFill(NordPalette::text);
+    finderIcon.setStrokeType(juce::PathStrokeType(1.2f));
+    finderButton.setImages(&finderIcon);
+    finderButton.setEdgeIndent(7);
+    finderButton.setTooltip("Show the Library folder in the Finder, to add or move Bank files and subfolders");
+    finderButton.onClick = [this] {
+        // Opens the folder itself (revealToUser would only select it in its parent).
+        const auto current = folder();
+        if (current.isDirectory() || current.createDirectory())
+            current.startAsProcess();
+    };
 
     tree.setComponentID("libraryTree");
     favouritesFilter.setComponentID("favouritesOnly");
@@ -422,7 +442,7 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     slotLabel.setFont(NordFonts::small());
     slotLabel.setTooltip("Clicking a Program or Percussion Kit auditions it on the Slot tab last shown");
 
-    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton,
+    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton, &finderButton,
                                                                  &slotLabel, &categoryFilter, &favouritesFilter, &tree,
                                                                  &infoTitle, &nameEditor, &categoryBox,
                                                                  &favouriteButton, &saveSlotButton,
@@ -457,9 +477,11 @@ void LibraryPanel::paint(juce::Graphics& g)
 void LibraryPanel::resized()
 {
     auto area = getLocalBounds().withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(8, 6);
-    // The folder is shown and chosen in the Settings panel; Refresh reads it again.
+    // The folder is shown and chosen in the Settings panel; Refresh reads it again, Finder shows it.
     auto slotRow = area.removeFromTop(26);
     refreshButton.setBounds(slotRow.removeFromRight(74));
+    slotRow.removeFromRight(4);
+    finderButton.setBounds(slotRow.removeFromRight(36));
     slotRow.removeFromRight(4);
     slotLabel.setBounds(slotRow);
     area.removeFromTop(4);
