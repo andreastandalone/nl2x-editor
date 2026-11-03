@@ -123,7 +123,7 @@ Synth connected, P and C on.
 ## 11. Undo and redo
 
 - Live [ ]  Cubase [ ]  Drag a knob, press Undo: the synth and the DAW parameter both go back, no echo, the drag is one step. Redo.
-- Live [ ]  Cubase [ ]  The same with a Morph Amount (Option-drag) and with a Performance edit (Split Point or Layer).
+- Live [ ]  Cubase [ ]  The same with a Morph Amount (Option-drag). (Performance edits are read-only until #31.)
 - [ ] Cmd+Z with the plugin window focused: Live [ ]  Cubase [ ]  standalone [ ]. Note which hosts swallow it.
 - Live [ ]  Cubase [ ]  The DAW's own undo of plugin parameter changes does not conflict with the plugin's.
 - Live [ ]  Cubase [ ]  With automation writing on, an undo is recorded as a parameter move.

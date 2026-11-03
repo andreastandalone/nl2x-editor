@@ -12,7 +12,10 @@
 // A plain view of the synth's Performance (#5): "Read from synth", the Slot Channels read from the
 // Performance with a manual override per Slot, the Performance settings the synth receives as
 // plain controls (named choices where the manual gives them), and the settings it does not
-// receive, shown only. Styled by NordLookAndFeel. It polls the engine's state revision.
+// receive, shown only. While the synth does not apply a Performance dump
+// (Engine::performanceSettingsEditable, #31) the settings it receives are shown read-only too, with
+// a note saying why; the Slot Channel overrides stay editable, as they send nothing to the synth.
+// Styled by NordLookAndFeel. It polls the engine's state revision.
 class PerformanceView final : public juce::Component, private juce::Timer {
 public:
     explicit PerformanceView(NL2XEditorProcessor& owner);
@@ -48,6 +51,7 @@ private:
     juce::Viewport viewport;
     juce::Component content;
     std::vector<std::unique_ptr<juce::Label>> headings;
+    juce::Label readOnlyNote;
     std::array<juce::Label, 4> slotColumnLabels;
     juce::Label performanceChannelsTitle { {}, "From the Performance" };
     std::array<juce::Label, 4> performanceChannels;

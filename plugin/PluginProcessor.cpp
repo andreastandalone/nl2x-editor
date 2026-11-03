@@ -79,7 +79,8 @@ NL2XEditorProcessor::NL2XEditorProcessor(SynthLink* link, const juce::File& sett
                     const auto& program = engine.slotState(slot).program;
                     return program ? std::optional<int>(nl2x::morphAmountValue(*program, parameter)) : std::nullopt;
                 });
-    // Refused by the engine until the Performance has been read; the value read then replaces it.
+    // Refused by the engine until the Performance has been read (the value read then replaces it),
+    // and always while the synth does not apply Performance dumps (#31).
     for (const auto& dawParameter : kDawPerformanceParameters) {
         const auto [setting, slot] = dawParameter;
         bindParameter(

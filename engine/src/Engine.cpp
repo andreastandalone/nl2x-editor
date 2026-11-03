@@ -205,6 +205,8 @@ void Engine::readPerformance(TimeMs timeMs)
 
 PerformanceEditResult Engine::setPerformanceSetting(PerformanceSetting setting, Slot slot, int value)
 {
+    if (! performanceSettingsEditable())
+        return PerformanceEditResult::RefusedNotApplied;
     const auto before = performanceBuffer->performance();
     const auto result = performanceBuffer->edit(setting, slot, value);
     if (const auto& after = performanceBuffer->performance(); after != before) {

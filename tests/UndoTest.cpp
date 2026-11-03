@@ -17,6 +17,7 @@
 
 using namespace nl2x;
 using nl2x::test::EditorAndSynth;
+using nl2x::test::performanceEditsApplied;
 using nl2x::test::SimulatedNordLead2X;
 
 namespace {
@@ -141,7 +142,7 @@ TEST_CASE("A drag that ends where it started leaves nothing to undo")
 
 TEST_CASE("Undo of a Performance setting sends one coalesced Performance dump with the old value")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     SimulatedNordLead2X::PerformanceSettings settings {};
     settings[353 - kPerformanceSlotChannelOffset] = 60;
     rig.synth.setPerformanceSettings(settings);
@@ -171,7 +172,7 @@ TEST_CASE("Undo of a Performance setting sends one coalesced Performance dump wi
 
 TEST_CASE("Undo puts back a Performance value outside the documented range exactly as it was read")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     SimulatedNordLead2X::PerformanceSettings settings {};
     settings[kPitchBendRangeOffset - kPerformanceSlotChannelOffset] = 14;
     rig.synth.setPerformanceSettings(settings);
@@ -187,7 +188,7 @@ TEST_CASE("Undo puts back a Performance value outside the documented range exact
 
 TEST_CASE("Changes that are not the user's edits in the plugin are not undoable")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
 
     SECTION("a knob turned on the synth")
@@ -277,7 +278,7 @@ TEST_CASE("The history keeps the latest 200 steps")
 
 TEST_CASE("When the synth's Edit Buffer replaces the plugin's copy, its edits leave the history")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
 
     userSetsParameter(rig, rig.engine.newEditStep(), Slot::A, CcParameter::FilterCutoff, 11);

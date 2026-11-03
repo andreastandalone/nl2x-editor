@@ -90,7 +90,12 @@ public:
     // The user (GUI or DAW automation) changed a Performance setting (`slot` is ignored for
     // settings that are not per Slot). Accepted edits go to the synth's Performance Edit Buffer as
     // one Performance dump per kPerformanceDumpIntervalMs at most, on a later advanceTime().
+    // While the synth does not apply such a dump (performanceSettingsEditable() false) every edit
+    // is refused with RefusedNotApplied and nothing changes or is sent.
     PerformanceEditResult setPerformanceSetting(PerformanceSetting setting, Slot slot, int value);
+    // Whether Performance edits are accepted at all: hardware::kPerformanceEditBufferDumpIsApplied
+    // (#31). The GUI shows the Performance settings read-only while it is false.
+    bool performanceSettingsEditable() const { return switches.performanceEditBufferDumpIsApplied; }
 
     // Pins a Slot's channel regardless of the Performance (a service setting the shell keeps);
     // empty releases it.

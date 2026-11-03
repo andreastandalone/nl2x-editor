@@ -63,6 +63,9 @@ enum class PerformanceEditResult : std::uint8_t {
     // Refused: the synth ignores this setting in a received dump ("not received", or read-only in
     // the editor; PerformanceSettingAccess).
     RefusedNotEditable,
+    // Refused, nothing sent: the synth stores a Performance dump without applying it
+    // (hardware::kPerformanceEditBufferDumpIsApplied), so an edit would change nothing it plays (#31).
+    RefusedNotApplied,
 };
 
 } // namespace nl2x
