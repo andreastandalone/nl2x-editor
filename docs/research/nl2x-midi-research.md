@@ -138,7 +138,7 @@ Mod wheel and pedals are always Tx/Rx, even when the panel CC setting is off [OF
 
 **Not reachable by CC.** Use SysEx (patch or performance dump) for these:
 
-- All 25 **Velocity/Morph sensitivity** values (offsets 25–49, signed −128…127, 0 = off). The Morph target is set by pressing VELOCITY/MORPH ASSIGN and turning knobs. There is no CC for the morph amounts or for the assign button. The morph amount is driven by mod wheel CC1 (when the destination is Morph), by velocity, by the expression pedal, or by "External Velocity Morph". [OFF-2X p.26–27, 71, 111]
+- All 25 **Velocity/Morph sensitivity** values (offsets 25–49, signed −128…127, 0 = off; the scale is not documented, see §7 question 6). The Morph target is set by pressing VELOCITY/MORPH ASSIGN and turning knobs. There is no CC for the morph amounts or for the assign button. The morph amount is driven by mod wheel CC1 (when the destination is Morph), by velocity, by the expression pedal, or by "External Velocity Morph". [OFF-2X p.26–27, 71, 111]
 - Ring Mod as a separate control (only the combined bits in byte 52; see the CC35 note). In practice CC35 reaches it as value 2 [HW 2026-10-29].
 - All Performance-level settings:
   - Slot MIDI channels and LFO1/LFO2 MIDI clock sync.
@@ -398,3 +398,4 @@ Status after the hardware session of 2026-10-29 and 2026-11-02 ([hardware-sessio
 3. Whether a Performance edit-buffer dump (type 30) applies immediately, and how long the synth needs to digest a 715-byte message. **Answered: it is stored but not applied.** How to edit a Performance live is open (#5 follow-up).
 4. Whether type-0 patch dumps sent to a Slot are audible immediately. This matters for "send on edit" of the morph/sens parameters that have no CC. **Answered: yes.**
 5. New: does a Bank Program dump land in the Bank named by its type byte or in the Bank selected on the panel? Why were Programs 1–4 and 17 of Bank 0 found empty? Are Performance Bank dumps accepted in Performance mode?
+6. New: what scale a Morph Amount uses. The editor assumes the parameter moves by the amount in the units of its knob value (value + amount, `morphTarget` in `HardwareAssumptions.h`) [INF]; the manual prints no scale [OFF-2X p.26–27, 111]. Check with a knob near the middle and a large Morph Amount at full Mod Wheel.

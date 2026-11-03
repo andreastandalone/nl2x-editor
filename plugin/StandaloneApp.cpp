@@ -29,9 +29,11 @@ public:
         , editor(holder.processor->createEditorAndMakeActive())
     {
         setUsingNativeTitleBar(true);
-        // The editor has a fixed size; the window fits it exactly.
-        setResizable(false, false);
+        // The window fits the editor exactly and resizes under the editor's own limits and aspect
+        // ratio (PluginEditor.h), from the window's edges as well as the editor's corner.
         setContentNonOwned(editor.get(), true);
+        setResizable(true, false);
+        setConstrainer(editor->getConstrainer());
         placeOnScreen();
     }
 

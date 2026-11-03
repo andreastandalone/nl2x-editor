@@ -6,8 +6,10 @@
 
 // A flat arc knob (docs/design/visual-style.md): the name above, an arc for the value and the
 // value printed underneath; no shading, bevels or textures. On a morphable knob a second, thinner
-// arc in the Morph colour shows the Morph Amount, from the value towards value + amount, clipped to the
-// range (spec #1, user story 22).
+// ring shows the Morph Amount (spec #1, user story 22): from the value towards value + amount
+// (HardwareAssumptions.h, morphTarget), in one colour for positive and another for negative
+// amounts, with a dot where it lands and a tick at the end of the range when value + amount goes
+// past it.
 //
 // Dragging up or down edits the value (the mouse wheel is left to scrolling); with Morph mode on
 // (setMorphMode, the Morph button) or with Option held when the drag starts, it edits the Morph
