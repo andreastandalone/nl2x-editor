@@ -31,10 +31,11 @@ constexpr std::size_t kSplitPointOffset = 353;
 constexpr TimeMs kRecallTimeMs = 3000;
 
 // A project made on one synth: the Slots read from it, edited by CC and by Morph Amount, and the
-// Performance with an edited Split Point. Slot C plays a Kit when `kitOnC`.
+// Performance with an edited Split Point (as if the synth applied Performance edits, #31). Slot C
+// plays a Kit when `kitOnC`.
 Bytes savedProject(bool kitOnC = false)
 {
-    EditorAndSynth maker;
+    EditorAndSynth maker(nl2x::test::performanceEditsApplied());
     for (auto slot : kAllSlots)
         maker.synth.setEditBuffer(slot, EditorAndSynth::someProgram(40 + static_cast<int>(slotIndex(slot))));
     if (kitOnC)

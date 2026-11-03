@@ -55,7 +55,8 @@ std::size_t count(const std::vector<Bytes>& messages, const Bytes& message)
 
 // Connected, with the log cleared.
 struct ConnectedRig : EditorAndSynth {
-    ConnectedRig()
+    explicit ConnectedRig(hardware::Switches switches = {})
+        : EditorAndSynth(switches)
     {
         connect();
         toSynth.clear();
@@ -273,7 +274,7 @@ TEST_CASE("After a Performance change the Performance and all four Slots are rea
 
 TEST_CASE("A Performance edit not sent yet is dropped when another Performance is selected")
 {
-    ConnectedRig rig;
+    ConnectedRig rig(nl2x::test::performanceEditsApplied());
     rig.toSynth.clear();
     REQUIRE(rig.engine.setPerformanceSetting(PerformanceSetting::SplitPoint, Slot::A, 72)
             == PerformanceEditResult::Accepted);

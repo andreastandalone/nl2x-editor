@@ -18,6 +18,16 @@
 
 namespace nl2x::test {
 
+// Switches as if the synth applied a Performance dump to its Edit Buffer, which it does not
+// (hardware::kPerformanceEditBufferDumpIsApplied, #31): the Performance editing kept for the day
+// a way to apply it is found is tested under this reading.
+inline hardware::Switches performanceEditsApplied()
+{
+    hardware::Switches switches;
+    switches.performanceEditBufferDumpIsApplied = true;
+    return switches;
+}
+
 struct EditorAndSynth {
     using Bytes = std::vector<std::uint8_t>;
 

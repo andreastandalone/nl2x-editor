@@ -47,23 +47,30 @@ juce::String channelText(std::optional<nl2x::MidiChannel> channel)
     return channel ? juce::String(*channel + 1) : juce::String("off");
 }
 
+// Shown under the Performance settings while the synth does not apply them (#31).
+constexpr auto kReadOnlyNote = "The Nord Lead 2X stores Performance changes sent over MIDI but does not apply them, "
+                               "so Performance settings are shown read-only (issue #31).";
+
 juce::String statusText(const nl2x::Engine& synth)
 {
     const bool haveOne = synth.performance().has_value();
+    const bool editable = synth.performanceSettingsEditable();
     switch (synth.performanceStatus()) {
     case nl2x::PerformanceStatus::NotRead:
-        return "Not read from the synth yet: Performance edits are not sent until it is.";
+        return editable ? "Not read from the synth yet: Performance edits are not sent until it is."
+                        : "Not read from the synth yet.";
     case nl2x::PerformanceStatus::Reading:
         return "Reading the Performance from the synth...";
     case nl2x::PerformanceStatus::Read:
-        return nl2x::hardware::kPerformanceEditBufferDumpIsApplied
-                   ? "Read from the synth. Changes go to its Performance Edit Buffer."
-                   : "Read from the synth. Changes go to its Performance Edit Buffer, but the synth does not "
-                     "apply them yet: you will not hear them, and a changed Slot Channel is not followed.";
+        return editable ? "Read from the synth. Changes go to its Performance Edit Buffer."
+                        : "Read from the synth. Performance settings are read-only.";
     case nl2x::PerformanceStatus::NoAnswer:
-        return haveOne ? "The synth did not answer; showing the Performance read earlier."
-                       : "The synth did not answer the Performance request: Slot Channels are the defaults or "
-                         "your overrides, and Performance edits are not sent.";
+        if (haveOne)
+            return "The synth did not answer; showing the Performance read earlier.";
+        return editable ? "The synth did not answer the Performance request: Slot Channels are the defaults or "
+                          "your overrides, and Performance edits are not sent."
+                        : "The synth did not answer the Performance request: Slot Channels are the defaults or "
+                          "your overrides.";
     }
     return {};
 }
@@ -198,9 +205,11 @@ PerformanceView::PerformanceView(NL2XEditorProcessor& owner)
     for (auto* title : { &performanceChannelsTitle, &overridesTitle, &sendChannelsTitle })
         content.addAndMakeVisible(*title);
 
-    addHeading(nl2x::hardware::kPerformanceEditBufferDumpIsApplied
-                   ? "Performance settings (sent to the synth)"
-                   : "Performance settings (sent to the synth, which stores but does not apply them yet)");
+    const bool editable = processor.synth().performanceSettingsEditable();
+    addHeading(editable ? "Performance settings (sent to the synth)" : "Performance settings (read-only)");
+    readOnlyNote.setText(kReadOnlyNote, juce::dontSendNotification);
+    content.addChildComponent(readOnlyNote);
+    readOnlyNote.setVisible(! editable);
     for (const auto& info : nl2x::performanceSettings())
         // The Slot Channels have their own section above.
         if (info.access == nl2x::PerformanceSettingAccess::Editable && info.id != nl2x::PerformanceSetting::SlotChannel)
@@ -302,6 +311,11 @@ void PerformanceView::layOutContent()
 
     headings[heading++]->setBounds(0, y + 8, width, NordMetrics::sectionTitleHeight);
     y += kHeadingHeight;
+    if (readOnlyNote.isVisible()) {
+        // Two lines, so that the note wraps rather than shrinks on a narrow window.
+        readOnlyNote.setBounds(0, y, width, kRowHeight * 2 - 2);
+        y += kRowHeight * 2;
+    }
     for (auto& row : editableRows) {
         nextRow(row.label.get());
         if (row.info->perSlot) {
@@ -350,11 +364,13 @@ void PerformanceView::refresh()
         overrideBoxes[index].setSelectedId(pinned ? kFirstChannelId + *pinned : kNoOverrideId, juce::dontSendNotification);
     }
 
+    // Values follow every read; the controls take edits only when the synth applies them (#31).
+    const bool editable = performance.has_value() && synth.performanceSettingsEditable();
     for (auto& row : editableRows)
         for (std::size_t i = 0; i < row.controls.size(); ++i) {
             const auto slot = nl2x::kAllSlots[i];
             row.controls[i]->show(performance ? std::optional<int>(performance->setting(row.info->id, slot)) : std::nullopt,
-                                  performance.has_value());
+                                  editable);
         }
 
     for (auto& row : shownOnlyRows) {

@@ -17,6 +17,7 @@
 
 using namespace nl2x;
 using nl2x::test::EditorAndSynth;
+using nl2x::test::performanceEditsApplied;
 using nl2x::test::SimulatedNordLead2X;
 using Catch::Matchers::ContainsSubstring;
 
@@ -217,9 +218,41 @@ TEST_CASE("Layer warning: layered Slots also receive on the leftmost active Slot
     CHECK(rig.synth.editBuffer(Slot::C)[kFilterCutoffOffset] != 101);
 }
 
+TEST_CASE("While the synth does not apply Performance dumps, Performance edits are refused and nothing is sent")
+{
+    REQUIRE_FALSE(hardware::kPerformanceEditBufferDumpIsApplied);
+    EditorAndSynth rig;
+    rig.synth.setPerformanceSettings(recognisableSettings());
+    rig.connect();
+    REQUIRE(rig.engine.performance().has_value());
+    CHECK_FALSE(rig.engine.performanceSettingsEditable());
+    const auto revision = rig.engine.stateRevision();
+    rig.toSynth.clear();
+
+    // As the GUI edits (an undoable user edit) and as DAW automation does (outside one).
+    rig.engine.beginUserEdit(rig.engine.newEditStep());
+    CHECK(rig.engine.setPerformanceSetting(PerformanceSetting::SplitPoint, Slot::A, 72)
+          == PerformanceEditResult::RefusedNotApplied);
+    rig.engine.endUserEdit();
+    CHECK(rig.engine.setPerformanceSetting(PerformanceSetting::KeyboardSplit, Slot::A, 1)
+          == PerformanceEditResult::RefusedNotApplied);
+    rig.runFor(1000);
+
+    CHECK(rig.toSynth.messages().empty());
+    CHECK(rig.engine.performance()->setting(PerformanceSetting::SplitPoint) == 60);
+    CHECK(rig.engine.stateRevision() == revision);
+    CHECK_FALSE(rig.engine.canUndo());
+}
+
+TEST_CASE("Under the reading that the synth applies Performance dumps, Performance settings are editable")
+{
+    EditorAndSynth rig(performanceEditsApplied());
+    CHECK(rig.engine.performanceSettingsEditable());
+}
+
 TEST_CASE("Editing the Split Point sends exactly one coalesced Performance dump")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.synth.setPerformanceSettings(recognisableSettings());
     rig.connect();
     const auto channel = *rig.engine.globalChannel();
@@ -252,7 +285,7 @@ TEST_CASE("Editing the Split Point sends exactly one coalesced Performance dump"
 
 TEST_CASE("Edits spread over time go out at most once per coalescing interval")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
     rig.toSynth.clear();
     rig.sendTimes.clear();
@@ -274,7 +307,7 @@ TEST_CASE("Edits spread over time go out at most once per coalescing interval")
 
 TEST_CASE("Setting a Performance value it already has sends nothing")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.synth.setPerformanceSettings(recognisableSettings());
     rig.connect();
     rig.toSynth.clear();
@@ -287,7 +320,7 @@ TEST_CASE("Setting a Performance value it already has sends nothing")
 
 TEST_CASE("A Performance dump carries the Slots' current Programs, and a Kit Slot's bytes as read")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     SimulatedNordLead2X::PercussionKit kit {};
     kit.fill(4);
     rig.synth.playPercussionKit(Slot::C, kit);
@@ -310,7 +343,7 @@ TEST_CASE("A Performance dump carries the Slots' current Programs, and a Kit Slo
 
 TEST_CASE("Performance edits are refused, and nothing is sent, before the Performance is read")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
 
     SECTION("not connected")
     {
@@ -339,7 +372,7 @@ TEST_CASE("Performance edits are refused, and nothing is sent, before the Perfor
 
 TEST_CASE("Settings the synth does not receive are never sent as edits")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
     rig.toSynth.clear();
 
@@ -354,7 +387,7 @@ TEST_CASE("Settings the synth does not receive are never sent as edits")
 
 TEST_CASE("Editing a Slot Channel in the Performance moves that Slot's CCs, but not the synth's Slot")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
     const auto before = rig.synth.slotChannel(Slot::B);
     const auto cutoffBefore = rig.synth.editBuffer(Slot::B)[kFilterCutoffOffset];
@@ -375,7 +408,7 @@ TEST_CASE("Editing a Slot Channel in the Performance moves that Slot's CCs, but 
 
 TEST_CASE("An edit made while the Performance is being read again survives the reply")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
     rig.toSynth.clear();
 
@@ -391,7 +424,7 @@ TEST_CASE("An edit made while the Performance is being read again survives the r
 
 TEST_CASE("Connecting again forgets the Performance read from the earlier connection")
 {
-    EditorAndSynth rig;
+    EditorAndSynth rig(performanceEditsApplied());
     rig.connect();
     REQUIRE(rig.engine.performance());
     rig.synth.setAnswersPerformanceRequests(false);

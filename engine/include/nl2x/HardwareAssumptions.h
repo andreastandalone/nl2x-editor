@@ -237,7 +237,9 @@ inline constexpr std::uint8_t kFirstPerformanceBankDumpType = 31;
 // It stores it: a type 40 read-back equals the dump sent. But it does not apply it: with Keyboard
 // Split 1 in the Edit Buffer the split LED stayed off and the keyboard was not split, and leaving
 // and re-entering Performance mode reloaded the stored Performance instead. So editing
-// Performance settings by type 30 dumps (#5) does not change what the synth plays.
+// Performance settings by type 30 dumps (#5) does not change what the synth plays. While false the
+// engine refuses Performance edits (PerformanceEditResult::RefusedNotApplied) and the Performance
+// view shows the settings read-only, until a way to apply them is found (#31).
 // Status: verified [HW 2026-10-29, step 8].
 inline constexpr bool kPerformanceEditBufferDumpIsApplied = false;
 
@@ -329,6 +331,8 @@ struct Switches {
     // The memory writer's lock and Bank request type (#12).
     bool bankReadingVerified = kBankReadingVerified;
     std::uint8_t bankRequestTypeOfSysExBank1 = kBankRequestTypeOfSysExBank1;
+    // Whether the engine accepts Performance edits (#5, #31).
+    bool performanceEditBufferDumpIsApplied = kPerformanceEditBufferDumpIsApplied;
 };
 
 // Filter Distortion (CC80, an on/off button) is bit 4 of byte 52 [OFF-2X p.111]; the other bits
