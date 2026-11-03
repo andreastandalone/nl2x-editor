@@ -160,23 +160,23 @@ void ConnectionCheckView::showResults()
                   "run the check.";
         else
             why = "Press \"Run the check again\" to test the connection.";
-        add(why, text, 15.0f, false);
+        add(why, text, 16.0f, false);
         return;
     }
 
     for (const auto& result : report.results) {
-        add(outcomeText(result.outcome) + "   ", outcomeColour(result.outcome), 15.0f, true);
-        add(fromUtf8(result.title) + "\n", text, 15.0f, true);
+        add(outcomeText(result.outcome) + "   ", outcomeColour(result.outcome), 16.0f, true);
+        add(fromUtf8(result.title) + "\n", text, 16.0f, true);
         if (! result.explanation.empty())
-            add(fromUtf8(result.explanation) + "\n", text, 14.0f, false);
+            add(fromUtf8(result.explanation) + "\n", text, 15.0f, false);
         if (! result.fix.empty())
-            add("What to do: " + fromUtf8(result.fix) + "\n", text, 14.0f, false);
+            add("What to do: " + fromUtf8(result.fix) + "\n", text, 15.0f, false);
         add("\n", text, 8.0f, false);
     }
 
     if (report.state == nl2x::ConnectionCheckState::Finished)
         add(report.allPassed() ? "Everything works." : "Fix the problems above, then run the check again.", text,
-            15.0f, true);
+            16.0f, true);
 
     results.moveCaretToTop(false);
 }

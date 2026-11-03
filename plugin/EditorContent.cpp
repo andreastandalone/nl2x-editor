@@ -2,6 +2,9 @@
 
 #include "NordLookAndFeel.h"
 
+#include <cmath>
+#include <iterator>
+
 namespace {
 
 constexpr int kRefreshIntervalMs = 100;
@@ -9,6 +12,13 @@ constexpr int kMargin = 12;
 constexpr int kLibraryWidth = 270;
 constexpr int kTabsHeight = 30;
 constexpr int kWarningsHeight = 22;
+constexpr int kMenuButtonSize = 26;
+// The fixed window sizes the menu offers, as scales of the design size (the corner resizer
+// allows any size between the first and the last).
+constexpr double kMenuScales[] = { 0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0 };
+// The menu's item ids: kFirstScaleId + index in kMenuScales; About after them.
+constexpr int kFirstScaleId = 1;
+constexpr int kAboutId = 100;
 constexpr int kViewWidth = ProgramPanel::kWidth;
 constexpr int kEditorWidth = kMargin + kViewWidth + kMargin + kLibraryWidth + kMargin;
 constexpr int kEditorHeight = NordMetrics::headerHeight + NordMetrics::gap + kTabsHeight + NordMetrics::gap
@@ -27,6 +37,46 @@ juce::String instanceWarningText(SynthControl::Refusal refusal)
 
 const int EditorContent::kWidth = kEditorWidth;
 const int EditorContent::kHeight = kEditorHeight;
+
+EditorContent::LogoButton::LogoButton() : juce::Button("NL2X Editor")
+{
+    setComponentID("logo");
+    setTooltip("About NL2X Editor: version, licence and credits");
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+int EditorContent::LogoButton::preferredWidth() const
+{
+    return juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::header()), "NL2X EDITOR") + 4;
+}
+
+void EditorContent::LogoButton::paintButton(juce::Graphics& g, bool highlighted, bool)
+{
+    // "NL2X" in the accent, "EDITOR" in the text colour; a little brighter under the mouse.
+    const juce::Font font(NordFonts::header());
+    g.setFont(font);
+    auto area = getLocalBounds().toFloat();
+    const juce::String first = "NL2X";
+    g.setColour(highlighted ? NordPalette::casingRed.brighter(0.25f) : NordPalette::casingRed);
+    g.drawText(first, area, juce::Justification::centredLeft, false);
+    area.removeFromLeft(juce::GlyphArrangement::getStringWidth(font, first + " "));
+    g.setColour(highlighted ? NordPalette::textOnRed : NordPalette::text);
+    g.drawText("EDITOR", area, juce::Justification::centredLeft, false);
+}
+
+void EditorContent::MenuButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
+{
+    auto area = getLocalBounds().toFloat();
+    if (highlighted || down) {
+        g.setColour(down ? NordPalette::controlHover : NordPalette::control);
+        g.fillRoundedRectangle(area, NordMetrics::cornerRadius);
+    }
+    g.setColour(highlighted || down ? NordPalette::text : NordPalette::textDim);
+    const auto lines = area.withSizeKeepingCentre(14.0f, 11.0f);
+    for (int i = 0; i < 3; ++i)
+        g.fillRoundedRectangle(lines.getX(), lines.getY() + static_cast<float>(i) * 4.5f, lines.getWidth(), 2.0f,
+                               1.0f);
+}
 
 EditorContent::EditorContent(NL2XEditorProcessor& owner)
     : editorProcessor(owner),
@@ -57,6 +107,10 @@ EditorContent::EditorContent(NL2XEditorProcessor& owner)
     aboutButton.setTooltip("Version, licence and credits");
     aboutButton.onClick = [this] { showAbout(! aboutPanel.isVisible()); };
     aboutPanel.onClose = [this] { showAbout(false); };
+    logoButton.onClick = [this] { showAbout(! aboutPanel.isVisible()); };
+    menuButton.setComponentID("menu");
+    menuButton.setTooltip("Window size and About");
+    menuButton.onClick = [this] { showMenu(); };
 
     tabs.setComponentID("viewTabs");
     for (auto slot : nl2x::kAllSlots)
@@ -78,8 +132,8 @@ EditorContent::EditorContent(NL2XEditorProcessor& owner)
         timerCallback();
     };
 
-    for (auto* child : std::initializer_list<juce::Component*> { &indicator, &checkButton, &undoButton, &redoButton,
-                                                                 &settingsButton, &aboutButton, &tabs, &selectorBar, &warningLabel,
+    for (auto* child : std::initializer_list<juce::Component*> { &logoButton, &menuButton, &indicator, &checkButton,
+                                                                 &undoButton, &redoButton, &settingsButton, &aboutButton, &tabs, &selectorBar, &warningLabel,
                                                                  &slotView, &libraryPanel })
         addAndMakeVisible(child);
     for (auto* child : std::initializer_list<juce::Component*> { &instanceWarning, &takeControlButton,
@@ -166,6 +220,32 @@ void EditorContent::timerCallback()
     }
 }
 
+void EditorContent::showMenu()
+{
+    const double scale = currentScale ? currentScale() : 1.0;
+    juce::PopupMenu menu;
+    menu.addSectionHeader("Window size");
+    for (std::size_t i = 0; i < std::size(kMenuScales); ++i) {
+        const auto choice = kMenuScales[i];
+        menu.addItem(kFirstScaleId + static_cast<int>(i), juce::String(juce::roundToInt(choice * 100)) + " %",
+                     static_cast<bool>(chooseScale), std::abs(scale - choice) < 0.005);
+    }
+    menu.addSeparator();
+    menu.addItem(kAboutId, "About NL2X Editor");
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&menuButton),
+                       [safeThis = juce::Component::SafePointer<EditorContent>(this)](int id) {
+                           if (safeThis == nullptr || id == 0)
+                               return;
+                           if (id == kAboutId) {
+                               safeThis->showAbout(true);
+                               return;
+                           }
+                           const auto index = static_cast<std::size_t>(id - kFirstScaleId);
+                           if (index < std::size(kMenuScales) && safeThis->chooseScale)
+                               safeThis->chooseScale(kMenuScales[index]);
+                       });
+}
+
 void EditorContent::showProbe()
 {
     if (probeWindow == nullptr)
@@ -182,17 +262,6 @@ void EditorContent::paint(juce::Graphics& g)
     g.fillRect(header);
     g.setColour(NordPalette::casingRed);
     g.fillRect(header.removeFromBottom(2));
-
-    // The name: "NL2X" in the accent, "EDITOR" in the text colour.
-    const juce::Font font(NordFonts::header());
-    g.setFont(font);
-    auto name = header.withTrimmedLeft(kMargin).withWidth(160).toFloat();
-    const juce::String first = "NL2X";
-    g.setColour(NordPalette::casingRed);
-    g.drawText(first, name, juce::Justification::centredLeft, false);
-    name.removeFromLeft(juce::GlyphArrangement::getStringWidth(font, first + " "));
-    g.setColour(NordPalette::text);
-    g.drawText("EDITOR", name, juce::Justification::centredLeft, false);
 }
 
 void EditorContent::resized()
@@ -200,7 +269,10 @@ void EditorContent::resized()
     auto area = getLocalBounds();
 
     auto header = area.removeFromTop(NordMetrics::headerHeight).reduced(kMargin, 9);
-    header.removeFromLeft(150);
+    logoButton.setBounds(header.removeFromLeft(logoButton.preferredWidth()));
+    header.removeFromLeft(6);
+    menuButton.setBounds(header.removeFromLeft(kMenuButtonSize).withSizeKeepingCentre(kMenuButtonSize, kMenuButtonSize));
+    header.removeFromLeft(18);
     const auto headerButton = [&header](juce::Component& button, int width) {
         button.setBounds(header.removeFromRight(width));
         header.removeFromRight(6);

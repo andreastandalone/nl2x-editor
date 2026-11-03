@@ -40,6 +40,17 @@ NL2XPluginEditor::NL2XPluginEditor(NL2XEditorProcessor& owner)
     getConstrainer()->setFixedAspectRatio(static_cast<double>(width) / height);
     setSize(scaled(width, scale), scaled(height, scale));
     storesScale = true;
+
+    content.currentScale = [this] { return static_cast<double>(getWidth()) / EditorContent::kWidth; };
+    content.chooseScale = [this](double chosen) { setScale(chosen); };
+}
+
+void NL2XPluginEditor::setScale(double scale)
+{
+    scale = juce::jlimit(kMinScale, kMaxScale, scale);
+    // The host (or the standalone window, which fits its content) follows the editor's new size;
+    // resized() stores the scale.
+    setSize(scaled(EditorContent::kWidth, scale), scaled(EditorContent::kHeight, scale));
 }
 
 NL2XPluginEditor::~NL2XPluginEditor()

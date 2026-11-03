@@ -75,7 +75,6 @@ private:
     NL2XEditorProcessor& processor;
     std::function<nl2x::Slot()> selectedSlot;
 
-    juce::Label folderLabel;
     juce::TextButton refreshButton { "Refresh" };
     juce::Label slotLabel;
     juce::ComboBox categoryFilter;

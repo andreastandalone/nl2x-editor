@@ -21,15 +21,17 @@ inline const juce::Colour plate { 0xff1c1e22 };
 inline const juce::Colour panelGrey { 0xff272a30 };
 // A section's title strip and its text (uppercase, letter-spaced).
 inline const juce::Colour sectionTitle { 0xff30333a };
-inline const juce::Colour sectionTitleText { 0xffb3a9ff };
+inline const juce::Colour sectionTitleText { 0xffc6beff };
 // The Morph Amount ring and everything that shows Morph (the Morph button, "M +12"): a positive
 // amount in `morph`, a negative one in `morphNegative`. Both stand apart from the title text, the
 // value arc, the LEDs and `outOfRange`, so the ring never blends into the panel.
 inline const juce::Colour morph { 0xff2ec4b6 };
 inline const juce::Colour morphNegative { 0xffff7a45 };
 
-inline const juce::Colour text { 0xffeef0f3 };
-inline const juce::Colour textDim { 0xff9ba0a9 };
+// Text: bright, and dimmed for names and secondary lines. Both light enough to read on the
+// graphite when the window is scaled down to 75 %.
+inline const juce::Colour text { 0xfff6f7f9 };
+inline const juce::Colour textDim { 0xffbcc1ca };
 inline const juce::Colour textOnRed { 0xffffffff };
 // Text on a light accent fill (the Morph button when on).
 inline const juce::Colour textOnAccent { 0xff111316 };
@@ -55,7 +57,11 @@ inline const juce::Colour warning { 0xffffb84d };
 inline const juce::Colour statusGood { 0xff3fbf5a };
 inline const juce::Colour statusBusy { 0xffe8b02a };
 inline const juce::Colour statusBad { 0xffff5247 };
-inline const juce::Colour statusOff { 0xff7d8189 };
+inline const juce::Colour statusOff { 0xff8f949c };
+
+// The tags of a Library row (the category): a small rounded chip.
+inline const juce::Colour tagFill { 0xff3d4350 };
+inline const juce::Colour tagText { 0xffe3e6ec };
 
 } // namespace NordPalette
 
@@ -72,18 +78,23 @@ inline juce::FontOptions font(const char* name, const char* style, float height,
 }
 
 // Section titles, uppercase and letter-spaced.
-inline juce::FontOptions sectionTitle() { return font(kCondensed, "Demi Bold", 13.0f, 0.08f); }
+inline juce::FontOptions sectionTitle() { return font(kCondensed, "Demi Bold", 14.0f, 0.08f); }
 // The names of knobs, choices and switches inside a section.
-inline juce::FontOptions controlName() { return font(kSans, "Medium", 11.5f); }
-inline juce::FontOptions choice() { return font(kSans, "Medium", 11.0f); }
+inline juce::FontOptions controlName() { return font(kSans, "Medium", 13.0f); }
+inline juce::FontOptions choice() { return font(kSans, "Medium", 12.5f); }
 // The value printed under a knob.
-inline juce::FontOptions value() { return font(kSans, "Demi Bold", 12.5f); }
+inline juce::FontOptions value() { return font(kSans, "Demi Bold", 13.5f); }
 // Ordinary text: labels, status lines, the Library.
-inline juce::FontOptions body() { return font(kSans, "Regular", 13.5f); }
-inline juce::FontOptions small() { return font(kSans, "Regular", 12.0f); }
-inline juce::FontOptions heading() { return font(kSans, "Demi Bold", 15.0f); }
+inline juce::FontOptions body() { return font(kSans, "Regular", 14.5f); }
+inline juce::FontOptions small() { return font(kSans, "Regular", 13.5f); }
+inline juce::FontOptions heading() { return font(kSans, "Demi Bold", 16.0f); }
+// The tags of a Library row.
+inline juce::FontOptions tag() { return font(kSans, "Demi Bold", 11.5f); }
+// The tabs above the view.
+inline juce::FontOptions tab() { return font(kSans, "Regular", 15.0f); }
+inline juce::FontOptions frontTab() { return font(kSans, "Demi Bold", 15.0f); }
 // The name in the header bar.
-inline juce::FontOptions header() { return font(kCondensed, "Bold", 19.0f, 0.06f); }
+inline juce::FontOptions header() { return font(kCondensed, "Bold", 20.0f, 0.06f); }
 
 } // namespace NordFonts
 

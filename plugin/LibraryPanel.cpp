@@ -9,8 +9,15 @@ namespace {
 
 constexpr const char* kLibraryFolderKey = "libraryFolder";
 constexpr int kRefreshIntervalMs = 200;
-constexpr int kRowHeight = 22;
+constexpr int kRowHeight = 24;
 constexpr int kStarWidth = 16;
+// The tree's indent per level: room for the open/close triangle and little more.
+constexpr int kIndentSize = 12;
+constexpr int kTagHeight = 17;
+constexpr int kTagPadding = 7;
+constexpr int kTagGap = 4;
+// The text a row keeps visible before its tags give way.
+constexpr int kMinTextWidth = 70;
 constexpr int kAllCategoriesId = 1;
 constexpr int kNoCategoryId = 1;
 // Combo box item ids of the categories: kFirstCategoryId + index in `categories`.
@@ -67,8 +74,37 @@ void paintRow(juce::Graphics& g, const juce::String& text, int width, int height
     g.drawText(text, kStarWidth, 0, width - kStarWidth, height, juce::Justification::centredLeft, true);
 }
 
-// A sound: a star when it is a favourite, its name, then dimmed the name the Library gives it (when
-// the user named it), its category, and whether it was recognised as an edited version.
+// A tag on a row: a small rounded chip, filled (the category) or outlined (a remark).
+struct Tag {
+    juce::String text;
+    bool filled = true;
+};
+
+int tagWidth(const Tag& tag)
+{
+    return juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::tag()), tag.text) + 2 * kTagPadding;
+}
+
+void paintTag(juce::Graphics& g, const Tag& tag, juce::Rectangle<float> area)
+{
+    const auto radius = area.getHeight() * 0.5f;
+    if (tag.filled) {
+        g.setColour(NordPalette::tagFill);
+        g.fillRoundedRectangle(area, radius);
+        g.setColour(NordPalette::tagText);
+    } else {
+        g.setColour(NordPalette::outline);
+        g.drawRoundedRectangle(area.reduced(0.5f), radius, 1.0f);
+        g.setColour(NordPalette::textDim);
+    }
+    g.setFont(NordFonts::tag());
+    g.drawText(tag.text, area.reduced(static_cast<float>(kTagPadding) - 1.0f, 0.0f), juce::Justification::centred,
+               true);
+}
+
+// A sound: a star when it is a favourite, the name the Library gives it (file or Bank position),
+// the user's own name beside it, and at the right end its tags: the category, and whether it was
+// recognised as an edited version. A tag that would leave the text too little room is left out.
 void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, const nl2x::LibraryEntry& entry,
                    const juce::String& prefix, int width, int height)
 {
@@ -81,28 +117,41 @@ void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, con
         g.fillPath(star);
     }
 
-    const auto main = prefix + utf8(metadata.displayName(entry)) + kindSuffix(entry.kind());
-    juce::StringArray details;
-    if (! info.name.empty())
-        details.add(utf8(entry.name));
+    std::vector<Tag> tags;
     if (! info.category.empty())
-        details.add(utf8(info.category));
+        tags.push_back({ utf8(info.category), true });
     // Recognised by similarity: the sound was changed since it was tagged (on the synth panel, say).
     if (const auto match = metadata.match(nl2x::SoundFingerprint::of(entry)); match && match->differences > 0)
-        details.add("changed since tagged");
+        tags.push_back({ "changed", false });
+
+    // The tags from the right end, the category nearest the text.
+    int right = width - kTagGap;
+    const auto tagHeight = static_cast<float>(std::min(height - 6, kTagHeight));
+    const auto tagTop = (static_cast<float>(height) - tagHeight) * 0.5f;
+    for (auto tag = tags.rbegin(); tag != tags.rend(); ++tag) {
+        const int size = tagWidth(*tag);
+        if (right - size < kStarWidth + kMinTextWidth)
+            continue;
+        right -= size;
+        paintTag(g, *tag, { static_cast<float>(right), tagTop, static_cast<float>(size), tagHeight });
+        right -= kTagGap;
+    }
 
     const juce::Font font(NordFonts::body());
     g.setFont(font);
-    g.setColour(NordPalette::text);
-    const int available = width - kStarWidth;
-    const int mainWidth = std::min(available, juce::GlyphArrangement::getStringWidthInt(font, main));
-    g.drawText(main, kStarWidth, 0, available, height, juce::Justification::centredLeft, true);
-    if (! details.isEmpty() && mainWidth + 12 < available) {
-        g.setColour(NordPalette::textDim);
-        g.setFont(NordFonts::small());
-        g.drawText("  " + details.joinIntoString(" \xc2\xb7 "), kStarWidth + mainWidth, 0, available - mainWidth,
-                   height, juce::Justification::centredLeft, true);
+    auto text = juce::Rectangle<int>(kStarWidth, 0, std::max(0, right - kStarWidth), height);
+    const auto label = prefix + utf8(entry.name) + kindSuffix(entry.kind());
+    if (info.name.empty()) {
+        g.setColour(NordPalette::text);
+        g.drawText(label, text, juce::Justification::centredLeft, true);
+        return;
     }
+    // The Library's label dimmed, then the user's name in the text colour.
+    const auto labelWidth = std::min(text.getWidth(), juce::GlyphArrangement::getStringWidthInt(font, label + "  "));
+    g.setColour(NordPalette::textDim);
+    g.drawText(label, text.removeFromLeft(labelWidth), juce::Justification::centredLeft, true);
+    g.setColour(NordPalette::text);
+    g.drawText(utf8(info.name), text, juce::Justification::centredLeft, true);
 }
 
 class EntryItem final : public juce::TreeViewItem {
@@ -220,13 +269,11 @@ private:
 LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot()> slotChoice)
     : processor(owner), selectedSlot(std::move(slotChoice))
 {
-    folderLabel.setFont(NordFonts::small());
-    folderLabel.setColour(juce::Label::textColourId, NordPalette::textDim);
-    folderLabel.setMinimumHorizontalScale(0.6f);
     refreshButton.setTooltip("Read the Library folder again");
     refreshButton.onClick = [this] { rescan(); };
 
     tree.setRootItemVisible(false);
+    tree.setIndentSize(kIndentSize);
     tree.setDefaultOpenness(false);
     tree.setTooltip("Click a Program or Percussion Kit to audition it on the selected Slot; double-click a "
                     "Performance to send it to the Performance Edit Buffer. Nothing is stored in the synth.");
@@ -277,8 +324,9 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     statusLabel.setJustificationType(juce::Justification::topLeft);
     statusLabel.setFont(NordFonts::small());
     slotLabel.setFont(NordFonts::small());
+    slotLabel.setTooltip("Clicking a Program or Percussion Kit auditions it on the Slot tab last shown");
 
-    for (auto* child : std::initializer_list<juce::Component*> { &folderLabel, &refreshButton,
+    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton,
                                                                  &slotLabel, &categoryFilter, &favouritesFilter, &tree,
                                                                  &infoTitle, &nameEditor, &categoryBox,
                                                                  &favouriteButton, &saveSlotButton,
@@ -305,14 +353,14 @@ void LibraryPanel::paint(juce::Graphics& g)
 void LibraryPanel::resized()
 {
     auto area = getLocalBounds().withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(8, 6);
-    auto folderRow = area.removeFromTop(26);
-    refreshButton.setBounds(folderRow.removeFromRight(70));
-    folderRow.removeFromRight(4);
-    folderLabel.setBounds(folderRow);
+    // The folder is shown and chosen in the Settings panel; Refresh reads it again.
+    auto slotRow = area.removeFromTop(26);
+    refreshButton.setBounds(slotRow.removeFromRight(74));
+    slotRow.removeFromRight(4);
+    slotLabel.setBounds(slotRow);
     area.removeFromTop(4);
-    slotLabel.setBounds(area.removeFromTop(22));
     auto filterRow = area.removeFromTop(24);
-    favouritesFilter.setBounds(filterRow.removeFromRight(118));
+    favouritesFilter.setBounds(filterRow.removeFromRight(130));
     filterRow.removeFromRight(4);
     categoryFilter.setBounds(filterRow);
     area.removeFromTop(6);
@@ -350,8 +398,7 @@ void LibraryPanel::timerCallback()
     const auto performance = nl2x::performanceFile(synth);
     lineage.observe(kPerformancePlace, performance ? fingerprintOf(*performance) : std::nullopt);
 
-    slotLabel.setText("Audition on " + slotName(selectedSlot()) + " (the Slot tab last shown)",
-                      juce::dontSendNotification);
+    slotLabel.setText("Audition on " + slotName(selectedSlot()), juce::dontSendNotification);
 }
 
 juce::File LibraryPanel::folder() const
@@ -388,8 +435,6 @@ void LibraryPanel::rescan()
     selectedEntry = nullptr;
     selectedFile = nullptr;
     const auto current = folder();
-    folderLabel.setText(current.getFullPathName(), juce::dontSendNotification);
-    folderLabel.setTooltip(current.getFullPathName());
     // The tree's items point into `files`: drop them first.
     tree.setRootItem(nullptr);
     root.reset();
