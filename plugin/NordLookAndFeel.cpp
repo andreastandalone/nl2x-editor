@@ -86,6 +86,21 @@ void NordLookAndFeel::drawTag(juce::Graphics& g, const juce::String& text, juce:
                juce::Justification::centred, true);
 }
 
+void NordLookAndFeel::drawSuggestedTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> area)
+{
+    const auto radius = area.getHeight() * 0.5f;
+    juce::Path outline;
+    outline.addRoundedRectangle(area.reduced(0.5f), radius);
+    juce::Path dashed;
+    const float dashes[] { 3.0f, 2.0f };
+    juce::PathStrokeType(1.0f).createDashedStroke(dashed, outline, dashes, 2);
+    g.setColour(P::textDim);
+    g.fillPath(dashed);
+    g.setFont(NordFonts::tag());
+    g.drawText(suggestedTagText(category), area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
+               juce::Justification::centred, true);
+}
+
 int NordLookAndFeel::tagWidth(const juce::String& text)
 {
     return juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::tag()), text) + 2 * NordMetrics::tagPadding;
