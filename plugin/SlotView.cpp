@@ -31,7 +31,7 @@ SlotView::SlotView(NL2XEditorProcessor& owner)
     morphButton.setClickingTogglesState(true);
     morphButton.setTooltip("Turn every knob into editing its Morph Amount (Option-drag a knob does it for one drag)");
     morphButton.setColour(juce::TextButton::buttonOnColourId, NordPalette::morph);
-    morphButton.setColour(juce::TextButton::textColourOnId, NordPalette::sectionTitleText);
+    morphButton.setColour(juce::TextButton::textColourOnId, NordPalette::textOnAccent);
     morphButton.onClick = [this] { panel.setMorphMode(morphButton.getToggleState()); };
     addAndMakeVisible(morphButton);
 

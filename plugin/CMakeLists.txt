@@ -24,6 +24,7 @@ target_sources(NL2XEditor PRIVATE
     ArcKnob.cpp
     ConnectionCheckView.cpp
     ConnectionIndicator.cpp
+    EditorContent.cpp
     LedSwitch.cpp
     LibraryPanel.cpp
     MemoryPanel.cpp

@@ -4,6 +4,7 @@ namespace P = NordPalette;
 
 NordLookAndFeel::NordLookAndFeel()
 {
+    setDefaultSansSerifTypefaceName(NordFonts::kSans);
     setColourScheme({ P::background, P::panelGrey, P::control, P::outline, P::text, P::controlOn, P::text,
                       P::controlHover, P::text });
 
@@ -28,12 +29,12 @@ NordLookAndFeel::NordLookAndFeel()
     setColour(juce::PopupMenu::textColourId, P::text);
     setColour(juce::PopupMenu::highlightedBackgroundColourId, P::casingRed);
     setColour(juce::PopupMenu::highlightedTextColourId, P::textOnRed);
-    setColour(juce::TextEditor::backgroundColourId, P::panelGrey.darker(0.35f));
+    setColour(juce::TextEditor::backgroundColourId, P::knobCap);
     setColour(juce::TextEditor::textColourId, P::text);
     setColour(juce::TextEditor::outlineColourId, P::control);
     setColour(juce::TextEditor::focusedOutlineColourId, P::outline);
-    setColour(juce::TreeView::backgroundColourId, P::panelGrey.darker(0.35f));
-    setColour(juce::TreeView::selectedItemBackgroundColourId, P::casingRed.withAlpha(0.6f));
+    setColour(juce::TreeView::backgroundColourId, P::knobCap);
+    setColour(juce::TreeView::selectedItemBackgroundColourId, P::casingRed.withAlpha(0.45f));
     setColour(juce::TreeView::linesColourId, P::textDim);
     setColour(juce::ScrollBar::thumbColourId, P::outline);
     setColour(juce::Slider::textBoxTextColourId, P::text);
@@ -52,24 +53,31 @@ NordLookAndFeel::NordLookAndFeel()
 void NordLookAndFeel::drawSection(juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& title)
 {
     const auto area = bounds.toFloat();
+    const auto radius = NordMetrics::cornerRadius;
     g.setColour(P::panelGrey);
-    g.fillRoundedRectangle(area, NordMetrics::cornerRadius);
+    g.fillRoundedRectangle(area, radius);
 
     auto bar = area.withHeight(static_cast<float>(NordMetrics::sectionTitleHeight));
     juce::Path titleBar;
-    titleBar.addRoundedRectangle(bar.getX(), bar.getY(), bar.getWidth(), bar.getHeight(), NordMetrics::cornerRadius,
-                                 NordMetrics::cornerRadius, true, true, false, false);
+    titleBar.addRoundedRectangle(bar.getX(), bar.getY(), bar.getWidth(), bar.getHeight(), radius, radius, true, true,
+                                 false, false);
     g.setColour(P::sectionTitle);
     g.fillPath(titleBar);
     g.setColour(P::sectionTitleText);
     g.setFont(NordFonts::sectionTitle());
-    g.drawText(title.toLowerCase(), bar.reduced(8.0f, 0.0f), juce::Justification::centredLeft, true);
+    g.drawText(title.toUpperCase(), bar.reduced(9.0f, 0.0f).translated(0.0f, 1.0f), juce::Justification::centredLeft,
+               true);
 }
 
 void NordLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> bounds, bool on)
 {
     const auto size = std::min(bounds.getWidth(), bounds.getHeight());
     const auto led = bounds.withSizeKeepingCentre(size, size);
+    if (on) {
+        // A soft halo, flat: one translucent disc around the lit LED.
+        g.setColour(P::ledOn.withAlpha(0.22f));
+        g.fillEllipse(led.expanded(size * 0.35f));
+    }
     g.setColour(on ? P::ledOn : P::ledOff);
     g.fillEllipse(led);
 }
@@ -139,31 +147,38 @@ juce::Font NordLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeigh
 
 void NordLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool)
 {
+    // Flat tabs: the front one on the panel colour with a red line along its foot.
     const bool front = button.isFrontTab();
     auto area = button.getLocalBounds().toFloat().reduced(1.0f, 0.0f);
-    juce::Path tab;
-    tab.addRoundedRectangle(area.getX(), area.getY(), area.getWidth(), area.getHeight(), NordMetrics::cornerRadius,
-                            NordMetrics::cornerRadius, true, true, false, false);
-    g.setColour(front ? P::casingRed : (isMouseOver ? P::controlHover : P::control));
-    g.fillPath(tab);
-    g.setColour(front ? P::textOnRed : P::textDim);
-    g.setFont(front ? juce::Font(NordFonts::heading()).withHeight(14.0f) : juce::Font(NordFonts::body()));
-    g.drawText(button.getButtonText(), area, juce::Justification::centred, true);
+    if (front || isMouseOver) {
+        juce::Path tab;
+        tab.addRoundedRectangle(area.getX(), area.getY(), area.getWidth(), area.getHeight(), NordMetrics::cornerRadius,
+                                NordMetrics::cornerRadius, true, true, false, false);
+        g.setColour(front ? P::panelGrey : P::control.withAlpha(0.6f));
+        g.fillPath(tab);
+    }
+    if (front) {
+        g.setColour(P::casingRed);
+        g.fillRect(area.removeFromBottom(2.0f));
+    }
+    g.setColour(front ? P::text : P::textDim);
+    g.setFont(juce::Font(front ? NordFonts::heading() : NordFonts::body()).withHeight(14.0f));
+    g.drawText(button.getButtonText(), button.getLocalBounds().toFloat(), juce::Justification::centred, true);
 }
 
 int NordLookAndFeel::getTabButtonBestWidth(juce::TabBarButton& button, int)
 {
     const auto text = button.getButtonText();
-    return juce::jmax(60, juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::heading()), text) + 28);
+    return juce::jmax(64, juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::heading()), text) + 30);
 }
 
 void NordLookAndFeel::drawTabbedButtonBarBackground(juce::TabbedButtonBar&, juce::Graphics&) {}
 
 void NordLookAndFeel::drawTabAreaBehindFrontButton(juce::TabbedButtonBar&, juce::Graphics& g, int w, int h)
 {
-    // A red line under the tabs, joining the front tab to the view it shows.
-    g.setColour(P::casingRed);
-    g.fillRect(0, h - 2, w, 2);
+    // A hairline under the tabs.
+    g.setColour(P::hairline);
+    g.fillRect(0, h - 1, w, 1);
 }
 
 void NordLookAndFeel::drawTextEditorOutline(juce::Graphics&, int, int, juce::TextEditor&) {}
@@ -180,4 +195,14 @@ void NordLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text, i
     g.setColour(findColour(juce::TooltipWindow::textColourId));
     g.setFont(NordFonts::small());
     g.drawFittedText(text, juce::Rectangle<int>(width, height).reduced(6, 3), juce::Justification::centredLeft, 8);
+}
+
+void NordLookAndFeel::drawCornerResizer(juce::Graphics& g, int w, int h, bool isMouseOver, bool isMouseDragging)
+{
+    // Three short diagonal lines, quiet until the mouse is over them.
+    g.setColour(isMouseOver || isMouseDragging ? P::textDim : P::outline);
+    const auto size = static_cast<float>(std::min(w, h));
+    for (float i = 0.3f; i < 1.0f; i += 0.3f)
+        g.drawLine(static_cast<float>(w) - size * i, static_cast<float>(h) - 2.0f, static_cast<float>(w) - 2.0f,
+                   static_cast<float>(h) - size * i, 1.5f);
 }

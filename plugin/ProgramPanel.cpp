@@ -360,9 +360,8 @@ void ProgramPanel::resized()
 
 void ProgramPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(NordPalette::casingRed);
-    g.setColour(NordPalette::background);
-    g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), NordMetrics::cornerRadius);
+    g.setColour(NordPalette::plate);
+    g.fillRoundedRectangle(getLocalBounds().toFloat(), NordMetrics::cornerRadius + 2.0f);
 
     if (notice.isNotEmpty()) {
         const auto area = getLocalBounds().reduced(kGap);
