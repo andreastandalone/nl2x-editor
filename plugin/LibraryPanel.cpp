@@ -15,9 +15,8 @@ constexpr int kRowHeight = 26;
 constexpr int kStarWidth = 16;
 // The tree's indent per level: room for the open/close triangle and little more.
 constexpr int kIndentSize = 12;
-constexpr int kTagHeight = 19;
-constexpr int kTagPadding = 7;
-constexpr int kTagGap = 4;
+constexpr int kTagHeight = NordMetrics::tagHeight;
+constexpr int kTagGap = NordMetrics::tagGap;
 // The text a row keeps visible before its tags give way.
 constexpr int kMinTextWidth = 70;
 constexpr int kAllCategoriesId = 1;
@@ -82,28 +81,6 @@ struct Tag {
     bool filled = true;
 };
 
-int tagWidth(const Tag& tag)
-{
-    return juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::tag()), tag.text) + 2 * kTagPadding;
-}
-
-void paintTag(juce::Graphics& g, const Tag& tag, juce::Rectangle<float> area)
-{
-    const auto radius = area.getHeight() * 0.5f;
-    if (tag.filled) {
-        g.setColour(NordPalette::tagFill);
-        g.fillRoundedRectangle(area, radius);
-        g.setColour(NordPalette::tagText);
-    } else {
-        g.setColour(NordPalette::outline);
-        g.drawRoundedRectangle(area.reduced(0.5f), radius, 1.0f);
-        g.setColour(NordPalette::textDim);
-    }
-    g.setFont(NordFonts::tag());
-    g.drawText(tag.text, area.reduced(static_cast<float>(kTagPadding) - 1.0f, 0.0f), juce::Justification::centred,
-               true);
-}
-
 // A sound: a star when it is a favourite, the name the Library gives it (file or Bank position),
 // the user's own name beside it, and at the right end its tags: the category, and whether it was
 // recognised as an edited version. A tag that would leave the text too little room is left out.
@@ -131,11 +108,12 @@ void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, con
     const auto tagHeight = static_cast<float>(std::min(height - 6, kTagHeight));
     const auto tagTop = (static_cast<float>(height) - tagHeight) * 0.5f;
     for (auto tag = tags.rbegin(); tag != tags.rend(); ++tag) {
-        const int size = tagWidth(*tag);
+        const int size = NordLookAndFeel::tagWidth(tag->text);
         if (right - size < kStarWidth + kMinTextWidth)
             continue;
         right -= size;
-        paintTag(g, *tag, { static_cast<float>(right), tagTop, static_cast<float>(size), tagHeight });
+        NordLookAndFeel::drawTag(g, tag->text, { static_cast<float>(right), tagTop, static_cast<float>(size), tagHeight },
+                                tag->filled);
         right -= kTagGap;
     }
 
@@ -167,9 +145,20 @@ public:
     {
         paintSoundRow(g, panel.metadata(), entry, {}, width, height);
     }
-    void itemClicked(const juce::MouseEvent&) override { panel.entryClicked(entry); }
+    void itemClicked(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu())
+            panel.entryMenu(entry);
+        else
+            panel.entryClicked(entry);
+    }
     void itemDoubleClicked(const juce::MouseEvent&) override { panel.entryDoubleClicked(entry); }
     void itemSelectionChanged(bool isNowSelected) override { panel.entrySelected(isNowSelected ? &entry : nullptr); }
+    // A Program is dragged onto a Bank location of the Librarian (#44).
+    juce::var getDragSourceDescription() override
+    {
+        return entry.kind() == nl2x::LibraryEntryKind::Program ? panel.dragDescriptionOf(entry) : juce::var();
+    }
 
 private:
     LibraryPanel& panel;
@@ -214,10 +203,23 @@ public:
                 addSubItem(new EntryItem(panel, entry));
     }
 
-    void itemClicked(const juce::MouseEvent&) override
+    void itemClicked(const juce::MouseEvent& e) override
+    {
+        if (file.entries.size() != 1)
+            return;
+        if (e.mods.isPopupMenu())
+            panel.entryMenu(file.entries.front());
+        else
+            panel.entryClicked(file.entries.front());
+    }
+    // A single Program goes onto a Bank location, a Program Bank file onto a Bank (#44).
+    juce::var getDragSourceDescription() override
     {
         if (file.entries.size() == 1)
-            panel.entryClicked(file.entries.front());
+            return file.entries.front().kind() == nl2x::LibraryEntryKind::Program
+                       ? panel.dragDescriptionOf(file.entries.front())
+                       : juce::var();
+        return file.kind == nl2x::LibraryFileKind::ProgramBank ? panel.dragDescriptionOf(file) : juce::var();
     }
     void itemDoubleClicked(const juce::MouseEvent&) override
     {
@@ -369,7 +371,8 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     tree.setIndentSize(kIndentSize);
     tree.setDefaultOpenness(false);
     tree.setTooltip("Click a Program or Percussion Kit to audition it on the selected Slot; double-click a "
-                    "Performance to send it to the Performance Edit Buffer. Nothing is stored in the synth.");
+                    "Performance to send it to the Performance Edit Buffer. Nothing is stored in the synth. In the "
+                    "Librarian tab, drag a Program onto a Bank location, or a Bank file onto a Bank.");
 
     saveSlotButton.setTooltip("Save the selected Slot's Program as a new .syx file in the Library");
     saveSlotButton.onClick = [this] { saveSlot(); };
@@ -540,6 +543,7 @@ void LibraryPanel::rescan()
     tree.setRootItem(nullptr);
     root.reset();
     files = nl2x::scanLibrary(toPath(current));
+    ++scanCount;
     libraryMetadata = nl2x::LibraryMetadata::load(toPath(current));
     libraryMetadata.setLibraryContents(files);
     refreshCategoryChoices();
@@ -701,6 +705,81 @@ void LibraryPanel::entryClicked(const nl2x::LibraryEntry& entry)
         return;
     }
     auditionEntry(entry);
+}
+
+void LibraryPanel::entryMenu(const nl2x::LibraryEntry& entry)
+{
+    if (entry.kind() != nl2x::LibraryEntryKind::Program)
+        return;
+    // The entry lives in `files`: the menu finds it again by its description, so that a rescan
+    // while the menu is open leaves nothing dangling.
+    const auto description = dragDescriptionOf(entry);
+    const auto safe = juce::Component::SafePointer<LibraryPanel>(this);
+    juce::PopupMenu menu;
+    menu.addItem("Audition on " + slotName(selectedSlot()), [safe, description] {
+        if (safe != nullptr)
+            if (const auto* found = safe->draggedEntry(description))
+                safe->auditionEntry(*found);
+    });
+    menu.addItem(juce::String::fromUTF8("Store to Bank/Program\xE2\x80\xA6"), static_cast<bool>(onStoreEntry), false,
+                 [safe, description] {
+                     if (safe != nullptr && safe->onStoreEntry)
+                         if (const auto* found = safe->draggedEntry(description))
+                             safe->onStoreEntry(*found);
+                 });
+    menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
+}
+
+namespace {
+
+constexpr const char* kEntryDragPrefix = "nl2x-entry:";
+constexpr const char* kBankFileDragPrefix = "nl2x-bank-file:";
+
+} // namespace
+
+juce::var LibraryPanel::dragDescriptionOf(const nl2x::LibraryEntry& entry) const
+{
+    for (std::size_t f = 0; f < files.size(); ++f)
+        for (std::size_t e = 0; e < files[f].entries.size(); ++e)
+            if (&files[f].entries[e] == &entry)
+                return juce::String(kEntryDragPrefix) + juce::String(scanCount) + ":" + juce::String(f) + ":"
+                       + juce::String(e);
+    return {};
+}
+
+juce::var LibraryPanel::dragDescriptionOf(const nl2x::LibraryFile& file) const
+{
+    for (std::size_t f = 0; f < files.size(); ++f)
+        if (&files[f] == &file)
+            return juce::String(kBankFileDragPrefix) + juce::String(scanCount) + ":" + juce::String(f);
+    return {};
+}
+
+const nl2x::LibraryEntry* LibraryPanel::draggedEntry(const juce::var& description) const
+{
+    const auto text = description.toString();
+    if (! text.startsWith(kEntryDragPrefix))
+        return nullptr;
+    const auto parts = juce::StringArray::fromTokens(text.fromFirstOccurrenceOf(kEntryDragPrefix, false, false), ":", {});
+    if (parts.size() != 3 || parts[0].getIntValue() != scanCount)
+        return nullptr;
+    const auto f = static_cast<std::size_t>(parts[1].getIntValue());
+    const auto e = static_cast<std::size_t>(parts[2].getIntValue());
+    if (f >= files.size() || e >= files[f].entries.size())
+        return nullptr;
+    return &files[f].entries[e];
+}
+
+const nl2x::LibraryFile* LibraryPanel::draggedBankFile(const juce::var& description) const
+{
+    const auto text = description.toString();
+    if (! text.startsWith(kBankFileDragPrefix))
+        return nullptr;
+    const auto parts = juce::StringArray::fromTokens(text.fromFirstOccurrenceOf(kBankFileDragPrefix, false, false), ":", {});
+    if (parts.size() != 2 || parts[0].getIntValue() != scanCount)
+        return nullptr;
+    const auto f = static_cast<std::size_t>(parts[1].getIntValue());
+    return f < files.size() ? &files[f] : nullptr;
 }
 
 void LibraryPanel::entryDoubleClicked(const nl2x::LibraryEntry& entry)

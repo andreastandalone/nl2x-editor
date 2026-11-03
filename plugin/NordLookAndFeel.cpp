@@ -69,6 +69,28 @@ void NordLookAndFeel::drawSection(juce::Graphics& g, juce::Rectangle<int> bounds
                true);
 }
 
+void NordLookAndFeel::drawTag(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area, bool filled)
+{
+    const auto radius = area.getHeight() * 0.5f;
+    if (filled) {
+        g.setColour(P::tagFill);
+        g.fillRoundedRectangle(area, radius);
+        g.setColour(P::tagText);
+    } else {
+        g.setColour(P::outline);
+        g.drawRoundedRectangle(area.reduced(0.5f), radius, 1.0f);
+        g.setColour(P::textDim);
+    }
+    g.setFont(NordFonts::tag());
+    g.drawText(text, area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
+               juce::Justification::centred, true);
+}
+
+int NordLookAndFeel::tagWidth(const juce::String& text)
+{
+    return juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::tag()), text) + 2 * NordMetrics::tagPadding;
+}
+
 void NordLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> bounds, bool on)
 {
     const auto size = std::min(bounds.getWidth(), bounds.getHeight());

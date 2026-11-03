@@ -6,9 +6,10 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cstdint>
+#include <functional>
 
-// The view of one Slot (the Slot tabs A–D): a tool row with "Read from synth", the Morph button
-// and the connection status, then the Slot's Program on the front-panel layout (ProgramPanel), or
+// The view of one Slot (the Slot tabs A–D): a tool row with "Read from synth", the Morph button,
+// "Store…" (into a Bank location, after a backup and a confirmation) and the connection status, then the Slot's Program on the front-panel layout (ProgramPanel), or
 // a notice when the Slot plays a Percussion Kit or has not been read. Edits go through the DAW
 // parameters, so a DAW recording automation records them. The Morph button switches every knob to
 // editing its Morph Amount; Option-drag does it for one drag. It polls the engine's state revision
@@ -27,6 +28,9 @@ public:
     nl2x::Slot selected() const { return selectedSlot; }
     void selectSlot(nl2x::Slot slot);
 
+    // "Store…": store the Slot's Program into a Bank location (the Librarian asks where, #44).
+    std::function<void(nl2x::Slot)> onStore;
+
 private:
     void timerCallback() override;
     void refresh();
@@ -37,10 +41,10 @@ private:
 
     juce::TextButton readButton { "Read from synth" };
     juce::TextButton morphButton { "Morph" };
+    juce::TextButton storeButton { juce::String::fromUTF8("Store\xE2\x80\xA6") };
     juce::Label statusLabel;
     juce::Label hintLabel;
     ProgramPanel panel;
-    juce::TooltipWindow tooltips { this };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SlotView)
 };

@@ -11,6 +11,7 @@ Applies to both the first functional version and the later polished one; polishi
 - **Knobs**: a 270° track, the value arc in near-white, a dark cap with a pointer in the middle, the Morph ring between the two.
 - **The window scales**: the editor is laid out once at its design size (1378 × 758) and scaled as a whole when the window is resized by its corner (75 %–200 %, aspect ratio kept) or to a fixed size from the menu button next to the name in the header bar (75, 90, 100, 125, 150, 175, 200 %); the scale is remembered in the user settings. Clicking the name opens the About panel. No component lays itself out for other sizes.
 - **Library rows**: the favourite star, the name the Library gives the sound (file or Bank position) with the user's own name beside it, and the category as a small rounded chip at the right end; the tree is indented only as much as its open/close triangle needs.
+- **The Librarian tab** (#44, 2026-11-03): the computer on the left, the synth on the right. The Library column moves from the right-hand side to the left of the tab (wider, 380 px) and the "Synth Banks" section fills the rest: four Bank tabs, then the shown Bank's 99 Programs in five columns of 20, each location with its number, the user's name (bright) or the name the Library gives the same sound (dim), a star and the category chip as in the Library rows. A location changed but not sent is marked in amber (`pending`): a bar at its left edge, a tint and an amber number; the Bank tabs count them. The Bank/Program selectors are hidden in this tab.
 - **Layout mirrors the hardware front panel**, as `skin-examples/nodalred.jpg` does: LFO 1, LFO 2/Arp and Mod Env on the left; Oscillators in the centre; Amplifier and Filter on the right; Play Mode, Portamento, Unison, Oct Shift and Mod Wheel destination along the bottom. A knob is found in the plugin where it sits on the synth. Two panel controls are left out (2026-11-02, #40): Master Level, which has no MIDI and is not part of the Program, and the Slot A–D buttons, since the Slot is chosen with the editor's tabs.
 
 ## The Morph ring
@@ -27,7 +28,8 @@ All colours, fonts and sizes are named in `plugin/NordLookAndFeel.h`; the compon
 - `NordPalette::morph`, `morphNegative`: the Morph Amount ring (positive and negative amounts) and the Morph button; deliberately not the title colour.
 - `NordPalette::knobTrack`, `valueArc`, `knobCap`: the knob.
 - `NordPalette::ledOn`, `ledOff`: the LEDs of stepped choices and switches.
-- `NordPalette::tagFill`, `tagText`: the tag chips of a Library row.
+- `NordPalette::tagFill`, `tagText`: the tag chips of a Library row and of a Librarian location (`NordLookAndFeel::drawTag`).
+- `NordPalette::location`, `pending`: a Librarian location's plate, and the amber of a location "to send".
 - The others (`text`, `textDim`, `textOnAccent`, `control`, `outline`, `hairline`, the status colours) are the editor's own.
 - `NordFonts`: Avenir Next and Avenir Next Condensed, by role (section title, control name, choice, value, body, small, heading, tab, tag, header).
 

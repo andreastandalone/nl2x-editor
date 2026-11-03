@@ -4,6 +4,7 @@
 #include "SynthControl.h"
 
 #include "nl2x/Engine.h"
+#include "nl2x/Librarian.h"
 #include "nl2x/Library.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -62,6 +63,8 @@ public:
     // Audition from the Library (#11): a Program or Kit on `slot`, a Performance on the Performance
     // Edit Buffer. Message thread only.
     nl2x::AuditionResult auditionFromLibrary(const nl2x::LibraryEntry& entry, nl2x::Slot slot);
+    // Audition of a Bank location's Program in the Librarian (#44). Message thread only.
+    nl2x::AuditionResult auditionProgram(const nl2x::Program& program, nl2x::Slot slot);
 
     // The user changed a Slot's CC parameter in the GUI: it goes through its DAW parameter, so the
     // DAW records it. Message thread only.
@@ -70,6 +73,8 @@ public:
     void editSlotMorphAmount(nl2x::Slot slot, nl2x::ProgramParameter baseParameter, int amount);
     // Writing to the synth's memory and reading Banks (#12). Message thread only.
     nl2x::MemoryWriter& synthMemory() { return engine.memoryWriter(); }
+    // The Librarian (#44): the synth's Banks as read and the Composed Banks. Message thread only.
+    nl2x::Librarian& librarian() { return engine.librarian(); }
 
     // A GUI gesture (a knob drag): the edits made until it ends are one undo step. Without one,
     // every edit is a step of its own (a menu choice, a button). Message thread only.

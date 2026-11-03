@@ -22,6 +22,11 @@
 // (#44); the open groups and files are remembered across rescans and editor reopens. Bank
 // backups in the Backups subfolder are listed apart, under a closed "Backups" heading. A sound
 // auditioned from the Library, edited in the editor and saved again keeps its information.
+//
+// For the Librarian (#44): a Program can be dragged onto a Bank location and a Bank file onto a
+// Bank (the drag description names it; draggedEntry() and draggedBankFile() resolve it), and a
+// Program's context menu offers "Store to Bank/Program…" (onStoreEntry). The editor that holds
+// the panel must be a juce::DragAndDropContainer.
 class LibraryPanel final : public juce::Component, private juce::Timer {
 public:
     // `selectedSlot` names the Slot that Audition and "Save Slot" use: the Slot tab last shown.
@@ -36,7 +41,23 @@ public:
     void entryDoubleClicked(const nl2x::LibraryEntry& entry);
     void entrySelected(const nl2x::LibraryEntry* entry);
     void bankFileSelected(const nl2x::LibraryFile& file, bool isNowSelected);
+    void entryMenu(const nl2x::LibraryEntry& entry);
     const nl2x::LibraryMetadata& metadata() const { return libraryMetadata; }
+
+    // The files as last scanned; valid until the next rescan(), whose count `contentsRevision()`
+    // gives, so that views built from them know when to rebuild.
+    const std::vector<nl2x::LibraryFile>& libraryFiles() const { return files; }
+    int contentsRevision() const { return scanCount; }
+
+    // Drag and drop to the Librarian: the description of a dragged entry or Bank file, and back.
+    // Both resolve to nullptr for any other description, or after a rescan.
+    juce::var dragDescriptionOf(const nl2x::LibraryEntry& entry) const;
+    juce::var dragDescriptionOf(const nl2x::LibraryFile& file) const;
+    const nl2x::LibraryEntry* draggedEntry(const juce::var& description) const;
+    const nl2x::LibraryFile* draggedBankFile(const juce::var& description) const;
+
+    // "Store to Bank/Program…" in a Program's context menu (the Librarian asks where).
+    std::function<void(const nl2x::LibraryEntry&)> onStoreEntry;
 
     // The selected file holding several dumps (a Bank file), for "Send Bank file to synth…" (#12);
     // nullptr when none is selected. Valid until the next rescan().
@@ -92,6 +113,7 @@ private:
     juce::Label statusLabel;
 
     std::vector<nl2x::LibraryFile> files;
+    int scanCount = 0;
     nl2x::LibraryMetadata libraryMetadata;
     nl2x::LibraryFilter filter;
     nl2x::SoundLineage lineage;

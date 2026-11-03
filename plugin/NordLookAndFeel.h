@@ -63,6 +63,11 @@ inline const juce::Colour statusOff { 0xff8f949c };
 inline const juce::Colour tagFill { 0xff3d4350 };
 inline const juce::Colour tagText { 0xffe3e6ec };
 
+// The Librarian's Bank locations (#44): a location's plate, and the amber of a location changed
+// but not sent yet ("to send"), which is neither the red accent nor a warning about the synth.
+inline const juce::Colour location { 0xff1f2126 };
+inline const juce::Colour pending { 0xfff0a830 };
+
 } // namespace NordPalette
 
 // Avenir Next ships with every macOS the plugin supports (11 and later), in the weights used here;
@@ -111,6 +116,10 @@ inline constexpr int choiceRowHeight = 17;
 inline constexpr int switchHeight = 20;
 inline constexpr int buttonHeight = 26;
 inline constexpr int headerHeight = 44;
+// The tag chips.
+inline constexpr int tagHeight = 19;
+inline constexpr int tagPadding = 7;
+inline constexpr int tagGap = 4;
 
 } // namespace NordMetrics
 
@@ -124,6 +133,10 @@ public:
     static void drawSection(juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& title);
     // An LED: lit or not.
     static void drawLed(juce::Graphics& g, juce::Rectangle<float> bounds, bool on);
+    // A tag (Library rows, Librarian locations): a small rounded chip, filled (the category) or
+    // outlined (a remark such as "changed"). tagWidth() is the width it needs.
+    static void drawTag(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds, bool filled);
+    static int tagWidth(const juce::String& text);
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
                               bool highlighted, bool down) override;

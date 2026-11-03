@@ -10,6 +10,8 @@ namespace {
 constexpr int kRefreshIntervalMs = 100;
 constexpr int kMargin = 12;
 constexpr int kLibraryWidth = 270;
+// The Library's width in the Librarian tab, on the left of the synth's Banks.
+constexpr int kLibrarianLibraryWidth = 380;
 constexpr int kTabsHeight = 30;
 constexpr int kWarningsHeight = 22;
 constexpr int kMenuButtonSize = 26;
@@ -85,7 +87,7 @@ EditorContent::EditorContent(NL2XEditorProcessor& owner)
       slotView(owner),
       performanceView(owner),
       libraryPanel(owner, [this] { return slotView.selected(); }),
-      memoryPanel(owner, libraryPanel, [this] { return slotView.selected(); }),
+      librarianView(owner, libraryPanel, [this] { return slotView.selected(); }),
       checkView(owner),
       settingsPanel(owner, libraryPanel)
 {
@@ -116,9 +118,20 @@ EditorContent::EditorContent(NL2XEditorProcessor& owner)
     for (auto slot : nl2x::kAllSlots)
         tabs.addTab(juce::String("Slot ") + nl2x::slotLetter(slot), NordPalette::casingRed, -1);
     tabs.addTab("Performance", NordPalette::casingRed, -1);
-    tabs.addTab("Synth memory", NordPalette::casingRed, -1);
+    tabs.addTab("Librarian", NordPalette::casingRed, -1);
     tabs.setCurrentTabIndex(0, false);
     tabs.onTabChosen = [this](int index) { showTab(index); };
+
+    // Storing goes through the Librarian, which asks where and shows the Bank, the progress and
+    // the confirmation.
+    slotView.onStore = [this](nl2x::Slot slot) {
+        tabs.setCurrentTabIndex(kLibrarianTab);
+        librarianView.askWhereToStoreSlot(slot);
+    };
+    libraryPanel.onStoreEntry = [this](const nl2x::LibraryEntry& entry) {
+        tabs.setCurrentTabIndex(kLibrarianTab);
+        librarianView.askWhereToStore(entry);
+    };
 
     warningLabel.setColour(juce::Label::textColourId, NordPalette::warning);
     warningLabel.setFont(NordFonts::body());
@@ -137,7 +150,7 @@ EditorContent::EditorContent(NL2XEditorProcessor& owner)
                                                                  &slotView, &libraryPanel })
         addAndMakeVisible(child);
     for (auto* child : std::initializer_list<juce::Component*> { &instanceWarning, &takeControlButton,
-                                                                 &performanceView, &memoryPanel, &checkView,
+                                                                 &performanceView, &librarianView, &checkView,
                                                                  &settingsPanel, &aboutPanel })
         addChildComponent(child);
 
@@ -162,9 +175,14 @@ void EditorContent::showTab(int index)
 {
     if (index >= 0 && index < kPerformanceTab)
         slotView.selectSlot(nl2x::kAllSlots[static_cast<std::size_t>(index)]);
+    shownTab = index;
     slotView.setVisible(index < kPerformanceTab);
     performanceView.setVisible(index == kPerformanceTab);
-    memoryPanel.setVisible(index == kMemoryTab);
+    librarianView.setVisible(index == kLibrarianTab);
+    selectorBar.setVisible(index != kLibrarianTab);
+    resized();
+    if (index == kLibrarianTab)
+        librarianView.tabShown();
 }
 
 void EditorContent::showAbout(bool show)
@@ -296,11 +314,30 @@ void EditorContent::resized()
     area.removeFromBottom(kMargin);
     area.removeFromLeft(kMargin);
     area.removeFromRight(kMargin);
-    libraryPanel.setBounds(area.removeFromRight(kLibraryWidth));
-    area.removeFromRight(kMargin);
+    const bool librarian = shownTab == kLibrarianTab;
+    // The tabs stay where they are in every tab; the Library moves in the Librarian tab.
+    auto beside = area;
+    auto view = area.withTrimmedRight(kLibraryWidth + kMargin);
+    if (! librarian)
+        libraryPanel.setBounds(beside.removeFromRight(kLibraryWidth));
 
-    tabs.setBounds(area.removeFromTop(kTabsHeight));
-    area.removeFromTop(NordMetrics::gap);
+    tabs.setBounds(view.removeFromTop(kTabsHeight));
+    view.removeFromTop(NordMetrics::gap);
+    if (librarian) {
+        // Below the tabs, across the whole width: the Library on the left, the synth's Banks on
+        // the right.
+        area.removeFromTop(kTabsHeight + NordMetrics::gap);
+        auto warnings = area.removeFromTop(kWarningsHeight);
+        warningLabel.setBounds(warnings);
+        takeControlButton.setBounds(warnings.removeFromRight(120).withSizeKeepingCentre(120, NordMetrics::buttonHeight));
+        warnings.removeFromRight(NordMetrics::gap);
+        instanceWarning.setBounds(warnings.reduced(0, 2));
+        libraryPanel.setBounds(area.removeFromLeft(kLibrarianLibraryWidth));
+        area.removeFromLeft(kMargin);
+        librarianView.setBounds(area);
+        return;
+    }
+    area = view;
     selectorBar.setBounds(area.removeFromTop(SelectorBar::kPreferredHeight));
 
     auto warnings = area.removeFromTop(kWarningsHeight);
@@ -311,5 +348,4 @@ void EditorContent::resized()
 
     slotView.setBounds(area);
     performanceView.setBounds(area);
-    memoryPanel.setBounds(area);
 }

@@ -35,6 +35,15 @@ SlotView::SlotView(NL2XEditorProcessor& owner)
     morphButton.onClick = [this] { panel.setMorphMode(morphButton.getToggleState()); };
     addAndMakeVisible(morphButton);
 
+    storeButton.setComponentID("storeSlot");
+    storeButton.setTooltip("Store this Slot's Program into a Bank location on the synth (asks where, backs the Bank "
+                           "up and asks before writing)");
+    storeButton.onClick = [this] {
+        if (onStore)
+            onStore(selectedSlot);
+    };
+    addAndMakeVisible(storeButton);
+
     statusLabel.setFont(NordFonts::body());
     addAndMakeVisible(statusLabel);
     hintLabel.setFont(NordFonts::small());
@@ -70,6 +79,8 @@ void SlotView::resized()
     readButton.setBounds(top.removeFromLeft(130));
     top.removeFromLeft(NordMetrics::gap);
     morphButton.setBounds(top.removeFromLeft(80));
+    top.removeFromLeft(NordMetrics::gap);
+    storeButton.setBounds(top.removeFromLeft(80));
     top.removeFromLeft(12);
     hintLabel.setBounds(top.removeFromRight(360));
     statusLabel.setBounds(top);
