@@ -26,8 +26,8 @@ target_sources(NL2XEditor PRIVATE
     ConnectionIndicator.cpp
     EditorContent.cpp
     LedSwitch.cpp
+    LibrarianView.cpp
     LibraryPanel.cpp
-    MemoryPanel.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
     NordLookAndFeel.cpp

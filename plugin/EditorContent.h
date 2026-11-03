@@ -3,8 +3,8 @@
 #include "AboutPanel.h"
 #include "ConnectionCheckView.h"
 #include "ConnectionIndicator.h"
+#include "LibrarianView.h"
 #include "LibraryPanel.h"
-#include "MemoryPanel.h"
 #include "PerformanceView.h"
 #include "PluginProcessor.h"
 #include "ProbeWindow.h"
@@ -26,12 +26,15 @@
 //   Cmd+Z and Cmd+Shift+Z while the plugin window has keyboard focus), Settings, About, and in the
 //   standalone app only the Probe button (#3);
 // - tabs for Slots A–D (the front panel of the Slot's Program, SlotView), the Performance (#5) and
-//   the Synth memory (#12), with the Bank/Program and Performance selectors (#10) and the Slot
-//   Channel warnings (or the single-instance warning) above the view;
-// - the Library panel at the side (#11);
+//   the Librarian (#44, which replaced the Synth memory tab of #12), with the Bank/Program and
+//   Performance selectors (#10) and the Slot Channel warnings (or the single-instance warning)
+//   above the Slot and Performance views;
+// - the Library panel (#11): at the right-hand side, except in the Librarian tab, where it moves to
+//   the left of the synth's Banks (the computer on the left, the synth on the right) and its sounds
+//   are dragged onto Bank locations (this component is the drag-and-drop container);
 // - over the tabs when open: the Connection check, the Settings panel (ports, Global Channel,
 //   Library folder, project recall) or the About panel.
-class EditorContent final : public juce::Component, private juce::Timer {
+class EditorContent final : public juce::Component, public juce::DragAndDropContainer, private juce::Timer {
 public:
     explicit EditorContent(NL2XEditorProcessor& owner);
     ~EditorContent() override;
@@ -51,7 +54,7 @@ public:
 private:
     // The tabs: Slots A–D, then these.
     static constexpr int kPerformanceTab = 4;
-    static constexpr int kMemoryTab = 5;
+    static constexpr int kLibrarianTab = 5;
 
     // A tab bar that reports the user's choice.
     class ViewTabs final : public juce::TabbedButtonBar {
@@ -111,12 +114,15 @@ private:
     PerformanceView performanceView;
     // The Library panel at the side (#11); it auditions on the Slot shown in slotView.
     LibraryPanel libraryPanel;
-    // The "Synth memory" tab (#12): writes to the synth's Banks, after confirmation.
-    MemoryPanel memoryPanel;
+    // The Librarian tab (#44): the synth's Banks, composed from the Library; every write to the
+    // synth's memory is confirmed there.
+    LibrarianView librarianView;
     ConnectionCheckView checkView;
     SettingsPanel settingsPanel;
     AboutPanel aboutPanel;
     std::unique_ptr<ProbeWindow> probeWindow;
+    juce::TooltipWindow tooltips { this };
+    int shownTab = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EditorContent)
 };

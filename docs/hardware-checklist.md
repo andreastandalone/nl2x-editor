@@ -102,10 +102,13 @@ With P on and C on.
 Do this after the hardware session. Use Bank 3 as the test Bank and back it up first with the Probe.
 
 - [x] Plan step 5 identifies the request type that reads each Bank; `kBankRequestTypeOfSysExBank1` is set, and only after plan step 11 restores correctly is `kBankReadingVerified = true`. (Done 2026-11-02: 15, verified.)
-- [ ] Synth memory tab, Bank 3, "Read Bank from synth...": the file appears in the Library as a Program Bank with 99 entries and matches the Probe backup.
-- [ ] Select Bank 0 on the synth, then "Store Slot A to Bank/Program..." with Bank 3, Program 99: after the confirmation it says "Bank 0 is selected on the synth, not Bank 3" and writes nothing.
+- [ ] Librarian tab (#44, which replaced the Synth memory tab): opening it reads Banks 0–3 with progress; Bank 3, "Save Bank as .syx...": the file appears in the Library as a Program Bank with 99 entries and matches the Probe backup.
+- [ ] Select Bank 0 on the synth, then Slot A's "Store..." with Bank 3, Program 99: after the confirmation it says "Bank 0 is selected on the synth, not Bank 3" and writes nothing.
 - [ ] Select a Program in Bank 3 on the synth, store again: Program 99 of Bank 3 changes and a backup appears in `~/Documents/Nord Lead 2X/Backups/`.
-- [ ] "Send Bank file to synth...": backup first, then the question, about 10 s of writing and "Read back: 99 of 99". If fewer match, raise `kBankWriteSpacingMs`.
+- [ ] Librarian, Bank 3, "Replace with Bank file..." (or drop the Bank file on the Bank 3 tab), then "Send Bank 3 to synth...": backup first, then the question, about 10 s of writing and "Read back: 99 of 99". If fewer match, raise `kBankWriteSpacingMs`.
+- [ ] Librarian, Bank 3: drag two Library Programs onto two locations and copy a third location by dragging; the three are marked "to send"; "Send Bank 3 to synth..." names exactly those three, writes them, and afterwards the marks are gone and nothing else in Bank 3 changed.
+- [ ] Click a location (also one marked "to send"): it plays on the selected Slot and nothing is stored. Right-click, "Undo change": the location shows what the synth holds again.
+- [ ] Library, right-click a Program, "Store to Bank/Program...": Bank 3, Program 98 is written after the backup and the question.
 - [ ] While the backup folder is locked, the second "No backup possible" dialog appears and Cancel writes nothing.
 - [ ] Restore the synth's Bank 3 from your own backup at the end.
 

@@ -250,6 +250,11 @@ nl2x::AuditionResult NL2XEditorProcessor::auditionFromLibrary(const nl2x::Librar
     return nl2x::audition(engine, entry, slot, nowMs());
 }
 
+nl2x::AuditionResult NL2XEditorProcessor::auditionProgram(const nl2x::Program& program, nl2x::Slot slot)
+{
+    return engine.auditionProgram(slot, program, nowMs());
+}
+
 void NL2XEditorProcessor::readPerformanceFromSynth()
 {
     engine.readPerformance(nowMs());

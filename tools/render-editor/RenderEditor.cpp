@@ -4,7 +4,7 @@
 // (tests/sim), so the editor shows Slots and a Performance read the way the plugin reads them.
 // Nothing touches the user's settings, MIDI ports or Library: everything goes to --work.
 //
-//   nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]
+//   nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|librarian] [--morph]
 //                      [--settings] [--about] [--check] [--kit A|B|C|D] [--offline] [--edge-cases]
 //                      [--open-library] [--favourites] [--width <px>] [--scale <n>] [--work <dir>]
 //
@@ -13,6 +13,10 @@
 // Morph Amounts past the ends of the ranges into Slot A. --width resizes the editor window as
 // dragging its corner does: within its limits, the aspect ratio kept. --open-library opens every
 // group (subfolder) of the Library; --favourites turns on its "Favourites only" filter.
+// --view librarian shows the Librarian tab once the simulated synth's Banks are read: Bank 1 holds
+// the Slots' sounds at Programs 1–4 (so the Library's names and tags show), and a few locations
+// are changed ("to send") by putting Library Programs there and copying one location to another.
+// --bank <0–3> shows another Bank.
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
@@ -53,6 +57,7 @@ struct Options {
     std::optional<nl2x::Slot> kit;
     float scale = 1.0f;
     int width = 0;
+    int bank = 1;
     juce::File work;
 };
 
@@ -97,6 +102,8 @@ std::optional<Options> parse(const juce::StringArray& args)
                 return std::nullopt;
         } else if (arg == "--scale")
             options.scale = juce::jlimit(1.0f, 4.0f, next().getFloatValue());
+        else if (arg == "--bank")
+            options.bank = juce::jlimit(0, 3, next().getIntValue());
         else if (arg == "--width")
             options.width = next().getIntValue();
         else if (arg == "--work")
@@ -220,6 +227,16 @@ int render(const Options& options)
         link.synth.setEditBuffer(slot, testProgram(static_cast<int>(nl2x::slotIndex(slot)) + 1));
     if (options.kit)
         link.synth.playPercussionKit(*options.kit, {});
+    // Bank 1 holds the Slots' sounds at Programs 1–4, and Program 10 an edited Slot B sound, so
+    // that the Librarian shows names, tags and "changed".
+    for (auto slot : nl2x::kAllSlots)
+        link.synth.setBankProgram(1, static_cast<int>(nl2x::slotIndex(slot)),
+                                  testProgram(static_cast<int>(nl2x::slotIndex(slot)) + 1));
+    {
+        nl2x::Program edited(testProgram(2));
+        edited.setValue(nl2x::ProgramParameter::FilterCutoff, edited.value(nl2x::ProgramParameter::FilterCutoff) / 2);
+        link.synth.setBankProgram(1, 9, edited.bytes());
+    }
     if (options.edgeCases) {
         // Slots A and B on one channel (a Slot Channel warning), and values outside the documented
         // ranges in Slot A, as a dump from the synth may hold them.
@@ -291,10 +308,28 @@ int render(const Options& options)
         tab = static_cast<int>(nl2x::slotIndex(*slot));
     else if (options.view.equalsIgnoreCase("performance"))
         tab = 4;
-    else if (options.view.equalsIgnoreCase("memory"))
+    else if (options.view.equalsIgnoreCase("librarian") || options.view.equalsIgnoreCase("memory"))
         tab = 5;
     if (auto* tabs = dynamic_cast<juce::TabbedButtonBar*>(findById(*editor, "viewTabs")); tabs != nullptr && tab >= 0)
         tabs->setCurrentTabIndex(tab);
+    if (tab == 5) {
+        // The tab reads the synth's Banks when first shown; then a few changes to send.
+        auto& librarian = processor.librarian();
+        pump(30000, [&] { return librarian.synthBanksStatus().stage != nl2x::SynthBanksStage::Reading
+                                 && librarian.synthBanksStatus().stage != nl2x::SynthBanksStage::NotRead; });
+        const auto files = nl2x::scanLibrary(library.getFullPathName().toStdString());
+        const auto put = [&](const std::string& fileName, nl2x::BankLocation location) {
+            for (const auto& file : files)
+                if (file.name == fileName && ! file.entries.empty())
+                    librarian.put(location, file.entries.front());
+        };
+        put("Slot B sound", { 1, 12 });
+        put("Slot A sound", { 1, 23 });
+        put("Slot D sound", { 1, 41 });
+        librarian.copy({ 1, 3 }, { 1, 60 });
+        put("Slot C sound", { 2, 5 });
+        click(*editor, "bankTab" + juce::String(options.bank));
+    }
     if (options.morph)
         click(*editor, "morph");
     if (options.settings)
@@ -333,10 +368,10 @@ int main(int argc, char* argv[])
         args.add(juce::String::fromUTF8(argv[i]));
     const auto options = parse(args);
     if (! options) {
-        std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]\n"
+        std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|librarian] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
                      "                          [--edge-cases] [--open-library] [--favourites] [--width <px>]\n"
-                     "                          [--scale <n>] [--work <dir>]\n";
+                     "                          [--scale <n>] [--bank <0-3>] [--work <dir>]\n";
         return 2;
     }
     const juce::ScopedJuceInitialiser_GUI juce;

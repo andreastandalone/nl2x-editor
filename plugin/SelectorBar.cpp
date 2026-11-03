@@ -195,7 +195,7 @@ void SelectorBar::showResult(nl2x::SelectionResult result, const juce::String& w
         text = what + " cannot be selected before the synth is connected.";
         break;
     case nl2x::SelectionResult::RefusedMemoryBusy:
-        text = "Nothing can be selected while the synth's memory is being read or written (Synth memory tab): "
+        text = "Nothing can be selected while the synth's memory is being read or written (Librarian tab): "
                "it would change the Bank selected on the synth. Finish or cancel that first.";
         break;
     }
