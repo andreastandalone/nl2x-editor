@@ -111,7 +111,7 @@ void SettingsPanel::paint(juce::Graphics& g)
 void SettingsPanel::resized()
 {
     auto area = getLocalBounds().reduced(NordMetrics::gap).withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(16);
-    area = area.withWidth(std::min(area.getWidth(), 560));
+    area = area.withWidth(std::min(area.getWidth(), 720));
 
     auto top = area.removeFromTop(NordMetrics::buttonHeight);
     closeButton.setBounds(top.removeFromRight(90));

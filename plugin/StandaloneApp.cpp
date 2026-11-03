@@ -53,6 +53,20 @@ public:
         juce::JUCEApplicationBase::quit();
     }
 
+    // The window fits the editor's new size (the menu's fixed sizes, NL2XPluginEditor::setScale),
+    // then moves so that as much of it as possible stays on its screen.
+    void childBoundsChanged(juce::Component* child) override
+    {
+        juce::DocumentWindow::childBoundsChanged(child);
+        if (const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getBounds())) {
+            const auto area = display->userBounds.toNearestInt();
+            const auto bounds = getBounds();
+            setTopLeftPosition(
+                juce::jlimit(area.getX(), std::max(area.getX(), area.getRight() - bounds.getWidth()), bounds.getX()),
+                juce::jlimit(area.getY(), std::max(area.getY(), area.getBottom() - bounds.getHeight()), bounds.getY()));
+        }
+    }
+
 private:
     // Back where it was left, kept inside the screen it is on; centred the first time.
     void placeOnScreen()

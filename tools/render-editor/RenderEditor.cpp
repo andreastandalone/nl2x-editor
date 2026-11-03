@@ -252,7 +252,7 @@ int render(const Options& options)
             if (file.name == "Slot A sound")
                 metadata.set(file.entries.front(), { "Warm lead", "Lead", true });
             else if (file.name == "Slot B sound")
-                metadata.set(file.entries.front(), { {}, "Bass", false });
+                metadata.set(file.entries.front(), { "Fat bass", "Bass", false });
         }
     }
 

@@ -137,12 +137,12 @@ void NordLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, boo
 
 juce::Font NordLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 {
-    return juce::Font(NordFonts::body()).withHeight(std::min(13.5f, static_cast<float>(box.getHeight()) * 0.6f));
+    return juce::Font(NordFonts::body()).withHeight(std::min(NordFonts::body().getHeight(), static_cast<float>(box.getHeight()) * 0.62f));
 }
 
 juce::Font NordLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
 {
-    return juce::Font(NordFonts::body()).withHeight(std::min(13.5f, static_cast<float>(buttonHeight) * 0.6f));
+    return juce::Font(NordFonts::body()).withHeight(std::min(NordFonts::body().getHeight(), static_cast<float>(buttonHeight) * 0.62f));
 }
 
 void NordLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool)
@@ -162,14 +162,14 @@ void NordLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics& 
         g.fillRect(area.removeFromBottom(2.0f));
     }
     g.setColour(front ? P::text : P::textDim);
-    g.setFont(juce::Font(front ? NordFonts::heading() : NordFonts::body()).withHeight(14.0f));
+    g.setFont(front ? NordFonts::frontTab() : NordFonts::tab());
     g.drawText(button.getButtonText(), button.getLocalBounds().toFloat(), juce::Justification::centred, true);
 }
 
 int NordLookAndFeel::getTabButtonBestWidth(juce::TabBarButton& button, int)
 {
     const auto text = button.getButtonText();
-    return juce::jmax(64, juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::heading()), text) + 30);
+    return juce::jmax(64, juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::frontTab()), text) + 30);
 }
 
 void NordLookAndFeel::drawTabbedButtonBarBackground(juce::TabbedButtonBar&, juce::Graphics&) {}
