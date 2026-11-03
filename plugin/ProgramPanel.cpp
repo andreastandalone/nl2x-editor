@@ -13,16 +13,16 @@ constexpr int kGap = NordMetrics::gap;
 constexpr int kTop = NordMetrics::sectionTitleHeight + 6;
 
 // The three columns of the upper panel and the height of the upper part.
-constexpr int kLeftWidth = 330;
-constexpr int kCentreWidth = 330;
+constexpr int kLeftWidth = 340;
+constexpr int kCentreWidth = 300;
 constexpr int kRightWidth = ProgramPanel::kWidth - 4 * kGap - kLeftWidth - kCentreWidth;
-constexpr int kUpperHeight = 406;
+constexpr int kUpperHeight = 414;
 constexpr int kLeftSectionHeight = (kUpperHeight - 2 * kGap) / 3;
 constexpr int kAmplifierHeight = 130;
 constexpr int kBottomHeight = ProgramPanel::kHeight - kUpperHeight - 3 * kGap;
 
 // Knob columns inside a section.
-constexpr int kColumn = NordMetrics::knobWidth + 6;
+constexpr int kColumn = NordMetrics::knobWidth + 4;
 
 juce::String text(std::string_view view)
 {
@@ -83,7 +83,11 @@ juce::String panelName(C parameter)
 // The number of columns a stepped control's settings are spread over.
 int columnsOf(C parameter)
 {
-    return parameter == C::Lfo2DestinationArpMode ? 2 : 1;
+    // Oct Shift and Mod Wheel Dest in two columns: the bottom row is too short for five rows.
+    return parameter == C::Lfo2DestinationArpMode || parameter == C::OctaveShift
+                   || parameter == C::ModWheelDestination
+               ? 2
+               : 1;
 }
 
 juce::String rangeText(int value, int minValue, int maxValue)
@@ -261,20 +265,20 @@ void ProgramPanel::resized()
     {
         const auto& lfo1 = section("LFO 1", left, top, kLeftWidth, kLeftSectionHeight);
         place(C::Lfo1Rate, lfo1, 6, kTop);
-        place(C::Lfo1Waveform, lfo1, 6 + kColumn + 4, kTop + 2, 92);
-        place(C::Lfo1Destination, lfo1, 6 + kColumn + 100, kTop + 2, 80);
+        place(C::Lfo1Waveform, lfo1, 6 + kColumn + 2, kTop, 100);
+        place(C::Lfo1Destination, lfo1, 6 + kColumn + 104, kTop, kLeftWidth - kColumn - (6 + kColumn + 104));
         place(C::Lfo1Amount, lfo1, kLeftWidth - kColumn, kTop);
 
         const auto& lfo2 = section("LFO 2 / Arp", left, top + kLeftSectionHeight + kGap, kLeftWidth, kLeftSectionHeight);
         place(C::Lfo2Rate, lfo2, 6, kTop);
-        place(C::Lfo2DestinationArpMode, lfo2, 6 + kColumn + 4, kTop + 2, 176);
+        place(C::Lfo2DestinationArpMode, lfo2, 6 + kColumn + 2, kTop, kLeftWidth - kColumn - (6 + kColumn + 2));
         place(C::Lfo2Amount, lfo2, kLeftWidth - kColumn, kTop);
 
         const auto& modEnv = section("Mod Env", left, top + 2 * (kLeftSectionHeight + kGap), kLeftWidth,
                                      kLeftSectionHeight);
         place(C::ModEnvAttack, modEnv, 6, kTop);
         place(C::ModEnvDecay, modEnv, 6 + kColumn, kTop);
-        place(C::ModEnvDestination, modEnv, 6 + 2 * kColumn + 12, kTop + 2, 90);
+        place(C::ModEnvDestination, modEnv, 6 + 2 * kColumn + 8, kTop, kLeftWidth - kColumn - (6 + 2 * kColumn + 8));
         place(C::ModEnvAmount, modEnv, kLeftWidth - kColumn, kTop);
     }
 
@@ -313,7 +317,7 @@ void ProgramPanel::resized()
         place(C::FilterEnvDecay, filter, 6 + kColumn, kTop);
         place(C::FilterEnvSustain, filter, 6 + 2 * kColumn, kTop);
         place(C::FilterEnvRelease, filter, 6 + 3 * kColumn, kTop);
-        place(C::FilterType, filter, 6 + 4 * kColumn + 10, kTop + 2, kRightWidth - (6 + 4 * kColumn + 10) - 6);
+        place(C::FilterType, filter, 6 + 4 * kColumn + 2, kTop, kRightWidth - (6 + 4 * kColumn + 2) - 6);
 
         const int second = kTop + NordMetrics::knobHeight + 26;
         place(C::FilterCutoff, filter, 6, second);
@@ -321,7 +325,7 @@ void ProgramPanel::resized()
         place(C::FilterEnvAmount, filter, 6 + 2 * kColumn, second);
         place(C::FilterVelocity, filter, 6 + 3 * kColumn, second + 4, kColumn);
         place(C::FilterKeyboardTrack, filter, 6 + 3 * kColumn + 4, second + 34, kColumn);
-        place(C::FilterDistortion, filter, 6 + 4 * kColumn + 10, second + 4, kRightWidth - (6 + 4 * kColumn + 10) - 6);
+        place(C::FilterDistortion, filter, 6 + 4 * kColumn + 2, second + 4, kRightWidth - (6 + 4 * kColumn + 2) - 6);
     }
 
     // Bottom row, in the synth's order, each pair of sections filling one column above.
@@ -341,10 +345,10 @@ void ProgramPanel::resized()
 
         const auto& octave = section("Oct Shift", centre + unisonWidth + kGap, bottom,
                                      kCentreWidth - unisonWidth - kGap, kBottomHeight);
-        place(C::OctaveShift, octave, 12, kTop - 4, 80);
+        place(C::OctaveShift, octave, 12, kTop - 4, 120);
 
         const auto& wheel = section("Mod Wheel Dest", right, bottom, kRightWidth, kBottomHeight);
-        place(C::ModWheelDestination, wheel, 12, kTop - 4, 100);
+        place(C::ModWheelDestination, wheel, 12, kTop - 4, 220);
     }
 
     // Every CC parameter must have its place (nothing may be lost from the panel).
