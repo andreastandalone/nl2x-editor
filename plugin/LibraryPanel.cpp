@@ -2,6 +2,7 @@
 
 #include "NordLookAndFeel.h"
 
+#include <algorithm>
 #include <filesystem>
 
 namespace {
@@ -9,6 +10,11 @@ namespace {
 constexpr const char* kLibraryFolderKey = "libraryFolder";
 constexpr int kRefreshIntervalMs = 200;
 constexpr int kRowHeight = 22;
+constexpr int kStarWidth = 16;
+constexpr int kAllCategoriesId = 1;
+constexpr int kNoCategoryId = 1;
+// Combo box item ids of the categories: kFirstCategoryId + index in `categories`.
+constexpr int kFirstCategoryId = 2;
 
 juce::String utf8(const std::string& text)
 {
@@ -23,6 +29,22 @@ std::filesystem::path toPath(const juce::File& file)
 juce::String slotName(nl2x::Slot slot)
 {
     return "Slot " + juce::String::charToString(nl2x::slotLetter(slot));
+}
+
+// The places SoundLineage follows.
+std::string placeOf(nl2x::Slot slot)
+{
+    return slotName(slot).toStdString();
+}
+constexpr const char* kPerformancePlace = "Performance";
+
+// The sound in a file the editor writes (one dump), as the Library will read it.
+std::optional<nl2x::SoundFingerprint> fingerprintOf(const std::vector<std::uint8_t>& bytes)
+{
+    const auto file = nl2x::recogniseLibraryFile({}, bytes);
+    if (file.entries.size() != 1)
+        return std::nullopt;
+    return nl2x::SoundFingerprint::of(file.entries.front());
 }
 
 juce::String kindSuffix(nl2x::LibraryEntryKind kind)
@@ -42,7 +64,45 @@ void paintRow(juce::Graphics& g, const juce::String& text, int width, int height
 {
     g.setColour(dimmed ? NordPalette::textDim : NordPalette::text);
     g.setFont(NordFonts::body());
-    g.drawText(text, 4, 0, width - 4, height, juce::Justification::centredLeft, true);
+    g.drawText(text, kStarWidth, 0, width - kStarWidth, height, juce::Justification::centredLeft, true);
+}
+
+// A sound: a star when it is a favourite, its name, then dimmed the name the Library gives it (when
+// the user named it), its category, and whether it was recognised as an edited version.
+void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, const nl2x::LibraryEntry& entry,
+                   const juce::String& prefix, int width, int height)
+{
+    const auto info = metadata.info(entry);
+    if (info.favourite) {
+        juce::Path star;
+        const auto centre = juce::Point<float>(kStarWidth * 0.5f, static_cast<float>(height) * 0.5f);
+        star.addStar(centre, 5, 2.5f, 6.0f, 0.0f);
+        g.setColour(NordPalette::ledOn);
+        g.fillPath(star);
+    }
+
+    const auto main = prefix + utf8(metadata.displayName(entry)) + kindSuffix(entry.kind());
+    juce::StringArray details;
+    if (! info.name.empty())
+        details.add(utf8(entry.name));
+    if (! info.category.empty())
+        details.add(utf8(info.category));
+    // Recognised by similarity: the sound was changed since it was tagged (on the synth panel, say).
+    if (const auto match = metadata.match(nl2x::SoundFingerprint::of(entry)); match && match->differences > 0)
+        details.add("changed since tagged");
+
+    const juce::Font font(NordFonts::body());
+    g.setFont(font);
+    g.setColour(NordPalette::text);
+    const int available = width - kStarWidth;
+    const int mainWidth = std::min(available, juce::GlyphArrangement::getStringWidthInt(font, main));
+    g.drawText(main, kStarWidth, 0, available, height, juce::Justification::centredLeft, true);
+    if (! details.isEmpty() && mainWidth + 12 < available) {
+        g.setColour(NordPalette::textDim);
+        g.setFont(NordFonts::small());
+        g.drawText("  " + details.joinIntoString(" \xc2\xb7 "), kStarWidth + mainWidth, 0, available - mainWidth,
+                   height, juce::Justification::centredLeft, true);
+    }
 }
 
 class EntryItem final : public juce::TreeViewItem {
@@ -54,7 +114,7 @@ public:
     int getItemHeight() const override { return kRowHeight; }
     void paintItem(juce::Graphics& g, int width, int height) override
     {
-        paintRow(g, utf8(entry.name) + kindSuffix(entry.kind()), width, height, false);
+        paintSoundRow(g, panel.metadata(), entry, {}, width, height);
     }
     void itemClicked(const juce::MouseEvent&) override { panel.entryClicked(entry); }
     void itemDoubleClicked(const juce::MouseEvent&) override { panel.entryDoubleClicked(entry); }
@@ -66,13 +126,14 @@ private:
 };
 
 // A file. One holding a single dump behaves as that entry; a Bank file opens into its entries.
+// `base` is the folder its subfolder prefix is shown relative to.
 class FileItem final : public juce::TreeViewItem {
 public:
-    FileItem(LibraryPanel& owner, const nl2x::LibraryFile& libraryFile, const std::filesystem::path& folder)
+    FileItem(LibraryPanel& owner, const nl2x::LibraryFile& libraryFile, const std::filesystem::path& base)
         : panel(owner), file(libraryFile)
     {
         std::error_code error;
-        auto relative = std::filesystem::relative(file.path.parent_path(), folder, error);
+        auto relative = std::filesystem::relative(file.path.parent_path(), base, error);
         prefix = error || relative == "." ? juce::String() : utf8(relative.string()) + "/";
     }
 
@@ -84,13 +145,14 @@ public:
 
     void paintItem(juce::Graphics& g, int width, int height) override
     {
+        if (file.entries.size() == 1) {
+            paintSoundRow(g, panel.metadata(), file.entries.front(), prefix, width, height);
+            return;
+        }
         juce::String text = prefix + utf8(file.name);
-        if (file.entries.size() == 1)
-            text << kindSuffix(file.entries.front().kind());
-        else
-            text << "  (" << utf8(std::string(nl2x::libraryFileKindName(file.kind)))
-                 << (file.entries.empty() ? juce::String() : ", " + juce::String(file.entries.size()) + " entries")
-                 << ")";
+        text << "  (" << utf8(std::string(nl2x::libraryFileKindName(file.kind)))
+             << (file.entries.empty() ? juce::String() : ", " + juce::String(file.entries.size()) + " entries")
+             << ")";
         paintRow(g, text, width, height, file.entries.empty());
     }
 
@@ -133,6 +195,26 @@ public:
     bool mightContainSubItems() override { return true; }
 };
 
+// The heading the Bank backups are listed under, closed until the user opens it: they are there
+// to send a Bank back to the synth, not to browse sounds.
+class BackupsItem final : public juce::TreeViewItem {
+public:
+    explicit BackupsItem(int fileCount) : count(fileCount) {}
+
+    bool mightContainSubItems() override { return true; }
+    juce::String getUniqueName() const override { return "Backups heading"; }
+    int getItemHeight() const override { return kRowHeight; }
+    bool canBeSelected() const override { return false; }
+    void paintItem(juce::Graphics& g, int width, int height) override
+    {
+        paintRow(g, "Backups  (" + juce::String(count) + (count == 1 ? " file)" : " files)"), width, height, true);
+    }
+    void itemClicked(const juce::MouseEvent&) override { setOpen(! isOpen()); }
+
+private:
+    int count;
+};
+
 } // namespace
 
 LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot()> slotChoice)
@@ -158,12 +240,48 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     saveEntryButton.onClick = [this] { saveSelectedEntry(); };
     saveEntryButton.setEnabled(false);
 
+    categoryFilter.setTooltip("Show only the sounds of one category");
+    categoryFilter.onChange = [this] { filterChanged(); };
+    favouritesFilter.setTooltip("Show only the sounds marked as favourites");
+    favouritesFilter.onClick = [this] { filterChanged(); };
+
+    infoTitle.setFont(NordFonts::small());
+    infoTitle.setColour(juce::Label::textColourId, NordPalette::textDim);
+    nameEditor.setFont(NordFonts::body());
+    nameEditor.setTooltip("Your name for the selected sound, kept in library.json in the Library folder. Press "
+                          "Return to keep it; leave it empty to use the file or Bank name.");
+    nameEditor.onReturnKey = [this] { commitName(); };
+    nameEditor.onFocusLost = [this] { commitName(); };
+    nameEditor.onEscapeKey = [this] { showSelectedInfo(); };
+    categoryBox.setTooltip("The category of the selected sound");
+    categoryBox.onChange = [this] {
+        if (selectedEntry == nullptr)
+            return;
+        auto info = libraryMetadata.info(*selectedEntry);
+        const auto index = categoryBox.getSelectedId() - kFirstCategoryId;
+        info.category = index >= 0 && index < static_cast<int>(categories.size())
+                            ? categories[static_cast<std::size_t>(index)]
+                            : std::string();
+        storeInfo(info);
+    };
+    favouriteButton.setClickingTogglesState(true);
+    favouriteButton.setTooltip("Mark the selected sound as a favourite");
+    favouriteButton.onClick = [this] {
+        if (selectedEntry == nullptr)
+            return;
+        auto info = libraryMetadata.info(*selectedEntry);
+        info.favourite = favouriteButton.getToggleState();
+        storeInfo(info);
+    };
+
     statusLabel.setJustificationType(juce::Justification::topLeft);
     statusLabel.setFont(NordFonts::small());
     slotLabel.setFont(NordFonts::small());
 
     for (auto* child : std::initializer_list<juce::Component*> { &folderLabel, &refreshButton,
-                                                                 &slotLabel, &tree, &saveSlotButton,
+                                                                 &slotLabel, &categoryFilter, &favouritesFilter, &tree,
+                                                                 &infoTitle, &nameEditor, &categoryBox,
+                                                                 &favouriteButton, &saveSlotButton,
                                                                  &savePerformanceButton, &saveEntryButton, &statusLabel })
         addAndMakeVisible(child);
 
@@ -175,6 +293,7 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
 LibraryPanel::~LibraryPanel()
 {
     stopTimer();
+    nameEditor.onFocusLost = nullptr;
     tree.setRootItem(nullptr);
 }
 
@@ -192,20 +311,45 @@ void LibraryPanel::resized()
     folderLabel.setBounds(folderRow);
     area.removeFromTop(4);
     slotLabel.setBounds(area.removeFromTop(22));
+    auto filterRow = area.removeFromTop(24);
+    favouritesFilter.setBounds(filterRow.removeFromRight(118));
+    filterRow.removeFromRight(4);
+    categoryFilter.setBounds(filterRow);
+    area.removeFromTop(6);
 
-    statusLabel.setBounds(area.removeFromBottom(60));
+    statusLabel.setBounds(area.removeFromBottom(52));
     area.removeFromBottom(4);
     saveEntryButton.setBounds(area.removeFromBottom(26));
     area.removeFromBottom(4);
     savePerformanceButton.setBounds(area.removeFromBottom(26));
     area.removeFromBottom(4);
     saveSlotButton.setBounds(area.removeFromBottom(26));
-    area.removeFromBottom(8);
+    area.removeFromBottom(10);
+    auto infoRow = area.removeFromBottom(24);
+    favouriteButton.setBounds(infoRow.removeFromRight(80));
+    infoRow.removeFromRight(4);
+    categoryBox.setBounds(infoRow);
+    area.removeFromBottom(4);
+    nameEditor.setBounds(area.removeFromBottom(24));
+    infoTitle.setBounds(area.removeFromBottom(20));
+    area.removeFromBottom(6);
     tree.setBounds(area);
 }
 
 void LibraryPanel::timerCallback()
 {
+    // Edits keep the link between a Slot (or the Performance) and the Library sound it was
+    // auditioned from; another sound arriving there breaks it.
+    const auto& synth = processor.synth();
+    for (auto slot : nl2x::kAllSlots) {
+        const auto& state = synth.slotState(slot);
+        lineage.observe(placeOf(slot), state.content == nl2x::SlotContent::Program && state.program
+                                           ? std::optional(nl2x::SoundFingerprint::of(*state.program))
+                                           : std::nullopt);
+    }
+    const auto performance = nl2x::performanceFile(synth);
+    lineage.observe(kPerformancePlace, performance ? fingerprintOf(*performance) : std::nullopt);
+
     slotLabel.setText("Audition on " + slotName(selectedSlot()) + " (the Slot tab last shown)",
                       juce::dontSendNotification);
 }
@@ -239,29 +383,174 @@ void LibraryPanel::chooseFolder()
 
 void LibraryPanel::rescan()
 {
-    const auto openness = tree.getOpennessState(true);
+    commitName();
+    keepOpenness();
+    selectedEntry = nullptr;
+    selectedFile = nullptr;
+    const auto current = folder();
+    folderLabel.setText(current.getFullPathName(), juce::dontSendNotification);
+    folderLabel.setTooltip(current.getFullPathName());
+    // The tree's items point into `files`: drop them first.
+    tree.setRootItem(nullptr);
+    root.reset();
+    files = nl2x::scanLibrary(toPath(current));
+    libraryMetadata = nl2x::LibraryMetadata::load(toPath(current));
+    libraryMetadata.setLibraryContents(files);
+    refreshCategoryChoices();
+    rebuildTree();
+
+    if (libraryMetadata.status() == nl2x::LibraryMetadataStatus::Unreadable)
+        setStatus("library.json in the Library folder could not be read, so your names, categories and favourites "
+                  "are not shown, and it is left untouched. Fix or remove it, then press Refresh.");
+    else if (! current.isDirectory())
+        setStatus("The Library folder does not exist yet; it is created when you save a .syx file.");
+    else if (files.empty())
+        setStatus("No .syx files in the Library folder.");
+}
+
+void LibraryPanel::rebuildTree()
+{
+    keepOpenness();
     tree.setRootItem(nullptr);
     root.reset();
     selectedEntry = nullptr;
     selectedFile = nullptr;
     saveEntryButton.setEnabled(false);
 
-    const auto current = folder();
-    folderLabel.setText(current.getFullPathName(), juce::dontSendNotification);
-    folderLabel.setTooltip(current.getFullPathName());
-    files = nl2x::scanLibrary(toPath(current));
-
     root = std::make_unique<RootItem>();
-    for (const auto& file : files)
-        root->addSubItem(new FileItem(*this, file, toPath(current)));
+    const auto base = toPath(folder());
+    if (filter.isActive()) {
+        for (const auto& ref : nl2x::filterLibrary(files, libraryMetadata, filter))
+            root->addSubItem(new EntryItem(*this, *ref.entry));
+    } else {
+        int backupCount = 0;
+        for (const auto& file : files) {
+            if (file.isBackup)
+                ++backupCount;
+            else
+                root->addSubItem(new FileItem(*this, file, base));
+        }
+        if (backupCount > 0) {
+            auto* backups = new BackupsItem(backupCount);
+            backups->setOpen(false);
+            root->addSubItem(backups);
+            for (const auto& file : files)
+                if (file.isBackup)
+                    backups->addSubItem(new FileItem(*this, file, base / std::string(nl2x::kLibraryBackupFolderName)));
+        }
+    }
     tree.setRootItem(root.get());
-    if (openness != nullptr)
-        tree.restoreOpennessState(*openness, false);
+    showingFiltered = filter.isActive();
+    if (! showingFiltered && unfilteredOpenness != nullptr)
+        tree.restoreOpennessState(*unfilteredOpenness, false);
+    showSelectedInfo();
 
-    if (! current.isDirectory())
-        setStatus("The Library folder does not exist yet; it is created when you save a .syx file.");
-    else if (files.empty())
-        setStatus("No .syx files in the Library folder.");
+    if (filter.isActive() && root->getNumSubItems() == 0)
+        setStatus("No sound matches the filter.");
+}
+
+void LibraryPanel::keepOpenness()
+{
+    if (! showingFiltered && root != nullptr)
+        unfilteredOpenness = tree.getOpennessState(true);
+}
+
+void LibraryPanel::refreshCategoryChoices()
+{
+    categories = libraryMetadata.categoryChoices();
+    const auto chosen = filter.category;
+    categoryFilter.clear(juce::dontSendNotification);
+    categoryBox.clear(juce::dontSendNotification);
+    categoryFilter.addItem("All categories", kAllCategoriesId);
+    categoryBox.addItem("No category", kNoCategoryId);
+    for (std::size_t i = 0; i < categories.size(); ++i) {
+        const auto id = kFirstCategoryId + static_cast<int>(i);
+        categoryFilter.addItem(utf8(categories[i]), id);
+        categoryBox.addItem(utf8(categories[i]), id);
+    }
+    const auto found = std::find(categories.begin(), categories.end(), chosen);
+    if (found == categories.end())
+        filter.category.clear();
+    categoryFilter.setSelectedId(found == categories.end()
+                                     ? kAllCategoriesId
+                                     : kFirstCategoryId + static_cast<int>(found - categories.begin()),
+                                 juce::dontSendNotification);
+}
+
+void LibraryPanel::filterChanged()
+{
+    commitName();
+    const auto index = categoryFilter.getSelectedId() - kFirstCategoryId;
+    filter.category = index >= 0 && index < static_cast<int>(categories.size())
+                          ? categories[static_cast<std::size_t>(index)]
+                          : std::string();
+    filter.favouritesOnly = favouritesFilter.getToggleState();
+    setStatus({});
+    rebuildTree();
+}
+
+void LibraryPanel::showSelectedInfo()
+{
+    const bool editable = selectedEntry != nullptr
+                          && libraryMetadata.status() == nl2x::LibraryMetadataStatus::Ready;
+    for (auto* control : std::initializer_list<juce::Component*> { &nameEditor, &categoryBox, &favouriteButton })
+        control->setEnabled(editable);
+
+    if (selectedEntry == nullptr) {
+        infoTitle.setText("Select a sound to name or categorise it.",
+                          juce::dontSendNotification);
+        nameEditor.setText({}, false);
+        nameEditor.setTextToShowWhenEmpty({}, NordPalette::textDim);
+        categoryBox.setSelectedId(kNoCategoryId, juce::dontSendNotification);
+        favouriteButton.setToggleState(false, juce::dontSendNotification);
+        return;
+    }
+
+    const auto info = libraryMetadata.info(*selectedEntry);
+    infoTitle.setText("Selected: " + utf8(selectedEntry->name), juce::dontSendNotification);
+    nameEditor.setText(utf8(info.name), false);
+    nameEditor.setTextToShowWhenEmpty(utf8(selectedEntry->name), NordPalette::textDim);
+    const auto found = std::find(categories.begin(), categories.end(), info.category);
+    categoryBox.setSelectedId(found == categories.end() ? kNoCategoryId
+                                                        : kFirstCategoryId + static_cast<int>(found - categories.begin()),
+                              juce::dontSendNotification);
+    favouriteButton.setToggleState(info.favourite, juce::dontSendNotification);
+}
+
+void LibraryPanel::commitName()
+{
+    if (selectedEntry == nullptr || ! nameEditor.isEnabled())
+        return;
+    auto info = libraryMetadata.info(*selectedEntry);
+    auto name = nameEditor.getText().trim().toStdString();
+    // Typing the name the Library already gives the entry is the same as no name of one's own.
+    if (name == selectedEntry->name)
+        name.clear();
+    if (name == info.name)
+        return;
+    info.name = name;
+    storeInfo(info);
+}
+
+void LibraryPanel::storeInfo(const nl2x::SoundInfo& info)
+{
+    if (selectedEntry == nullptr)
+        return;
+    switch (libraryMetadata.set(*selectedEntry, info)) {
+    case nl2x::MetadataSaveResult::Saved:
+        break;
+    case nl2x::MetadataSaveResult::RefusedUnreadable:
+        setStatus("library.json in the Library folder could not be read, so it is left untouched and nothing was "
+                  "saved. Fix or remove it, then press Refresh.");
+        break;
+    case nl2x::MetadataSaveResult::Failed:
+        setStatus("Could not write " + utf8(libraryMetadata.filePath().string()) + ". Nothing was changed.");
+        break;
+    }
+    // The sound stays in the list even if it no longer matches the filter, so that it does not
+    // vanish under the pointer; changing the filter or Refresh applies it again.
+    showSelectedInfo();
+    tree.repaint();
 }
 
 void LibraryPanel::entryClicked(const nl2x::LibraryEntry& entry)
@@ -283,11 +572,17 @@ void LibraryPanel::entryDoubleClicked(const nl2x::LibraryEntry& entry)
 void LibraryPanel::entrySelected(const nl2x::LibraryEntry* entry)
 {
     // A deselection may arrive after the next item's selection: keep the newer one.
+    const auto* previous = selectedEntry;
+    // A name being typed belongs to the sound it was typed for.
+    if (entry != nullptr && entry != previous)
+        commitName();
     if (entry != nullptr)
         selectedEntry = entry;
     else if (tree.getNumSelectedItems() == 0)
         selectedEntry = nullptr;
     saveEntryButton.setEnabled(selectedEntry != nullptr);
+    if (selectedEntry != previous)
+        showSelectedInfo();
 }
 
 void LibraryPanel::bankFileSelected(const nl2x::LibraryFile& file, bool isNowSelected)
@@ -302,6 +597,18 @@ void LibraryPanel::auditionEntry(const nl2x::LibraryEntry& entry)
 {
     const auto slot = selectedSlot();
     const auto result = processor.auditionFromLibrary(entry, slot);
+    if (result == nl2x::AuditionResult::Sent) {
+        const bool isPerformance = entry.kind() == nl2x::LibraryEntryKind::Performance;
+        const auto place = isPerformance ? std::string(kPerformancePlace) : placeOf(slot);
+        if (isPerformance)
+            for (auto each : nl2x::kAllSlots)
+                lineage.forget(placeOf(each));
+        const auto fingerprint = nl2x::SoundFingerprint::of(entry);
+        if (const auto match = libraryMetadata.match(fingerprint))
+            lineage.loaded(place, match->soundId, fingerprint);
+        else
+            lineage.forget(place);
+    }
     if (result != nl2x::AuditionResult::Sent)
         setStatus(utf8(nl2x::auditionRefusalText(result, slot)));
     else if (entry.kind() == nl2x::LibraryEntryKind::Performance)
@@ -319,7 +626,7 @@ void LibraryPanel::saveSlot()
                                    "a Percussion Kit.");
         return;
     }
-    saveAs("Save " + slotName(slot) + " as .syx", slotName(slot).toStdString(), std::move(*bytes));
+    saveAs("Save " + slotName(slot) + " as .syx", slotName(slot).toStdString(), std::move(*bytes), placeOf(slot));
 }
 
 void LibraryPanel::savePerformance()
@@ -329,19 +636,20 @@ void LibraryPanel::savePerformance()
         setStatus("The Performance has not been read from the synth yet.");
         return;
     }
-    saveAs("Save the Performance as .syx", "Performance", std::move(*bytes));
+    saveAs("Save the Performance as .syx", "Performance", std::move(*bytes), kPerformancePlace);
 }
 
 void LibraryPanel::saveSelectedEntry()
 {
     if (selectedEntry == nullptr)
         return;
-    saveAs("Save " + utf8(selectedEntry->name) + " as .syx", selectedEntry->name,
+    const auto name = libraryMetadata.displayName(*selectedEntry);
+    saveAs("Save " + utf8(name) + " as .syx", name,
            nl2x::editBufferDumpOf(*selectedEntry));
 }
 
 void LibraryPanel::saveAs(const juce::String& dialogTitle, const std::string& suggestedName,
-                          std::vector<std::uint8_t> bytes)
+                          std::vector<std::uint8_t> bytes, const std::string& place)
 {
     const auto current = folder();
     // So that the dialog opens in it.
@@ -353,7 +661,7 @@ void LibraryPanel::saveAs(const juce::String& dialogTitle, const std::string& su
     chooser = std::make_unique<juce::FileChooser>(dialogTitle, juce::File(utf8(suggested.string())), "*.syx");
     const auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                        | juce::FileBrowserComponent::warnAboutOverwriting;
-    chooser->launchAsync(flags, [this, fileBytes = std::move(bytes)](const juce::FileChooser& chosen) {
+    chooser->launchAsync(flags, [this, fileBytes = std::move(bytes), place](const juce::FileChooser& chosen) {
         const auto picked = chosen.getResult();
         if (picked == juce::File())
             return;
@@ -364,6 +672,9 @@ void LibraryPanel::saveAs(const juce::String& dialogTitle, const std::string& su
         switch (nl2x::saveLibraryFile(toPath(target), fileBytes, replace)) {
         case nl2x::LibrarySaveResult::Saved:
             setStatus("Saved " + target.getFileName() + ".");
+            if (const auto sound = place.empty() ? std::nullopt : lineage.soundAt(place))
+                if (const auto fingerprint = fingerprintOf(fileBytes))
+                    libraryMetadata.followEdit(*sound, *fingerprint);
             break;
         case nl2x::LibrarySaveResult::AlreadyExists:
             setStatus(target.getFileName() + " already exists and was not replaced. Choose another name.");

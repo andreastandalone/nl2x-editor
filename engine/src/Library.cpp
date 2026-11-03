@@ -211,8 +211,13 @@ std::vector<LibraryFile> scanLibrary(const std::filesystem::path& folder)
     std::sort(paths.begin(), paths.end());
     std::vector<LibraryFile> files;
     files.reserve(paths.size());
-    for (const auto& path : paths)
+    const auto backups = lowercase(std::string(kLibraryBackupFolderName));
+    for (const auto& path : paths) {
         files.push_back(openLibraryFile(path));
+        const auto relative = path.lexically_relative(folder);
+        files.back().isBackup = std::distance(relative.begin(), relative.end()) > 1
+                                && lowercase(relative.begin()->string()) == backups;
+    }
     return files;
 }
 
