@@ -6,11 +6,12 @@
 //
 //   nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]
 //                      [--settings] [--about] [--check] [--kit A|B|C|D] [--offline] [--edge-cases]
-//                      [--scale <n>] [--work <dir>]
+//                      [--width <px>] [--scale <n>] [--work <dir>]
 //
 // --kit makes that Slot play a Percussion Kit; --offline lets the synth answer nothing;
-// --edge-cases puts Slots A and B on one channel and values outside the documented ranges into
-// Slot A.
+// --edge-cases puts Slots A and B on one channel, and values outside the documented ranges and
+// Morph Amounts past the ends of the ranges into Slot A. --width resizes the editor window as
+// dragging its corner does: within its limits, the aspect ratio kept.
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
@@ -46,6 +47,7 @@ struct Options {
     bool edgeCases = false;
     std::optional<nl2x::Slot> kit;
     float scale = 1.0f;
+    int width = 0;
     juce::File work;
 };
 
@@ -86,6 +88,8 @@ std::optional<Options> parse(const juce::StringArray& args)
                 return std::nullopt;
         } else if (arg == "--scale")
             options.scale = juce::jlimit(1.0f, 4.0f, next().getFloatValue());
+        else if (arg == "--width")
+            options.width = next().getIntValue();
         else if (arg == "--work")
             options.work = juce::File::getCurrentWorkingDirectory().getChildFile(next());
         else
@@ -204,6 +208,13 @@ int render(const Options& options)
         nl2x::Program program(link.synth.editBuffer(nl2x::Slot::A));
         program.setValue(nl2x::ProgramParameter::Osc2Semitones, 125);
         program.setValue(nl2x::ProgramParameter::FilterType, 7);
+        // Morph Amounts that go past the end of the range, and one at the edge pointing out of it.
+        program.setValue(nl2x::ProgramParameter::AmpEnvAttack, 0);
+        program.setValue(*nl2x::morphAmountOf(nl2x::ProgramParameter::AmpEnvAttack), -40);
+        program.setValue(nl2x::ProgramParameter::FilterCutoff, 100);
+        program.setValue(*nl2x::morphAmountOf(nl2x::ProgramParameter::FilterCutoff), 60);
+        program.setValue(nl2x::ProgramParameter::FilterResonance, 30);
+        program.setValue(*nl2x::morphAmountOf(nl2x::ProgramParameter::FilterResonance), -90);
         link.synth.setEditBuffer(nl2x::Slot::A, program.bytes());
     }
 
@@ -228,6 +239,9 @@ int render(const Options& options)
 
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditorAndMakeActive());
     editor->setVisible(true);
+    if (auto* constrainer = editor->getConstrainer(); options.width > 0 && constrainer != nullptr)
+        constrainer->setBoundsForComponent(editor.get(), editor->getBounds().withWidth(options.width), false, false,
+                                           false, true);
 
     int tab = -1;
     if (const auto slot = slotOf(options.view))
@@ -274,7 +288,7 @@ int main(int argc, char* argv[])
     if (! options) {
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
-                     "                          [--edge-cases] [--scale <n>] [--work <dir>]\n";
+                     "                          [--edge-cases] [--width <px>] [--scale <n>] [--work <dir>]\n";
         return 2;
     }
     const juce::ScopedJuceInitialiser_GUI juce;

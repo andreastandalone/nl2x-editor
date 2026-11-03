@@ -6,7 +6,6 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cstdint>
-#include <functional>
 
 // The view of one Slot (the Slot tabs A–D): a tool row with "Read from synth", the Morph button
 // and the connection status, then the Slot's Program on the front-panel layout (ProgramPanel), or
@@ -27,8 +26,6 @@ public:
     // The Slot shown: the Library auditions on it (#11), "Store" stores it (#12).
     nl2x::Slot selected() const { return selectedSlot; }
     void selectSlot(nl2x::Slot slot);
-    // The user chose a Slot with the panel's Slot buttons; the owner selects the matching tab.
-    std::function<void(nl2x::Slot)> onSlotChosen;
 
 private:
     void timerCallback() override;
