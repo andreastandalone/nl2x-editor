@@ -6,7 +6,9 @@
 #include "nl2x/Performance.h"
 #include "nl2x/SysEx.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <numeric>
 #include <utility>
 #include <variant>
 
@@ -62,6 +64,27 @@ bool isRamBank(int bank)
     return bank >= hardware::kFirstRamProgramBank && bank <= hardware::kLastRamProgramBank;
 }
 
+std::vector<int> firstLocations(int count)
+{
+    std::vector<int> locations(static_cast<std::size_t>(count));
+    std::iota(locations.begin(), locations.end(), 0);
+    return locations;
+}
+
+std::string inQuotes(const std::string& name)
+{
+    return "\"" + name + "\"";
+}
+
+// "0, 1 and 3"
+std::string listed(const std::vector<int>& numbers)
+{
+    std::string list;
+    for (std::size_t i = 0; i < numbers.size(); ++i)
+        list += (i == 0 ? "" : i + 1 == numbers.size() ? " and " : ", ") + std::to_string(numbers[i]);
+    return list;
+}
+
 } // namespace
 
 std::string memoryRefusalText(MemoryRefusal refusal)
@@ -93,6 +116,13 @@ std::string memoryRefusalText(MemoryRefusal refusal)
                "(hardware discovery step 5 finds the right one).";
     case MemoryRefusal::FileExists:
         return "The file already exists and was not replaced.";
+    case MemoryRefusal::NothingToWrite:
+        return "Nothing to send: no Program location has been changed.";
+    case MemoryRefusal::DuplicateProgram:
+        return "A Program location is named twice.";
+    case MemoryRefusal::NotAProgram:
+        return "Only Programs can be stored in a Program location (Percussion Kits and Performances are not "
+               "supported yet).";
     }
     return {};
 }
@@ -142,13 +172,12 @@ std::uint8_t MemoryWriter::requestTypeOf(int bank) const
     return static_cast<std::uint8_t>(reading.requestTypeOfSysExBank1 + hardware::sysExBankOfShownBank(bank) - 1);
 }
 
-void MemoryWriter::begin(MemoryOperation operation, int bank, int firstLocation, int count)
+void MemoryWriter::begin(MemoryOperation operation, int bank, std::vector<int> locations)
 {
     task = Task {};
     task->operation = operation;
     task->bank = bank;
-    task->firstLocation = firstLocation;
-    task->count = count;
+    task->locations = std::move(locations);
     current = MemoryTaskStatus {};
     current.operation = operation;
     current.bank = bank;
@@ -164,13 +193,58 @@ MemoryRefusal MemoryWriter::prepareStoreProgram(Slot slot, int bank, int program
         return MemoryRefusal::ProgramOutOfRange;
     if (! engine.slotState(slot).program)
         return MemoryRefusal::SlotHasNoProgram;
+
+    return startWrite(MemoryOperation::StoreProgram, bank, { program - 1 }, {}, backupFolder, now, timeMs,
+                      [slot](Task& newTask) { newTask.slot = slot; });
+}
+
+MemoryRefusal MemoryWriter::prepareStoreProgram(const Program& value, const std::string& sourceName, int bank,
+                                                int program, const std::filesystem::path& backupFolder,
+                                                WallClockTime now, TimeMs timeMs)
+{
+    if (const auto refusal = startRefusal(bank); refusal != MemoryRefusal::None)
+        return refusal;
+    if (program < 1 || program > kProgramsPerBank)
+        return MemoryRefusal::ProgramOutOfRange;
+    return startWrite(MemoryOperation::StoreProgram, bank, { program - 1 }, { value }, backupFolder, now, timeMs,
+                      [&sourceName](Task& newTask) { newTask.sourceName = sourceName; });
+}
+
+MemoryRefusal MemoryWriter::prepareProgramWrites(int bank, std::vector<ProgramWrite> writes,
+                                                 const std::string& sourceName,
+                                                 const std::filesystem::path& backupFolder, WallClockTime now,
+                                                 TimeMs timeMs)
+{
+    if (const auto refusal = startRefusal(bank); refusal != MemoryRefusal::None)
+        return refusal;
+    if (writes.empty())
+        return MemoryRefusal::NothingToWrite;
+    std::sort(writes.begin(), writes.end(), [](const auto& a, const auto& b) { return a.program < b.program; });
+    std::vector<int> locations;
+    std::vector<Program> programs;
+    for (const auto& write : writes) {
+        if (write.program < 1 || write.program > kProgramsPerBank)
+            return MemoryRefusal::ProgramOutOfRange;
+        if (! locations.empty() && locations.back() == write.program - 1)
+            return MemoryRefusal::DuplicateProgram;
+        locations.push_back(write.program - 1);
+        programs.push_back(write.value);
+    }
+    return startWrite(MemoryOperation::SendPrograms, bank, std::move(locations), std::move(programs), backupFolder,
+                      now, timeMs, [&sourceName](Task& newTask) { newTask.sourceName = sourceName; });
+}
+
+MemoryRefusal MemoryWriter::startWrite(MemoryOperation operation, int bank, std::vector<int> locations,
+                                       std::vector<Program> programs, const std::filesystem::path& backupFolder,
+                                       WallClockTime now, TimeMs timeMs, const std::function<void(Task&)>& setUp)
+{
     if (reading.verified && requestTypeOf(bank) == hardware::kSlotEditBufferRequestType)
         return MemoryRefusal::RequestTypeCollides;
-
-    begin(MemoryOperation::StoreProgram, bank, program - 1, 1);
-    task->slot = slot;
+    begin(operation, bank, std::move(locations));
+    task->programs = std::move(programs);
     task->backupFolder = backupFolder;
     task->time = now;
+    setUp(*task);
     if (reading.verified) {
         current.stage = MemoryStage::ReadingBackup;
         current.total = kProgramsPerBank;
@@ -203,24 +277,13 @@ MemoryRefusal MemoryWriter::prepareBankSend(const LibraryFile& file, int bank,
         return MemoryRefusal::NoProgramsInFile;
     if (programs.size() > static_cast<std::size_t>(kProgramsPerBank))
         return MemoryRefusal::TooManyProgramsInFile;
-    if (reading.verified && requestTypeOf(bank) == hardware::kSlotEditBufferRequestType)
-        return MemoryRefusal::RequestTypeCollides;
 
-    begin(MemoryOperation::SendBank, bank, 0, static_cast<int>(programs.size()));
-    task->programs = std::move(programs);
-    task->sourceName = file.name;
-    task->skippedKits = kits;
-    task->backupFolder = backupFolder;
-    task->time = now;
-    if (reading.verified) {
-        current.stage = MemoryStage::ReadingBackup;
-        current.total = kProgramsPerBank;
-        changed();
-        readLocation(0, timeMs);
-    } else {
-        offerPlan({});
-    }
-    return MemoryRefusal::None;
+    auto locations = firstLocations(static_cast<int>(programs.size()));
+    return startWrite(MemoryOperation::SendBank, bank, std::move(locations), std::move(programs), backupFolder, now,
+                      timeMs, [&file, kits](Task& newTask) {
+                          newTask.sourceName = file.name;
+                          newTask.skippedKits = kits;
+                      });
 }
 
 MemoryRefusal MemoryWriter::readBank(int bank, const std::filesystem::path& file, ReplaceExisting replace,
@@ -234,11 +297,31 @@ MemoryRefusal MemoryWriter::readBank(int bank, const std::filesystem::path& file
     if (replace == ReplaceExisting::No && std::filesystem::exists(file, error))
         return MemoryRefusal::FileExists;
 
-    begin(MemoryOperation::ReadBank, bank, 0, kProgramsPerBank);
+    begin(MemoryOperation::ReadBank, bank, firstLocations(kProgramsPerBank));
     task->readFile = file;
     task->replace = replace;
     current.stage = MemoryStage::ReadingBank;
     current.total = kProgramsPerBank;
+    changed();
+    readLocation(0, timeMs);
+    return MemoryRefusal::None;
+}
+
+MemoryRefusal MemoryWriter::readBanks(std::vector<int> banks, TimeMs timeMs)
+{
+    if (banks.empty())
+        return MemoryRefusal::NothingToWrite;
+    for (const auto bank : banks) {
+        if (const auto refusal = startRefusal(bank); refusal != MemoryRefusal::None)
+            return refusal;
+        if (requestTypeOf(bank) == hardware::kSlotEditBufferRequestType)
+            return MemoryRefusal::RequestTypeCollides;
+    }
+
+    begin(MemoryOperation::ReadBanks, banks.front(), firstLocations(kProgramsPerBank));
+    current.stage = MemoryStage::ReadingBank;
+    current.total = kProgramsPerBank * static_cast<int>(banks.size());
+    task->banksToRead = std::move(banks);
     changed();
     readLocation(0, timeMs);
     return MemoryRefusal::None;
@@ -265,18 +348,21 @@ void MemoryWriter::locationRead(int location, std::optional<std::span<const std:
     const auto program = "Program " + std::to_string(location + 1) + " of " + bankText(task->bank);
 
     if (current.stage == MemoryStage::Verifying) {
-        const auto index = static_cast<std::size_t>(location - task->firstLocation);
+        const auto index = static_cast<std::size_t>(current.done);
         if (! reply) {
             finish(locationsText() + " written, but " + program + " did not answer the read-back, so the write "
                    "could not be checked.");
             return;
         }
-        if (parseProgramDump(*reply)->program == task->programs[index])
+        const auto readBack = parseProgramDump(*reply)->program;
+        if (readBack == task->programs[index])
             ++task->matches;
+        if (listener)
+            listener->programRead(task->bank, location + 1, readBack);
         ++current.done;
         changed();
-        if (location + 1 < task->firstLocation + task->count) {
-            readLocation(location + 1, timeMs);
+        if (index + 1 < task->locations.size()) {
+            readLocation(task->locations[index + 1], timeMs);
         } else {
             verified(timeMs);
         }
@@ -284,24 +370,45 @@ void MemoryWriter::locationRead(int location, std::optional<std::span<const std:
     }
 
     if (! reply) {
+        const auto noAnswer = program + " did not answer (request type " + std::to_string(requestTypeOf(task->bank))
+                              + ")";
         if (current.stage == MemoryStage::ReadingBackup)
-            fail(program + " did not answer (request type " + std::to_string(requestTypeOf(task->bank))
-                 + "): no backup was made, and nothing was written to the synth.");
+            fail(noAnswer + ": no backup was made, and nothing was written to the synth.");
+        else if (task->operation == MemoryOperation::ReadBanks)
+            fail(noAnswer + ": the Programs read before it are kept.");
         else
-            fail(program + " did not answer (request type " + std::to_string(requestTypeOf(task->bank))
-                 + "): no file was written.");
+            fail(noAnswer + ": no file was written.");
         return;
     }
 
     task->replies.emplace_back(reply->begin(), reply->end());
-    current.done = static_cast<int>(task->replies.size());
+    current.done = static_cast<int>(task->bankIndex) * kProgramsPerBank + static_cast<int>(task->replies.size());
+    if (listener)
+        listener->programRead(task->bank, location + 1, parseProgramDump(*reply)->program);
     changed();
     if (location + 1 < kProgramsPerBank)
         readLocation(location + 1, timeMs);
     else if (current.stage == MemoryStage::ReadingBackup)
         backupComplete(timeMs);
+    else if (task->operation == MemoryOperation::ReadBanks)
+        nextBankRead(timeMs);
     else
         readComplete();
+}
+
+void MemoryWriter::nextBankRead(TimeMs timeMs)
+{
+    if (++task->bankIndex < task->banksToRead.size()) {
+        task->bank = task->banksToRead[task->bankIndex];
+        task->replies.clear();
+        current.bank = task->bank;
+        changed();
+        readLocation(0, timeMs);
+        return;
+    }
+    const auto banks = task->banksToRead;
+    finish("Read Programs 1–99 of " + std::string(banks.size() == 1 ? "Bank " : "Banks ") + listed(banks)
+           + " from the synth.");
 }
 
 void MemoryWriter::backupComplete(TimeMs)
@@ -335,11 +442,22 @@ void MemoryWriter::readComplete()
 
 std::string MemoryWriter::locationsText() const
 {
-    const auto first = task->firstLocation + 1;
-    if (task->count == 1)
-        return "Program " + std::to_string(first) + " in " + bankText(task->bank);
-    return "Programs " + std::to_string(first) + "–" + std::to_string(first + task->count - 1) + " in "
-           + bankText(task->bank);
+    const auto& locations = task->locations;
+    const auto in = " in " + bankText(task->bank);
+    const auto first = locations.front() + 1;
+    if (locations.size() == 1)
+        return "Program " + std::to_string(first) + in;
+    const auto last = locations.back() + 1;
+    if (last - first + 1 == static_cast<int>(locations.size()))
+        return "Programs " + std::to_string(first) + "–" + std::to_string(last) + in;
+    // Listed while the question stays readable.
+    constexpr std::size_t kMostListed = 10;
+    if (locations.size() > kMostListed)
+        return std::to_string(locations.size()) + " Programs" + in;
+    std::vector<int> programs;
+    for (const auto location : locations)
+        programs.push_back(location + 1);
+    return "Programs " + listed(programs) + in;
 }
 
 void MemoryWriter::offerPlan(std::string message)
@@ -348,8 +466,10 @@ void MemoryWriter::offerPlan(std::string message)
     plan.token = ++lastToken;
     plan.operation = task->operation;
     plan.bank = task->bank;
-    plan.firstProgram = task->firstLocation + 1;
-    plan.programCount = task->count;
+    plan.firstProgram = task->locations.front() + 1;
+    plan.programCount = static_cast<int>(task->locations.size());
+    for (const auto location : task->locations)
+        plan.programs.push_back(location + 1);
     plan.backupFile = current.backupFile;
     plan.needsNoBackupConsent = ! current.backupFile;
 
@@ -357,11 +477,20 @@ void MemoryWriter::offerPlan(std::string message)
     const auto locations = locationsText();
     plan.question = "Overwrite " + locations + " on the synth?";
 
+    const auto count = task->locations.size();
+    const auto spacing = ", one every " + std::to_string(hardware::kBankWriteSpacingMs) + " ms.";
     if (task->operation == MemoryOperation::StoreProgram) {
-        plan.details = std::string("Slot ") + slotLetter(task->slot) + "'s Program replaces " + locations + ".";
+        plan.details = (task->slot ? std::string("Slot ") + slotLetter(*task->slot) + "'s Program"
+                                   : inQuotes(task->sourceName))
+                       + " replaces " + locations + ".";
+    } else if (task->operation == MemoryOperation::SendPrograms) {
+        plan.details = (count == 1 ? std::string("1 Program") : std::to_string(count) + " Programs") + " of "
+                       + task->sourceName + (count == 1 ? " replaces " : " replace ") + locations
+                       + (count == 1 ? std::string(".") : spacing) + " The other Programs of " + bank
+                       + " are not touched.";
     } else {
-        plan.details = "The " + std::to_string(task->count) + " Programs of \"" + task->sourceName + "\" replace "
-                       + locations + ", one every " + std::to_string(hardware::kBankWriteSpacingMs) + " ms.";
+        plan.details = "The " + std::to_string(count) + " Programs of " + inQuotes(task->sourceName) + " replace "
+                       + locations + spacing;
         if (task->skippedKits > 0)
             plan.details += " Its " + std::to_string(task->skippedKits)
                             + " Percussion Kits are not sent: storing Kits in a Bank is not supported yet.";
@@ -396,11 +525,11 @@ MemoryConfirmResult MemoryWriter::confirm(std::uint64_t token, NoBackupConsent c
         return MemoryConfirmResult::RefusedNoBackupConsent;
 
     current.plan.reset();
-    if (task->operation == MemoryOperation::StoreProgram) {
+    if (task->slot) {
         // The Program as the Slot holds it now, edits made while the question was open included.
-        const auto& program = engine.slotState(task->slot).program;
+        const auto& program = engine.slotState(*task->slot).program;
         if (! program) {
-            fail(std::string("Slot ") + slotLetter(task->slot)
+            fail(std::string("Slot ") + slotLetter(*task->slot)
                  + " no longer plays a Program. Nothing was written to the synth.");
             return MemoryConfirmResult::Accepted;
         }
@@ -458,7 +587,7 @@ void MemoryWriter::startWriting(TimeMs timeMs)
 {
     current.stage = MemoryStage::Writing;
     current.done = 0;
-    current.total = task->count;
+    current.total = static_cast<int>(task->locations.size());
     task->written = 0;
     task->nextWriteMs = timeMs;
     changed();
@@ -473,12 +602,12 @@ void MemoryWriter::writeDue(TimeMs timeMs)
     const auto channel = engine.globalChannel();
     if (! channel) {
         fail("The connection to the synth was lost after " + std::to_string(task->written) + " of "
-             + std::to_string(task->count) + " Programs were written.");
+             + std::to_string(task->locations.size()) + " Programs were written.");
         return;
     }
 
     const auto index = static_cast<std::size_t>(task->written);
-    const auto location = static_cast<std::uint8_t>(task->firstLocation + task->written);
+    const auto location = static_cast<std::uint8_t>(task->locations[index]);
     // The type byte names the manual's SysEx Bank; the synth ignores it and stores into the Bank
     // selected on its panel [OFF-2X p.78], which was checked above.
     const auto type = static_cast<std::uint8_t>(hardware::kFirstProgramBankDumpType
@@ -487,9 +616,11 @@ void MemoryWriter::writeDue(TimeMs timeMs)
     ++task->written;
     current.done = task->written;
     task->nextWriteMs = timeMs + hardware::kBankWriteSpacingMs;
+    if (listener)
+        listener->programWritten(task->bank, location + 1, task->programs[index]);
     changed();
 
-    if (task->written < task->count)
+    if (task->written < static_cast<int>(task->locations.size()))
         return;
     if (reading.verified) {
         current.stage = MemoryStage::Verifying;
@@ -502,14 +633,17 @@ void MemoryWriter::writeDue(TimeMs timeMs)
 
 void MemoryWriter::verified(TimeMs)
 {
+    const auto count = std::to_string(task->locations.size());
     std::string message;
     if (task->operation == MemoryOperation::StoreProgram)
-        message = std::string("Stored Slot ") + slotLetter(task->slot) + "'s Program as " + locationsText() + ".";
+        message = "Stored "
+                  + (task->slot ? std::string("Slot ") + slotLetter(*task->slot) + "'s Program" : inQuotes(task->sourceName))
+                  + " as " + locationsText() + ".";
     else
-        message = "Sent " + std::to_string(task->count) + " Programs to " + locationsText() + ".";
+        message = "Sent " + count + (task->locations.size() == 1 ? " Program to " : " Programs to ") + locationsText()
+                  + ".";
     if (reading.verified)
-        message += " Read back: " + std::to_string(task->matches) + " of " + std::to_string(task->count)
-                   + " match what was sent.";
+        message += " Read back: " + std::to_string(task->matches) + " of " + count + " match what was sent.";
     if (current.backupFile)
         message += " Backup: " + current.backupFile->string() + ".";
     else
@@ -526,8 +660,8 @@ void MemoryWriter::advanceTime(TimeMs timeMs)
     } else if (current.stage == MemoryStage::Verifying && ! task->verifyStarted && timeMs >= task->nextWriteMs) {
         // The last dump has had its time to be stored before it is read back.
         task->verifyStarted = true;
-        current.total = task->count;
-        readLocation(task->firstLocation, timeMs);
+        current.total = static_cast<int>(task->locations.size());
+        readLocation(task->locations.front(), timeMs);
     }
 }
 
@@ -538,7 +672,7 @@ void MemoryWriter::cancel()
     connection.cancel(kMemoryWriterOwner);
     const bool partlyWritten = task && task->written > 0 && current.stage == MemoryStage::Writing;
     std::string message = partlyWritten ? "Stopped after " + std::to_string(task->written) + " of "
-                                              + std::to_string(task->count) + " Programs were written to "
+                                              + std::to_string(task->locations.size()) + " Programs were written to "
                                               + bankText(task->bank) + "; the others are unchanged."
                                         : "Cancelled. Nothing was written to the synth.";
     if (current.backupFile)
@@ -547,7 +681,7 @@ void MemoryWriter::cancel()
     current.stage = MemoryStage::Idle;
     current.plan.reset();
     current.message = std::move(message);
-    changed();
+    ended();
 }
 
 void MemoryWriter::abort(const std::string& reason)
@@ -556,7 +690,8 @@ void MemoryWriter::abort(const std::string& reason)
         return;
     connection.cancel(kMemoryWriterOwner);
     const bool partlyWritten = task && task->written > 0 && current.stage == MemoryStage::Writing;
-    fail(reason + (partlyWritten ? " " + std::to_string(task->written) + " of " + std::to_string(task->count)
+    fail(reason + (partlyWritten ? " " + std::to_string(task->written) + " of "
+                                       + std::to_string(task->locations.size())
                                        + " Programs had been written."
                                  : " Nothing was written to the synth."));
 }
@@ -573,7 +708,7 @@ void MemoryWriter::finish(std::string message)
     current.stage = MemoryStage::Finished;
     current.plan.reset();
     current.message = std::move(message);
-    changed();
+    ended();
 }
 
 void MemoryWriter::fail(std::string message)
@@ -584,6 +719,13 @@ void MemoryWriter::fail(std::string message)
     current.stage = MemoryStage::Failed;
     current.plan.reset();
     current.message = std::move(message);
+    ended();
+}
+
+void MemoryWriter::ended()
+{
+    if (listener)
+        listener->taskEnded();
     changed();
 }
 

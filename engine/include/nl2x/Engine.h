@@ -28,6 +28,7 @@
 namespace nl2x {
 
 class EditHistory;
+class Librarian;
 class PerformanceEditBuffer;
 struct EditTarget;
 class ConnectionCheck;
@@ -168,6 +169,11 @@ public:
     MemoryWriter& memoryWriter() { return *memory; }
     const MemoryWriter& memoryWriter() const { return *memory; }
 
+    // The Librarian (#44, Librarian.h): the synth's RAM Banks as last read, and the Composed Banks.
+    // Kept while the engine lives; connecting again keeps them.
+    Librarian& librarian() { return *librarianPart; }
+    const Librarian& librarian() const { return *librarianPart; }
+
     // Undo/redo (#14, EngineEditHistory.cpp). Only the user's edits in the plugin are undoable: the
     // shell hands each one in between beginUserEdit(step) and endUserEdit(), with the same step
     // for every value of one knob drag and a new step (newEditStep) for each menu choice. Calls of
@@ -271,6 +277,8 @@ private:
     // Declared after `connection`, which holds callbacks into it, so that it goes first.
     std::unique_ptr<ConnectionCheck> check;
     std::unique_ptr<MemoryWriter> memory;
+    // Declared after `memory`, which calls it as its listener.
+    std::unique_ptr<Librarian> librarianPart;
     std::array<SlotState, 4> slots;
     std::optional<GlobalChannel> foundGlobalChannel;
     std::optional<GlobalChannel> manualChannel;
