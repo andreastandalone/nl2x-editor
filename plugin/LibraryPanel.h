@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 
+#include "nl2x/CategorySuggestion.h"
 #include "nl2x/Library.h"
 #include "nl2x/LibraryMetadata.h"
 
@@ -10,6 +11,9 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 // The Library panel (#11) at the side of the editor: the Library folder (chosen in the Settings
@@ -22,6 +26,11 @@
 // (#44); the open groups and files are remembered across rescans and editor reopens. Bank
 // backups in the Backups subfolder are listed apart, under a closed "Backups" heading. A sound
 // auditioned from the Library, edited in the editor and saved again keeps its information.
+//
+// A sound with no category of its own shows a suggested one (nl2x::suggestCategory) as a dashed
+// tag such as "Bass?": clicking the tag keeps it as the sound's category, the sound's context menu
+// keeps or dismisses it. A suggestion is never written to library.json until the user keeps it;
+// dismissed suggestions are remembered in the editor's settings.
 //
 // For the Librarian (#44): a Program can be dragged onto a Bank location and a Bank file onto a
 // Bank (the drag description names it; draggedEntry() and draggedBankFile() resolve it), and a
@@ -43,6 +52,18 @@ public:
     void bankFileSelected(const nl2x::LibraryFile& file, bool isNowSelected);
     void entryMenu(const nl2x::LibraryEntry& entry);
     const nl2x::LibraryMetadata& metadata() const { return libraryMetadata; }
+    // Counts the changes to the user's information and to the suggestions shown, for views that
+    // show them (the Librarian) to know when to repaint.
+    int metadataRevision() const { return metadataChanges; }
+
+    // The category suggested for a sound: none when the user gave it a category or dismissed the
+    // suggestion. A sound in the Library gets the most trusted suggestion of any entry holding it
+    // (its own file's name before its parameters); any other Program is judged by its parameters.
+    std::optional<nl2x::CategorySuggestion> suggestionFor(const nl2x::SoundFingerprint& fingerprint) const;
+    // Keeps the suggestion as the sound's category, in library.json.
+    void acceptSuggestion(const nl2x::SoundFingerprint& fingerprint);
+    // Hides the suggestion for this sound from now on.
+    void dismissSuggestion(const nl2x::SoundFingerprint& fingerprint);
 
     // The files as last scanned; valid until the next rescan(), whose count `contentsRevision()`
     // gives, so that views built from them know when to rebuild.
@@ -94,6 +115,8 @@ private:
     void showSelectedInfo();
     void commitName();
     void storeInfo(const nl2x::SoundInfo& info);
+    void storeInfo(const nl2x::SoundFingerprint& fingerprint, const nl2x::SoundInfo& info);
+    void findSuggestions();
 
     NL2XEditorProcessor& processor;
     std::function<nl2x::Slot()> selectedSlot;
@@ -118,6 +141,11 @@ private:
     nl2x::LibraryMetadata libraryMetadata;
     nl2x::LibraryFilter filter;
     nl2x::SoundLineage lineage;
+    int metadataChanges = 0;
+    // By fingerprint key: the suggestion for each sound in the Library.
+    std::unordered_map<std::string, nl2x::CategorySuggestion> suggestions;
+    // Fingerprint keys of the sounds whose suggestion the user dismissed.
+    std::set<std::string> dismissedSuggestions;
     bool showingFiltered = false;
     std::unique_ptr<juce::XmlElement> unfilteredOpenness;
     std::vector<std::string> categories;

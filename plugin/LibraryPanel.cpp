@@ -10,6 +10,8 @@ namespace {
 constexpr const char* kLibraryFolderKey = "libraryFolder";
 // The tree's openness (TreeView::getOpennessState), kept across editor reopens.
 constexpr const char* kLibraryOpennessKey = "libraryOpenness";
+// The sounds whose suggested category the user dismissed: fingerprint keys, one per line.
+constexpr const char* kDismissedSuggestionsKey = "dismissedCategorySuggestions";
 constexpr int kRefreshIntervalMs = 200;
 constexpr int kRowHeight = 26;
 constexpr int kStarWidth = 16;
@@ -55,6 +57,19 @@ std::optional<nl2x::SoundFingerprint> fingerprintOf(const std::vector<std::uint8
     return nl2x::SoundFingerprint::of(file.entries.front());
 }
 
+// A sound's kind and values as text, to key the suggestions by.
+std::string fingerprintKey(const nl2x::SoundFingerprint& fingerprint)
+{
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string key(1, static_cast<char>('0' + static_cast<int>(fingerprint.kind)));
+    key += ':';
+    for (const auto value : fingerprint.values) {
+        key += kHex[value >> 4];
+        key += kHex[value & 0x0f];
+    }
+    return key;
+}
+
 juce::String kindSuffix(nl2x::LibraryEntryKind kind)
 {
     switch (kind) {
@@ -75,19 +90,24 @@ void paintRow(juce::Graphics& g, const juce::String& text, int width, int height
     g.drawText(text, kStarWidth, 0, width - kStarWidth, height, juce::Justification::centredLeft, true);
 }
 
-// A tag on a row: a small rounded chip, filled (the category) or outlined (a remark).
+// A tag on a row: a small rounded chip, filled (the category), outlined (a remark) or dashed (a
+// suggested category).
 struct Tag {
+    enum class Style { Filled, Outlined, Suggested };
     juce::String text;
-    bool filled = true;
+    Style style = Style::Filled;
 };
 
 // A sound: a star when it is a favourite, the name the Library gives it (file or Bank position),
-// the user's own name beside it, and at the right end its tags: the category, and whether it was
-// recognised as an edited version. A tag that would leave the text too little room is left out.
-void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, const nl2x::LibraryEntry& entry,
-                   const juce::String& prefix, int width, int height)
+// the user's own name beside it, and at the right end its tags: the category (or a suggested one),
+// and whether it was recognised as an edited version. A tag that would leave the text too little
+// room is left out. Returns where the suggested category's tag is, empty when none is drawn.
+juce::Rectangle<float> paintSoundRow(juce::Graphics& g, const LibraryPanel& panel, const nl2x::LibraryEntry& entry,
+                                     const juce::String& prefix, int width, int height)
 {
-    const auto info = metadata.info(entry);
+    const auto& metadata = panel.metadata();
+    const auto fingerprint = nl2x::SoundFingerprint::of(entry);
+    const auto info = metadata.info(fingerprint);
     if (info.favourite) {
         juce::Path star;
         const auto centre = juce::Point<float>(kStarWidth * 0.5f, static_cast<float>(height) * 0.5f);
@@ -98,22 +118,31 @@ void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, con
 
     std::vector<Tag> tags;
     if (! info.category.empty())
-        tags.push_back({ utf8(info.category), true });
+        tags.push_back({ utf8(info.category), Tag::Style::Filled });
+    else if (const auto suggestion = panel.suggestionFor(fingerprint))
+        tags.push_back({ utf8(suggestion->category), Tag::Style::Suggested });
     // Recognised by similarity: the sound was changed since it was tagged (on the synth panel, say).
-    if (const auto match = metadata.match(nl2x::SoundFingerprint::of(entry)); match && match->differences > 0)
-        tags.push_back({ "changed", false });
+    if (const auto match = metadata.match(fingerprint); match && match->differences > 0)
+        tags.push_back({ "changed", Tag::Style::Outlined });
 
     // The tags from the right end, the category nearest the text.
+    juce::Rectangle<float> suggestedTag;
     int right = width - kTagGap;
     const auto tagHeight = static_cast<float>(std::min(height - 6, kTagHeight));
     const auto tagTop = (static_cast<float>(height) - tagHeight) * 0.5f;
     for (auto tag = tags.rbegin(); tag != tags.rend(); ++tag) {
-        const int size = NordLookAndFeel::tagWidth(tag->text);
+        const bool suggested = tag->style == Tag::Style::Suggested;
+        const int size = NordLookAndFeel::tagWidth(suggested ? NordLookAndFeel::suggestedTagText(tag->text) : tag->text);
         if (right - size < kStarWidth + kMinTextWidth)
             continue;
         right -= size;
-        NordLookAndFeel::drawTag(g, tag->text, { static_cast<float>(right), tagTop, static_cast<float>(size), tagHeight },
-                                tag->filled);
+        const juce::Rectangle<float> area { static_cast<float>(right), tagTop, static_cast<float>(size), tagHeight };
+        if (suggested) {
+            NordLookAndFeel::drawSuggestedTag(g, tag->text, area);
+            suggestedTag = area;
+        } else {
+            NordLookAndFeel::drawTag(g, tag->text, area, tag->style == Tag::Style::Filled);
+        }
         right -= kTagGap;
     }
 
@@ -124,7 +153,7 @@ void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, con
     if (info.name.empty()) {
         g.setColour(NordPalette::text);
         g.drawText(label, text, juce::Justification::centredLeft, true);
-        return;
+        return suggestedTag;
     }
     // The Library's label dimmed, then the user's name in the text colour.
     const auto labelWidth = std::min(text.getWidth(), juce::GlyphArrangement::getStringWidthInt(font, label + "  "));
@@ -132,6 +161,17 @@ void paintSoundRow(juce::Graphics& g, const nl2x::LibraryMetadata& metadata, con
     g.drawText(label, text.removeFromLeft(labelWidth), juce::Justification::centredLeft, true);
     g.setColour(NordPalette::text);
     g.drawText(utf8(info.name), text, juce::Justification::centredLeft, true);
+    return suggestedTag;
+}
+
+// A click on a row's suggested category keeps it (and does not audition the sound).
+bool clickedSuggestedTag(LibraryPanel& panel, const nl2x::LibraryEntry& entry, juce::Rectangle<float> suggestedTag,
+                         const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() || ! suggestedTag.contains(e.position))
+        return false;
+    panel.acceptSuggestion(nl2x::SoundFingerprint::of(entry));
+    return true;
 }
 
 class EntryItem final : public juce::TreeViewItem {
@@ -143,10 +183,12 @@ public:
     int getItemHeight() const override { return kRowHeight; }
     void paintItem(juce::Graphics& g, int width, int height) override
     {
-        paintSoundRow(g, panel.metadata(), entry, {}, width, height);
+        suggestedTag = paintSoundRow(g, panel, entry, {}, width, height);
     }
     void itemClicked(const juce::MouseEvent& e) override
     {
+        if (clickedSuggestedTag(panel, entry, suggestedTag, e))
+            return;
         if (e.mods.isPopupMenu())
             panel.entryMenu(entry);
         else
@@ -163,6 +205,7 @@ public:
 private:
     LibraryPanel& panel;
     const nl2x::LibraryEntry& entry;
+    juce::Rectangle<float> suggestedTag;
 };
 
 // A file. One holding a single dump behaves as that entry; a Bank file opens into its entries.
@@ -186,7 +229,7 @@ public:
     void paintItem(juce::Graphics& g, int width, int height) override
     {
         if (file.entries.size() == 1) {
-            paintSoundRow(g, panel.metadata(), file.entries.front(), prefix, width, height);
+            suggestedTag = paintSoundRow(g, panel, file.entries.front(), prefix, width, height);
             return;
         }
         juce::String text = prefix + utf8(file.name);
@@ -205,7 +248,7 @@ public:
 
     void itemClicked(const juce::MouseEvent& e) override
     {
-        if (file.entries.size() != 1)
+        if (file.entries.size() != 1 || clickedSuggestedTag(panel, file.entries.front(), suggestedTag, e))
             return;
         if (e.mods.isPopupMenu())
             panel.entryMenu(file.entries.front());
@@ -240,6 +283,7 @@ private:
     LibraryPanel& panel;
     const nl2x::LibraryFile& file;
     juce::String prefix;
+    juce::Rectangle<float> suggestedTag;
 };
 
 // The invisible root holding the files.
@@ -392,7 +436,9 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     tree.setDefaultOpenness(false);
     tree.setTooltip("Click a Program or Percussion Kit to audition it on the selected Slot; double-click a "
                     "Performance to send it to the Performance Edit Buffer. Nothing is stored in the synth. In the "
-                    "Librarian tab, drag a Program onto a Bank location, or a Bank file onto a Bank.");
+                    "Librarian tab, drag a Program onto a Bank location, or a Bank file onto a Bank. A dashed tag "
+                    "such as \"Bass?\" is a suggested category: click it to keep it, or right-click the sound to "
+                    "dismiss it.");
 
     saveSlotButton.setTooltip("Save the selected Slot's Program as a new .syx file in the Library");
     saveSlotButton.onClick = [this] { saveSlot(); };
@@ -451,6 +497,9 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
 
     // The groups and files left open when the editor last closed.
     unfilteredOpenness = processor.midiPorts().userSettings().getXmlValue(kLibraryOpennessKey);
+    for (const auto& key : juce::StringArray::fromLines(processor.midiPorts().userSettings().getValue(kDismissedSuggestionsKey)))
+        if (key.isNotEmpty())
+            dismissedSuggestions.insert(key.toStdString());
     rescan();
     timerCallback();
     startTimer(kRefreshIntervalMs);
@@ -568,6 +617,8 @@ void LibraryPanel::rescan()
     ++scanCount;
     libraryMetadata = nl2x::LibraryMetadata::load(toPath(current));
     libraryMetadata.setLibraryContents(files);
+    findSuggestions();
+    ++metadataChanges;
     refreshCategoryChoices();
     rebuildTree();
 
@@ -677,10 +728,79 @@ void LibraryPanel::showSelectedInfo()
     nameEditor.setText(utf8(info.name), false);
     nameEditor.setTextToShowWhenEmpty(utf8(selectedEntry->name), NordPalette::textDim);
     const auto found = std::find(categories.begin(), categories.end(), info.category);
-    categoryBox.setSelectedId(found == categories.end() ? kNoCategoryId
-                                                        : kFirstCategoryId + static_cast<int>(found - categories.begin()),
-                              juce::dontSendNotification);
+    const auto suggestion = info.category.empty() ? suggestionFor(nl2x::SoundFingerprint::of(*selectedEntry))
+                                                  : std::nullopt;
+    if (suggestion) {
+        // Nothing chosen yet: the box shows the suggestion until a category is picked.
+        categoryBox.setSelectedId(0, juce::dontSendNotification);
+        categoryBox.setTextWhenNothingSelected("Suggested: " + utf8(suggestion->category));
+    } else {
+        categoryBox.setSelectedId(found == categories.end()
+                                      ? kNoCategoryId
+                                      : kFirstCategoryId + static_cast<int>(found - categories.begin()),
+                                  juce::dontSendNotification);
+    }
     favouriteButton.setToggleState(info.favourite, juce::dontSendNotification);
+}
+
+std::optional<nl2x::CategorySuggestion> LibraryPanel::suggestionFor(const nl2x::SoundFingerprint& fingerprint) const
+{
+    if (! libraryMetadata.info(fingerprint).category.empty())
+        return std::nullopt;
+    const auto key = fingerprintKey(fingerprint);
+    if (dismissedSuggestions.contains(key))
+        return std::nullopt;
+    if (const auto found = suggestions.find(key); found != suggestions.end())
+        return found->second;
+    if (fingerprint.kind != nl2x::LibraryEntryKind::Program)
+        return std::nullopt;
+    std::vector<std::int8_t> values(fingerprint.values.size());
+    std::transform(fingerprint.values.begin(), fingerprint.values.end(), values.begin(),
+                   [](std::uint8_t value) { return static_cast<std::int8_t>(value); });
+    const auto program = nl2x::Program::fromValues(values);
+    return program ? nl2x::suggestCategory(*program) : std::nullopt;
+}
+
+void LibraryPanel::acceptSuggestion(const nl2x::SoundFingerprint& fingerprint)
+{
+    const auto suggestion = suggestionFor(fingerprint);
+    if (! suggestion)
+        return;
+    auto info = libraryMetadata.info(fingerprint);
+    info.category = suggestion->category;
+    storeInfo(fingerprint, info);
+}
+
+void LibraryPanel::dismissSuggestion(const nl2x::SoundFingerprint& fingerprint)
+{
+    dismissedSuggestions.insert(fingerprintKey(fingerprint));
+    juce::StringArray keys;
+    for (const auto& key : dismissedSuggestions)
+        keys.add(key);
+    auto& settings = processor.midiPorts().userSettings();
+    settings.setValue(kDismissedSuggestionsKey, keys.joinIntoString("\n"));
+    settings.saveIfNeeded();
+    ++metadataChanges;
+    showSelectedInfo();
+    tree.repaint();
+}
+
+void LibraryPanel::findSuggestions()
+{
+    suggestions.clear();
+    for (const auto& file : files) {
+        if (file.isBackup)
+            continue;
+        for (const auto& entry : file.entries) {
+            auto suggestion = nl2x::suggestCategory(file, entry);
+            if (! suggestion)
+                continue;
+            // The same sound in its own named file and in a Bank file: the name is more trusted.
+            const auto [found, added] = suggestions.emplace(fingerprintKey(nl2x::SoundFingerprint::of(entry)), *suggestion);
+            if (! added && suggestion->source < found->second.source)
+                found->second = std::move(*suggestion);
+        }
+    }
 }
 
 void LibraryPanel::commitName()
@@ -700,9 +820,14 @@ void LibraryPanel::commitName()
 
 void LibraryPanel::storeInfo(const nl2x::SoundInfo& info)
 {
-    if (selectedEntry == nullptr)
-        return;
-    switch (libraryMetadata.set(*selectedEntry, info)) {
+    if (selectedEntry != nullptr)
+        storeInfo(nl2x::SoundFingerprint::of(*selectedEntry), info);
+}
+
+void LibraryPanel::storeInfo(const nl2x::SoundFingerprint& fingerprint, const nl2x::SoundInfo& info)
+{
+    ++metadataChanges;
+    switch (libraryMetadata.set(fingerprint, info)) {
     case nl2x::MetadataSaveResult::Saved:
         break;
     case nl2x::MetadataSaveResult::RefusedUnreadable:
@@ -731,24 +856,40 @@ void LibraryPanel::entryClicked(const nl2x::LibraryEntry& entry)
 
 void LibraryPanel::entryMenu(const nl2x::LibraryEntry& entry)
 {
-    if (entry.kind() != nl2x::LibraryEntryKind::Program)
+    const auto fingerprint = nl2x::SoundFingerprint::of(entry);
+    const auto suggestion = suggestionFor(fingerprint);
+    if (entry.kind() != nl2x::LibraryEntryKind::Program && ! suggestion)
         return;
     // The entry lives in `files`: the menu finds it again by its description, so that a rescan
     // while the menu is open leaves nothing dangling.
     const auto description = dragDescriptionOf(entry);
     const auto safe = juce::Component::SafePointer<LibraryPanel>(this);
     juce::PopupMenu menu;
-    menu.addItem("Audition on " + slotName(selectedSlot()), [safe, description] {
-        if (safe != nullptr)
-            if (const auto* found = safe->draggedEntry(description))
-                safe->auditionEntry(*found);
-    });
-    menu.addItem(juce::String::fromUTF8("Store to Bank/Program\xE2\x80\xA6"), static_cast<bool>(onStoreEntry), false,
-                 [safe, description] {
-                     if (safe != nullptr && safe->onStoreEntry)
-                         if (const auto* found = safe->draggedEntry(description))
-                             safe->onStoreEntry(*found);
-                 });
+    if (entry.kind() == nl2x::LibraryEntryKind::Program) {
+        menu.addItem("Audition on " + slotName(selectedSlot()), [safe, description] {
+            if (safe != nullptr)
+                if (const auto* found = safe->draggedEntry(description))
+                    safe->auditionEntry(*found);
+        });
+        menu.addItem(juce::String::fromUTF8("Store to Bank/Program\xE2\x80\xA6"), static_cast<bool>(onStoreEntry), false,
+                     [safe, description] {
+                         if (safe != nullptr && safe->onStoreEntry)
+                             if (const auto* found = safe->draggedEntry(description))
+                                 safe->onStoreEntry(*found);
+                     });
+    }
+    if (suggestion) {
+        if (menu.getNumItems() > 0)
+            menu.addSeparator();
+        menu.addItem("Keep suggested category: " + utf8(suggestion->category), [safe, fingerprint] {
+            if (safe != nullptr)
+                safe->acceptSuggestion(fingerprint);
+        });
+        menu.addItem("Dismiss suggested category", [safe, fingerprint] {
+            if (safe != nullptr)
+                safe->dismissSuggestion(fingerprint);
+        });
+    }
     menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
 }
 

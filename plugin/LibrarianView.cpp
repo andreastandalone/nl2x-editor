@@ -207,6 +207,11 @@ public:
         selectedProgram = *pressed;
         repaint();
         const nl2x::BankLocation location { view.bank, *pressed };
+        if (! e.mods.isPopupMenu() && suggestedTags[static_cast<std::size_t>(*pressed)].contains(e.position)) {
+            pressed.reset();
+            view.acceptSuggestion(location);
+            return;
+        }
         if (e.mods.isPopupMenu())
             view.locationMenu(location);
         else
@@ -313,22 +318,34 @@ private:
             content.removeFromLeft(2);
         }
 
-        // Tags from the right end, the category nearest the name, as in the Library.
-        std::vector<std::pair<juce::String, bool>> tags;
+        // Tags from the right end, the category (or a suggested one) nearest the name, as in the
+        // Library.
+        enum class Style { Filled, Outlined, Suggested };
+        std::vector<std::pair<juce::String, Style>> tags;
         if (text.category.isNotEmpty())
-            tags.emplace_back(text.category, true);
+            tags.emplace_back(text.category, Style::Filled);
+        else if (text.suggested.isNotEmpty())
+            tags.emplace_back(text.suggested, Style::Suggested);
         if (text.changed)
-            tags.emplace_back("changed", false);
+            tags.emplace_back("changed", Style::Outlined);
+        auto& suggestedTag = suggestedTags[static_cast<std::size_t>(program)];
+        suggestedTag = {};
         const auto tagHeight = static_cast<float>(std::min(content.getHeight() - 6, NordMetrics::tagHeight));
         const auto tagTop = static_cast<float>(content.getY()) + (static_cast<float>(content.getHeight()) - tagHeight) * 0.5f;
         for (auto tag = tags.rbegin(); tag != tags.rend(); ++tag) {
-            const int size = NordLookAndFeel::tagWidth(tag->first);
+            const bool suggested = tag->second == Style::Suggested;
+            const int size = NordLookAndFeel::tagWidth(suggested ? NordLookAndFeel::suggestedTagText(tag->first)
+                                                                  : tag->first);
             if (content.getWidth() - size - NordMetrics::tagGap < kMinNameWidth)
                 continue;
             const auto chip = content.removeFromRight(size);
-            NordLookAndFeel::drawTag(g, tag->first,
-                                     { static_cast<float>(chip.getX()), tagTop, static_cast<float>(size), tagHeight },
-                                     tag->second);
+            const juce::Rectangle<float> tagArea { static_cast<float>(chip.getX()), tagTop, static_cast<float>(size), tagHeight };
+            if (suggested) {
+                NordLookAndFeel::drawSuggestedTag(g, tag->first, tagArea);
+                suggestedTag = tagArea;
+            } else {
+                NordLookAndFeel::drawTag(g, tag->first, tagArea, tag->second == Style::Filled);
+            }
             content.removeFromRight(NordMetrics::tagGap);
         }
 
@@ -370,6 +387,9 @@ private:
     std::optional<int> pressed;
     std::optional<int> dropTarget;
     bool dragging = false;
+    // Where each location's suggested category tag was last painted (empty: none), by Program
+    // number.
+    std::array<juce::Rectangle<float>, kPrograms + 1> suggestedTags {};
 };
 
 LibrarianView::LibrarianView(NL2XEditorProcessor& owner, LibraryPanel& library, std::function<nl2x::Slot()> slotChoice)
@@ -519,6 +539,9 @@ LibrarianView::LocationText LibrarianView::describeProgram(const std::optional<n
     const auto fingerprint = nl2x::SoundFingerprint::of(*program);
     const auto info = metadata.info(fingerprint);
     text.category = utf8(info.category);
+    if (info.category.empty())
+        if (const auto suggestion = libraryPanel.suggestionFor(fingerprint))
+            text.suggested = utf8(suggestion->category);
     text.favourite = info.favourite;
     if (const auto match = metadata.match(fingerprint))
         text.changed = match->differences > 0;
@@ -551,6 +574,8 @@ juce::String LibrarianView::tooltipFor(nl2x::BankLocation location) const
     juce::String tip = locationName(location) + ": " + nameOf(text);
     if (text.category.isNotEmpty())
         tip << " (" << text.category << ")";
+    else if (text.suggested.isNotEmpty())
+        tip << " (suggested: " << text.suggested << "; click the dashed tag to keep it)";
     if (processor.librarian().isPending(location))
         tip << ". To send: it replaces " << nameOf(describeSynth(location)) << " on the synth";
     tip << ".\nClick to audition it on " << slotName(selectedSlot())
@@ -591,10 +616,12 @@ void LibrarianView::refresh()
 
     const auto names = libraryPanel.contentsRevision();
     const auto revision = processor.synth().stateRevision();
-    if (names != namesRevision || revision != shownRevision) {
+    const auto information = libraryPanel.metadataRevision();
+    if (names != namesRevision || revision != shownRevision || information != metadataRevision) {
         if (names != namesRevision)
             rebuildNames();
         shownRevision = revision;
+        metadataRevision = information;
         for (int each = kFirstBank; each <= kLastBank; ++each) {
             const auto count = librarian.pendingPrograms(each).size();
             bankTabs[static_cast<std::size_t>(each - kFirstBank)]->setButtonText(
@@ -742,7 +769,27 @@ void LibrarianView::locationMenu(nl2x::BankLocation location)
         safe->processor.librarian().undo(location);
         safe->setMessage(locationName(location) + " keeps what the synth holds.");
     });
+    if (const auto program = librarian.program(location)) {
+        const auto fingerprint = nl2x::SoundFingerprint::of(*program);
+        if (const auto suggestion = libraryPanel.suggestionFor(fingerprint)) {
+            menu.addSeparator();
+            menu.addItem("Keep suggested category: " + utf8(suggestion->category), [safe, fingerprint] {
+                if (safe != nullptr)
+                    safe->libraryPanel.acceptSuggestion(fingerprint);
+            });
+            menu.addItem("Dismiss suggested category", [safe, fingerprint] {
+                if (safe != nullptr)
+                    safe->libraryPanel.dismissSuggestion(fingerprint);
+            });
+        }
+    }
     menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
+}
+
+void LibrarianView::acceptSuggestion(nl2x::BankLocation location)
+{
+    if (const auto program = processor.librarian().program(location))
+        libraryPanel.acceptSuggestion(nl2x::SoundFingerprint::of(*program));
 }
 
 void LibrarianView::readBanks()

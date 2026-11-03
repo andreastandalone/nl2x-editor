@@ -136,6 +136,10 @@ public:
     // A tag (Library rows, Librarian locations): a small rounded chip, filled (the category) or
     // outlined (a remark such as "changed"). tagWidth() is the width it needs.
     static void drawTag(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds, bool filled);
+    // A suggested category: a dashed chip in the dim text colour, apart from the user's own tags,
+    // showing suggestedTagText(category); tagWidth() of that text is the width it needs.
+    static void drawSuggestedTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> bounds);
+    static juce::String suggestedTagText(const juce::String& category) { return category + "?"; }
     static int tagWidth(const juce::String& text);
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,

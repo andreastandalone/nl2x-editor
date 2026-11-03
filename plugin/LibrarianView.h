@@ -26,7 +26,9 @@
 // - Dropping a Library Program on a location puts it there; dragging a location onto another
 //   copies it; dropping a Program Bank file on a Bank tab or the grid replaces the Composed Bank
 //   with it. A location's context menu undoes its change; "Discard changes" drops all of a Bank's.
-// - Clicking a location auditions its Program (pending ones too) on the selected Slot.
+// - Clicking a location auditions its Program (pending ones too) on the selected Slot. A sound
+//   with no category shows the Library's suggested one as a dashed tag ("Bass?"): clicking the tag
+//   keeps it, the context menu keeps or dismisses it.
 // - "Send Bank N to synth…" writes the pending locations, "Save Bank as .syx…" writes the
 //   Composed Bank into the Library folder; a single Library Program or the Slot being edited is
 //   stored with askWhereToStore() and askWhereToStoreSlot().
@@ -55,6 +57,8 @@ public:
     bool accepts(const juce::var& description, bool onBankTab) const;
     void locationClicked(nl2x::BankLocation location);
     void locationMenu(nl2x::BankLocation location);
+    // Keeps the suggested category of the Program at `location` (a click on its dashed tag).
+    void acceptSuggestion(nl2x::BankLocation location);
 
     // What a location shows.
     struct LocationText {
@@ -62,6 +66,8 @@ public:
         juce::String name;
         bool userName = false;
         juce::String category;
+        // A suggested category, shown only when the sound has none of its own.
+        juce::String suggested;
         bool favourite = false;
         // Recognised by similarity: an edited version of a tagged sound.
         bool changed = false;
@@ -117,6 +123,7 @@ private:
     // The name the Library gives each sound, by its fingerprint's values (first file found).
     std::map<std::string, std::string> libraryNames;
     int namesRevision = -1;
+    int metadataRevision = -1;
     std::uint64_t shownRevision = 0;
     bool wantsFirstRead = false;
     bool wasBusy = false;
