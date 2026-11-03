@@ -265,8 +265,9 @@ int render(const Options& options)
     // A Library with the Slots' Programs and the Performance, as "Save … as .syx" writes them.
     // Slot A's sound and the Performance at the top, the rest in subfolders (shown as groups): "My
     // sounds" with a nested "Live", and "Factory" with two Bank files made of the same Programs (our
-    // own, never Clavia's). A Bank backup is listed under the Backups heading, and two sounds carry
-    // the user's own information.
+    // own, never Clavia's). A Bank backup is listed under the Backups heading, two sounds carry
+    // the user's own information, and Slot C's sound is also saved as "Glass Bells", whose name
+    // suggests a category.
     library.deleteRecursively();
     const auto save = [](const juce::File& file, const std::vector<std::uint8_t>& bytes) {
         nl2x::saveLibraryFile(file.getFullPathName().toStdString(), bytes);
@@ -278,6 +279,9 @@ int render(const Options& options)
             const auto name = juce::String("Slot ") + nl2x::slotLetter(slot) + " sound.syx";
             save(slot == nl2x::Slot::A ? library.getChildFile(name) : mySounds.getChildFile(name), *file);
             bank.insert(bank.end(), file->begin(), file->end());
+            // A sound with no category whose file name says one: the Library suggests it.
+            if (slot == nl2x::Slot::C)
+                save(library.getChildFile("Glass Bells.syx"), *file);
         }
     if (const auto file = nl2x::performanceFile(synth)) {
         save(library.getChildFile("Test Performance.syx"), *file);

@@ -44,6 +44,10 @@ _Avoid_: Current patch, working copy
 The user's collection of Programs, Percussion Kits, Performances and Banks kept as files on the computer, outside the synth. Each subfolder of the Library folder is a **group** named after it (for example `Factory`, `My sounds`); the `Backups` subfolder holds Bank backups and is listed apart.
 _Avoid_: Browser, patch folder
 
+**Suggested category**:
+A category the Library guesses for a sound that has none (Percussion for a Percussion Kit, a keyword in the file name, or Bass or Keys from clear parameters), shown apart from the user's own categories and stored only when the user keeps it.
+_Avoid_: Auto-tag, automatic category
+
 **Audition**:
 Sending a Program from the Library to a Slot's Edit Buffer to hear it, without storing it in any Bank.
 _Avoid_: Preview, load
