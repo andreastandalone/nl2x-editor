@@ -364,6 +364,13 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
 {
     refreshButton.setTooltip("Read the Library folder again");
     refreshButton.onClick = [this] { rescan(); };
+    finderButton.setTooltip("Show the Library folder in the Finder, to add or move Bank files and subfolders");
+    finderButton.onClick = [this] {
+        // Opens the folder itself (revealToUser would only select it in its parent).
+        const auto current = folder();
+        if (current.isDirectory() || current.createDirectory())
+            current.startAsProcess();
+    };
 
     tree.setComponentID("libraryTree");
     favouritesFilter.setComponentID("favouritesOnly");
@@ -422,7 +429,7 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     slotLabel.setFont(NordFonts::small());
     slotLabel.setTooltip("Clicking a Program or Percussion Kit auditions it on the Slot tab last shown");
 
-    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton,
+    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton, &finderButton,
                                                                  &slotLabel, &categoryFilter, &favouritesFilter, &tree,
                                                                  &infoTitle, &nameEditor, &categoryBox,
                                                                  &favouriteButton, &saveSlotButton,
@@ -457,9 +464,11 @@ void LibraryPanel::paint(juce::Graphics& g)
 void LibraryPanel::resized()
 {
     auto area = getLocalBounds().withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(8, 6);
-    // The folder is shown and chosen in the Settings panel; Refresh reads it again.
+    // The folder is shown and chosen in the Settings panel; Refresh reads it again, Finder shows it.
     auto slotRow = area.removeFromTop(26);
     refreshButton.setBounds(slotRow.removeFromRight(74));
+    slotRow.removeFromRight(4);
+    finderButton.setBounds(slotRow.removeFromRight(64));
     slotRow.removeFromRight(4);
     slotLabel.setBounds(slotRow);
     area.removeFromTop(4);

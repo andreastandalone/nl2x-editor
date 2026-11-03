@@ -99,6 +99,7 @@ private:
     std::function<nl2x::Slot()> selectedSlot;
 
     juce::TextButton refreshButton { "Refresh" };
+    juce::TextButton finderButton { "Finder" };
     juce::Label slotLabel;
     juce::ComboBox categoryFilter;
     juce::ToggleButton favouritesFilter { "Favourites only" };
