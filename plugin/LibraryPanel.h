@@ -17,7 +17,9 @@
 // (double-clicking a Performance, which replaces all four Slots), and saving the selected Slot,
 // the Performance or a selected entry as a new .syx file. Refusals and results go to a status line.
 // The user's own name, category and favourite flag for a sound (#39) are edited below the tree and
-// kept in library.json by the engine (LibraryMetadata); the tree can be filtered by them. Bank
+// kept in library.json by the engine (LibraryMetadata); the tree can be filtered by them. Each
+// subfolder of the Library folder is a collapsible group named after it, nested as the folders are
+// (#44); the open groups and files are remembered across rescans and editor reopens. Bank
 // backups in the Backups subfolder are listed apart, under a closed "Backups" heading. A sound
 // auditioned from the Library, edited in the editor and saved again keeps its information.
 class LibraryPanel final : public juce::Component, private juce::Timer {
@@ -59,8 +61,8 @@ private:
     void saveAs(const juce::String& title, const std::string& suggestedName, std::vector<std::uint8_t> bytes,
                 const std::string& place = {});
     void setStatus(const juce::String& text);
-    // Fills the tree from `files`: the files (backups apart) when no filter is set, otherwise the
-    // matching entries in a flat list.
+    // Fills the tree from `files`: the groups and files (backups apart) when no filter is set,
+    // otherwise the matching entries in their groups, open, empty groups left out.
     void rebuildTree();
     // Remembers which files of the unfiltered tree are open, to restore them after a filter or a
     // rescan. Call it while the tree's items are still valid.

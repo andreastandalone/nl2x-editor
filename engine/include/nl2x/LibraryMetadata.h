@@ -206,4 +206,16 @@ struct LibraryEntryRef {
 std::vector<LibraryEntryRef> filterLibrary(const std::vector<LibraryFile>& files, const LibraryMetadata& metadata,
                                            const LibraryFilter& filter);
 
+// Entries grouped by the subfolders of their files, as groupLibrary groups files (#44).
+struct LibraryEntryGroup {
+    // The folder's name; empty for the Library folder itself.
+    std::string name;
+    std::vector<LibraryEntryGroup> groups;
+    std::vector<LibraryEntryRef> entries;
+};
+
+// The entries (filterLibrary's, in its order) in the groups of their files' folders: a group with
+// no entry in or below it does not appear. The result points where `entries` point.
+LibraryEntryGroup groupEntries(const std::vector<LibraryEntryRef>& entries);
+
 } // namespace nl2x

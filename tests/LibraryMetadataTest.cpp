@@ -414,3 +414,57 @@ TEST_CASE("The Library is filtered by category and favourites, backups left out"
     CHECK(names(filterLibrary(files, metadata, { "Bass", true }), metadata) == std::vector<std::string> { "Sub" });
     CHECK(filterLibrary(files, metadata, { "Pad", false }).empty());
 }
+
+TEST_CASE("A filtered Library keeps its groups, leaving out those with no matching sound")
+{
+    const auto folder = freshFolder("filter-groups");
+    writeBytes(folder / "Lead.syx", programDump(hardware::kProgramEditBufferDumpType, 0, 1));
+    writeBytes(folder / "Factory" / "bank1.syx", programBank(10, 3));
+    writeBytes(folder / "My sounds" / "Pad.syx", programDump(hardware::kProgramEditBufferDumpType, 0, 20));
+    writeBytes(folder / "My sounds" / "Live" / "Encore.syx", programDump(hardware::kProgramEditBufferDumpType, 0, 30));
+    writeBytes(folder / "Backups" / "Bank 1 backup.syx", programBank(10, 3));
+
+    const auto files = scanLibrary(folder);
+    const auto fileNamed = [&files](const std::string& name) -> const LibraryFile& {
+        return *std::find_if(files.begin(), files.end(), [&name](const auto& f) { return f.name == name; });
+    };
+    auto metadata = LibraryMetadata::load(folder);
+    REQUIRE(metadata.set(fileNamed("Lead").entries.front(), { {}, "Lead", true }) == MetadataSaveResult::Saved);
+    REQUIRE(metadata.set(fileNamed("bank1").entries[1], { {}, "Bass", true }) == MetadataSaveResult::Saved);
+    REQUIRE(metadata.set(fileNamed("Encore").entries.front(), { {}, "Bass", false }) == MetadataSaveResult::Saved);
+
+    SECTION("favourites only: the top-level sound and the Factory group")
+    {
+        const auto shown = groupEntries(filterLibrary(files, metadata, { {}, true }));
+        CHECK(shown.name.empty());
+        REQUIRE(shown.entries.size() == 1);
+        CHECK(shown.entries[0].file->name == "Lead");
+        REQUIRE(shown.groups.size() == 1);
+        CHECK(shown.groups[0].name == "Factory");
+        CHECK(shown.groups[0].groups.empty());
+        REQUIRE(shown.groups[0].entries.size() == 1);
+        CHECK(shown.groups[0].entries[0].entry == &fileNamed("bank1").entries[1]);
+    }
+
+    SECTION("one category: a nested group keeps its parents, with no sounds of their own")
+    {
+        const auto shown = groupEntries(filterLibrary(files, metadata, { "Bass", false }));
+        CHECK(shown.entries.empty());
+        REQUIRE(shown.groups.size() == 2);
+        CHECK(shown.groups[0].name == "Factory");
+        const auto& mine = shown.groups[1];
+        CHECK(mine.name == "My sounds");
+        CHECK(mine.entries.empty());
+        REQUIRE(mine.groups.size() == 1);
+        CHECK(mine.groups[0].name == "Live");
+        REQUIRE(mine.groups[0].entries.size() == 1);
+        CHECK(mine.groups[0].entries[0].file->name == "Encore");
+    }
+
+    SECTION("nothing matching: no groups at all")
+    {
+        const auto shown = groupEntries(filterLibrary(files, metadata, { "Pad", false }));
+        CHECK(shown.entries.empty());
+        CHECK(shown.groups.empty());
+    }
+}

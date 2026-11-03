@@ -3,6 +3,8 @@
 #include "nl2x/Engine.h"
 #include "nl2x/HardwareAssumptions.h"
 
+#include "LibraryGroups.h"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -214,11 +216,23 @@ std::vector<LibraryFile> scanLibrary(const std::filesystem::path& folder)
     const auto backups = lowercase(std::string(kLibraryBackupFolderName));
     for (const auto& path : paths) {
         files.push_back(openLibraryFile(path));
-        const auto relative = path.lexically_relative(folder);
-        files.back().isBackup = std::distance(relative.begin(), relative.end()) > 1
-                                && lowercase(relative.begin()->string()) == backups;
+        const auto relative = path.lexically_relative(folder).parent_path();
+        for (const auto& part : relative)
+            files.back().folders.push_back(part.string());
+        files.back().isBackup = ! files.back().folders.empty() && lowercase(files.back().folders.front()) == backups;
     }
     return files;
+}
+
+LibraryGroup groupLibrary(const std::vector<LibraryFile>& files)
+{
+    LibraryGroup library;
+    for (const auto& file : files) {
+        if (file.isBackup)
+            continue;
+        groupFor(library, file.folders).files.push_back(&file);
+    }
+    return library;
 }
 
 std::vector<std::uint8_t> toSysEx(const LibraryFile& file)

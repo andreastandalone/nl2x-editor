@@ -68,6 +68,20 @@ struct LibraryFile {
     // Found in the Backups subfolder of the Library folder (kLibraryBackupFolderName): a Bank
     // backup saved by the editor or the Probe, kept apart from the user's sounds.
     bool isBackup = false;
+    // The subfolders between the Library folder and the file, outermost first; empty for a file
+    // directly in the Library folder. Each one is a group in the Library (#44).
+    std::vector<std::string> folders;
+};
+
+// A subfolder of the Library folder as the Library shows it: a group named after the folder,
+// holding the groups of its own subfolders and its files (#44).
+struct LibraryGroup {
+    // The folder's name; empty for the Library folder itself.
+    std::string name;
+    // In path order.
+    std::vector<LibraryGroup> groups;
+    // In path order.
+    std::vector<const LibraryFile*> files;
 };
 
 // Recognises a file's bytes; `name` is the file name without extension.
@@ -77,6 +91,10 @@ LibraryFile openLibraryFile(const std::filesystem::path& path);
 // Every .syx file (any case) under `folder`, subfolders included, hidden ones skipped, sorted by
 // path. Files in `folder`/Backups are marked isBackup. A missing folder gives an empty Library.
 std::vector<LibraryFile> scanLibrary(const std::filesystem::path& folder);
+// The files of scanLibrary as groups nested as their folders are (LibraryFile::folders), the
+// Library folder's own files at the top. Backups are left out: they are listed apart. A folder
+// with no .syx file in it is no group. The result points into `files`.
+LibraryGroup groupLibrary(const std::vector<LibraryFile>& files);
 
 // The name of the `index`-th entry of its kind (0-based) in a file holding several dumps.
 // Programs are numbered 1–99 as the synth shows Program numbers, Percussion Kits P0–P9 and
