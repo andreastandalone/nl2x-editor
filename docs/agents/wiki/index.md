@@ -12,3 +12,4 @@ Historical notes kept by the coordinating agent so the next session inherits wha
 - [merge-playbook.md](merge-playbook.md): how a sub-agent's branch reaches `main`: brief, rebase, verification, docs, PR, issue (2026-10-28).
 
 - [autonomous-run-2026-10-28.md](autonomous-run-2026-10-28.md): the first unattended run on tickets #2–#15: plan, order, status log.
+- [session-2026-11-02.md](session-2026-11-02.md): hardware discovery with Andrea, Banks reset to factory, PRs #35–#37, lessons about working with him (2026-10-29 to 2026-11-02).
