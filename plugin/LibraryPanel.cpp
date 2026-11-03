@@ -8,6 +8,8 @@
 namespace {
 
 constexpr const char* kLibraryFolderKey = "libraryFolder";
+// The tree's openness (TreeView::getOpennessState), kept across editor reopens.
+constexpr const char* kLibraryOpennessKey = "libraryOpenness";
 constexpr int kRefreshIntervalMs = 200;
 constexpr int kRowHeight = 26;
 constexpr int kStarWidth = 16;
@@ -244,6 +246,70 @@ public:
     bool mightContainSubItems() override { return true; }
 };
 
+// A subfolder of the Library folder (#44): a heading named after it, with a small folder drawn
+// where a sound's star goes, opened and closed by a click. Closed until the user opens it; the
+// tree remembers it (keyed by the folder's name among its siblings).
+class GroupItem final : public juce::TreeViewItem {
+public:
+    GroupItem(const std::string& folderName, juce::String countText) : name(utf8(folderName)), count(std::move(countText))
+    {
+    }
+
+    bool mightContainSubItems() override { return true; }
+    juce::String getUniqueName() const override { return "Folder " + name; }
+    int getItemHeight() const override { return kRowHeight; }
+    bool canBeSelected() const override { return false; }
+    void paintItem(juce::Graphics& g, int width, int height) override
+    {
+        const auto mid = static_cast<float>(height) * 0.5f;
+        juce::Path folder;
+        folder.startNewSubPath(2.0f, mid - 4.0f);
+        folder.lineTo(6.0f, mid - 4.0f);
+        folder.lineTo(7.5f, mid - 2.5f);
+        folder.lineTo(13.0f, mid - 2.5f);
+        folder.lineTo(13.0f, mid + 5.0f);
+        folder.lineTo(2.0f, mid + 5.0f);
+        folder.closeSubPath();
+        g.setColour(NordPalette::textDim);
+        g.strokePath(folder, juce::PathStrokeType(1.2f));
+
+        const juce::Font font(NordFonts::body());
+        g.setFont(font);
+        g.setColour(NordPalette::text);
+        const auto nameWidth = std::min(width - kStarWidth, juce::GlyphArrangement::getStringWidthInt(font, name + "  "));
+        g.drawText(name, kStarWidth, 0, nameWidth, height, juce::Justification::centredLeft, true);
+        g.setColour(NordPalette::textDim);
+        g.drawText(count, kStarWidth + nameWidth, 0, std::max(0, width - kStarWidth - nameWidth), height,
+                   juce::Justification::centredLeft, true);
+    }
+    void itemClicked(const juce::MouseEvent&) override { setOpen(! isOpen()); }
+
+private:
+    juce::String name;
+    juce::String count;
+};
+
+juce::String countText(std::size_t count, const char* singular, const char* plural)
+{
+    return "(" + juce::String(count) + " " + (count == 1 ? singular : plural) + ")";
+}
+
+std::size_t groupFileCount(const nl2x::LibraryGroup& group)
+{
+    auto count = group.files.size();
+    for (const auto& inner : group.groups)
+        count += groupFileCount(inner);
+    return count;
+}
+
+std::size_t entryCount(const nl2x::LibraryEntryGroup& group)
+{
+    auto count = group.entries.size();
+    for (const auto& inner : group.groups)
+        count += entryCount(inner);
+    return count;
+}
+
 // The heading the Bank backups are listed under, closed until the user opens it: they are there
 // to send a Bank back to the synth, not to browse sounds.
 class BackupsItem final : public juce::TreeViewItem {
@@ -264,6 +330,31 @@ private:
     int count;
 };
 
+// A group's subfolders first, each under its heading, then its files.
+void addGroup(LibraryPanel& panel, juce::TreeViewItem& parent, const nl2x::LibraryGroup& group)
+{
+    for (const auto& inner : group.groups) {
+        auto* item = new GroupItem(inner.name, countText(groupFileCount(inner), "file", "files"));
+        parent.addSubItem(item);
+        addGroup(panel, *item, inner);
+    }
+    for (const auto* file : group.files)
+        parent.addSubItem(new FileItem(panel, *file, file->path.parent_path()));
+}
+
+// The same for a filtered Library, its groups open so that every matching sound shows.
+void addFilteredGroup(LibraryPanel& panel, juce::TreeViewItem& parent, const nl2x::LibraryEntryGroup& group)
+{
+    for (const auto& inner : group.groups) {
+        auto* item = new GroupItem(inner.name, countText(entryCount(inner), "sound", "sounds"));
+        item->setOpen(true);
+        parent.addSubItem(item);
+        addFilteredGroup(panel, *item, inner);
+    }
+    for (const auto& ref : group.entries)
+        parent.addSubItem(new EntryItem(panel, *ref.entry));
+}
+
 } // namespace
 
 LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot()> slotChoice)
@@ -272,6 +363,8 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     refreshButton.setTooltip("Read the Library folder again");
     refreshButton.onClick = [this] { rescan(); };
 
+    tree.setComponentID("libraryTree");
+    favouritesFilter.setComponentID("favouritesOnly");
     tree.setRootItemVisible(false);
     tree.setIndentSize(kIndentSize);
     tree.setDefaultOpenness(false);
@@ -333,6 +426,8 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
                                                                  &savePerformanceButton, &saveEntryButton, &statusLabel })
         addAndMakeVisible(child);
 
+    // The groups and files left open when the editor last closed.
+    unfilteredOpenness = processor.midiPorts().userSettings().getXmlValue(kLibraryOpennessKey);
     rescan();
     timerCallback();
     startTimer(kRefreshIntervalMs);
@@ -340,6 +435,12 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
 
 LibraryPanel::~LibraryPanel()
 {
+    keepOpenness();
+    if (unfilteredOpenness != nullptr) {
+        auto& settings = processor.midiPorts().userSettings();
+        settings.setValue(kLibraryOpennessKey, unfilteredOpenness.get());
+        settings.saveIfNeeded();
+    }
     stopTimer();
     nameEditor.onFocusLost = nullptr;
     tree.setRootItem(nullptr);
@@ -465,18 +566,12 @@ void LibraryPanel::rebuildTree()
     root = std::make_unique<RootItem>();
     const auto base = toPath(folder());
     if (filter.isActive()) {
-        for (const auto& ref : nl2x::filterLibrary(files, libraryMetadata, filter))
-            root->addSubItem(new EntryItem(*this, *ref.entry));
+        addFilteredGroup(*this, *root, nl2x::groupEntries(nl2x::filterLibrary(files, libraryMetadata, filter)));
     } else {
-        int backupCount = 0;
-        for (const auto& file : files) {
-            if (file.isBackup)
-                ++backupCount;
-            else
-                root->addSubItem(new FileItem(*this, file, base));
-        }
+        addGroup(*this, *root, nl2x::groupLibrary(files));
+        const auto backupCount = std::count_if(files.begin(), files.end(), [](const auto& file) { return file.isBackup; });
         if (backupCount > 0) {
-            auto* backups = new BackupsItem(backupCount);
+            auto* backups = new BackupsItem(static_cast<int>(backupCount));
             backups->setOpen(false);
             root->addSubItem(backups);
             for (const auto& file : files)

@@ -41,7 +41,7 @@ The Program, Percussion Kit or Performance a Slot (or the synth) is currently pl
 _Avoid_: Current patch, working copy
 
 **Library**:
-The user's collection of Programs, Percussion Kits, Performances and Banks kept as files on the computer, outside the synth.
+The user's collection of Programs, Percussion Kits, Performances and Banks kept as files on the computer, outside the synth. Each subfolder of the Library folder is a **group** named after it (for example `Factory`, `My sounds`); the `Backups` subfolder holds Bank backups and is listed apart.
 _Avoid_: Browser, patch folder
 
 **Audition**:

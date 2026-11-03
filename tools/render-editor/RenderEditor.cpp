@@ -6,12 +6,13 @@
 //
 //   nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]
 //                      [--settings] [--about] [--check] [--kit A|B|C|D] [--offline] [--edge-cases]
-//                      [--width <px>] [--scale <n>] [--work <dir>]
+//                      [--open-library] [--favourites] [--width <px>] [--scale <n>] [--work <dir>]
 //
 // --kit makes that Slot play a Percussion Kit; --offline lets the synth answer nothing;
 // --edge-cases puts Slots A and B on one channel, and values outside the documented ranges and
 // Morph Amounts past the ends of the ranges into Slot A. --width resizes the editor window as
-// dragging its corner does: within its limits, the aspect ratio kept.
+// dragging its corner does: within its limits, the aspect ratio kept. --open-library opens every
+// group (subfolder) of the Library; --favourites turns on its "Favourites only" filter.
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
@@ -47,6 +48,8 @@ struct Options {
     bool check = false;
     bool offline = false;
     bool edgeCases = false;
+    bool openLibrary = false;
+    bool favourites = false;
     std::optional<nl2x::Slot> kit;
     float scale = 1.0f;
     int width = 0;
@@ -84,6 +87,10 @@ std::optional<Options> parse(const juce::StringArray& args)
             options.offline = true;
         else if (arg == "--edge-cases")
             options.edgeCases = true;
+        else if (arg == "--open-library")
+            options.openLibrary = true;
+        else if (arg == "--favourites")
+            options.favourites = true;
         else if (arg == "--kit") {
             options.kit = slotOf(next());
             if (! options.kit)
@@ -145,6 +152,16 @@ void click(juce::Component& editor, const juce::String& id)
         button->triggerClick();
     else
         std::cerr << "No button " << id << "\n";
+}
+
+// Opens the Library's groups (the items LibraryPanel names "Folder …"), nested ones included.
+void openGroups(juce::TreeViewItem& item)
+{
+    for (int i = 0; i < item.getNumSubItems(); ++i)
+        if (auto* sub = item.getSubItem(i); sub->getUniqueName().startsWith("Folder ")) {
+            sub->setOpen(true);
+            openGroups(*sub);
+        }
 }
 
 // The cable from the processor to the simulated synth, and back on the next timer tick.
@@ -229,22 +246,29 @@ int render(const Options& options)
     });
 
     // A Library with the Slots' Programs and the Performance, as "Save … as .syx" writes them.
+    // Slot A's sound and the Performance at the top, the rest in subfolders (shown as groups): "My
+    // sounds" with a nested "Live", and "Factory" with two Bank files made of the same Programs (our
+    // own, never Clavia's). A Bank backup is listed under the Backups heading, and two sounds carry
+    // the user's own information.
     library.deleteRecursively();
+    const auto save = [](const juce::File& file, const std::vector<std::uint8_t>& bytes) {
+        nl2x::saveLibraryFile(file.getFullPathName().toStdString(), bytes);
+    };
+    const auto mySounds = library.getChildFile("My sounds");
+    std::vector<std::uint8_t> bank;
     for (auto slot : nl2x::kAllSlots)
-        if (const auto file = nl2x::slotProgramFile(synth, slot))
-            nl2x::saveLibraryFile(library.getChildFile(juce::String("Slot ") + nl2x::slotLetter(slot) + " sound.syx")
-                                      .getFullPathName()
-                                      .toStdString(),
-                                  *file);
-    if (const auto file = nl2x::performanceFile(synth))
-        nl2x::saveLibraryFile(library.getChildFile("Test Performance.syx").getFullPathName().toStdString(), *file);
-    // A Bank backup, listed under the Backups heading, and the user's own information for two sounds.
-    std::vector<std::uint8_t> backup;
-    for (auto slot : nl2x::kAllSlots)
-        if (const auto file = nl2x::slotProgramFile(synth, slot))
-            backup.insert(backup.end(), file->begin(), file->end());
-    nl2x::saveLibraryFile(library.getChildFile("Backups").getChildFile("Bank 3 backup.syx").getFullPathName().toStdString(),
-                          backup);
+        if (const auto file = nl2x::slotProgramFile(synth, slot)) {
+            const auto name = juce::String("Slot ") + nl2x::slotLetter(slot) + " sound.syx";
+            save(slot == nl2x::Slot::A ? library.getChildFile(name) : mySounds.getChildFile(name), *file);
+            bank.insert(bank.end(), file->begin(), file->end());
+        }
+    if (const auto file = nl2x::performanceFile(synth)) {
+        save(library.getChildFile("Test Performance.syx"), *file);
+        save(mySounds.getChildFile("Live").getChildFile("Encore.syx"), *file);
+    }
+    save(library.getChildFile("Factory").getChildFile("bank1.syx"), bank);
+    save(library.getChildFile("Factory").getChildFile("bank2.syx"), bank);
+    save(library.getChildFile("Backups").getChildFile("Bank 3 backup.syx"), bank);
     {
         const auto libraryPath = std::filesystem::path(library.getFullPathName().toStdString());
         auto metadata = nl2x::LibraryMetadata::load(libraryPath);
@@ -279,6 +303,10 @@ int render(const Options& options)
         click(*editor, "about");
     if (options.check)
         processor.openConnectionCheck();
+    if (options.favourites)
+        click(*editor, "favouritesOnly");
+    if (auto* tree = dynamic_cast<juce::TreeView*>(findById(*editor, "libraryTree")); tree != nullptr && options.openLibrary)
+        openGroups(*tree->getRootItem());
     pump(600);
 
     const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, options.scale);
@@ -307,7 +335,8 @@ int main(int argc, char* argv[])
     if (! options) {
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|memory] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
-                     "                          [--edge-cases] [--width <px>] [--scale <n>] [--work <dir>]\n";
+                     "                          [--edge-cases] [--open-library] [--favourites] [--width <px>]\n"
+                     "                          [--scale <n>] [--work <dir>]\n";
         return 2;
     }
     const juce::ScopedJuceInitialiser_GUI juce;

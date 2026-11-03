@@ -1,5 +1,7 @@
 #include "nl2x/LibraryMetadata.h"
 
+#include "LibraryGroups.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -811,6 +813,14 @@ std::vector<LibraryEntryRef> filterLibrary(const std::vector<LibraryFile>& files
                 result.push_back({ &file, &entry });
     }
     return result;
+}
+
+LibraryEntryGroup groupEntries(const std::vector<LibraryEntryRef>& entries)
+{
+    LibraryEntryGroup library;
+    for (const auto& ref : entries)
+        groupFor(library, ref.file->folders).entries.push_back(ref);
+    return library;
 }
 
 } // namespace nl2x

@@ -192,6 +192,57 @@ TEST_CASE("The Library recognises every kind of .syx file and names its entries"
     }
 }
 
+TEST_CASE("Each subfolder of the Library folder is a group named after it, nested as the folders are")
+{
+    const auto folder = freshFolder("groups");
+    writeBytes(folder / "Lead.syx", programDump(0, 0, 1));
+    writeBytes(folder / "Factory" / "bank1.syx", programBank(2, 1));
+    writeBytes(folder / "Factory" / "bank2.syx", programBank(2, 2));
+    writeBytes(folder / "My sounds" / "Pad.syx", programDump(0, 0, 3));
+    writeBytes(folder / "My sounds" / "Live" / "Encore.syx", performanceDump(30, 0, 4));
+    writeBytes(folder / "My sounds" / "Backups" / "Not a backup.syx", programDump(0, 0, 5));
+    writeBytes(folder / "Backups" / "Bank 1 backup.syx", programBank(2, 6));
+    writeBytes(folder / "Empty" / "Notes.txt", programDump(0, 0, 7));
+
+    const auto files = scanLibrary(folder);
+
+    SECTION("a file knows the subfolders it is in, outermost first")
+    {
+        CHECK(fileNamed(files, "Lead").folders.empty());
+        CHECK(fileNamed(files, "bank1").folders == std::vector<std::string> { "Factory" });
+        CHECK(fileNamed(files, "Encore").folders == std::vector<std::string> { "My sounds", "Live" });
+        CHECK(fileNamed(files, "Bank 1 backup").folders == std::vector<std::string> { "Backups" });
+    }
+
+    SECTION("files directly in the Library folder stay at the top; backups are left out of the groups")
+    {
+        const auto library = groupLibrary(files);
+        CHECK(library.name.empty());
+        REQUIRE(library.files.size() == 1);
+        CHECK(library.files[0]->name == "Lead");
+
+        // A folder without .syx files is no group.
+        REQUIRE(library.groups.size() == 2);
+        const auto& factory = library.groups[0];
+        CHECK(factory.name == "Factory");
+        CHECK(factory.groups.empty());
+        REQUIRE(factory.files.size() == 2);
+        CHECK(factory.files[0]->name == "bank1");
+        CHECK(factory.files[1]->name == "bank2");
+
+        const auto& mine = library.groups[1];
+        CHECK(mine.name == "My sounds");
+        REQUIRE(mine.files.size() == 1);
+        CHECK(mine.files[0]->name == "Pad");
+        // Only the Library folder's own Backups subfolder holds backups.
+        REQUIRE(mine.groups.size() == 2);
+        CHECK(mine.groups[0].name == "Backups");
+        CHECK(mine.groups[0].files[0]->name == "Not a backup");
+        CHECK(mine.groups[1].name == "Live");
+        CHECK(mine.groups[1].files[0]->name == "Encore");
+    }
+}
+
 TEST_CASE("Bank entries are named after the file, never after the type or spec bytes")
 {
     // The factory files use type 2 for both bank0 and bank3 [OFF-FB].
