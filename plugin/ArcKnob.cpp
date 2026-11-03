@@ -17,8 +17,8 @@ constexpr float kEndAngle = 0.75f * juce::MathConstants<float>::pi;
 // Pixels of vertical drag for the whole range; Shift is this many times finer.
 constexpr double kDragPixelsForRange = 200.0;
 constexpr double kFineFactor = 5.0;
-constexpr float kNameHeight = 24.0f;
-constexpr float kValueHeight = 16.0f;
+constexpr float kNameHeight = 26.0f;
+constexpr float kValueHeight = 17.0f;
 
 juce::String signedText(int amount)
 {

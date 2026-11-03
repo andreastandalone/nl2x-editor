@@ -137,12 +137,12 @@ void NordLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, boo
 
 juce::Font NordLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 {
-    return juce::Font(NordFonts::body()).withHeight(std::min(NordFonts::body().getHeight(), static_cast<float>(box.getHeight()) * 0.62f));
+    return juce::Font(NordFonts::body()).withHeight(std::min(NordFonts::body().getHeight(), static_cast<float>(box.getHeight()) * 0.66f));
 }
 
 juce::Font NordLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
 {
-    return juce::Font(NordFonts::body()).withHeight(std::min(NordFonts::body().getHeight(), static_cast<float>(buttonHeight) * 0.62f));
+    return juce::Font(NordFonts::body()).withHeight(std::min(NordFonts::body().getHeight(), static_cast<float>(buttonHeight) * 0.66f));
 }
 
 void NordLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics& g, bool isMouseOver, bool)

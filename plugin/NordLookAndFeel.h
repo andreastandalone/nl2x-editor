@@ -78,23 +78,23 @@ inline juce::FontOptions font(const char* name, const char* style, float height,
 }
 
 // Section titles, uppercase and letter-spaced.
-inline juce::FontOptions sectionTitle() { return font(kCondensed, "Demi Bold", 14.0f, 0.08f); }
+inline juce::FontOptions sectionTitle() { return font(kCondensed, "Demi Bold", 15.5f, 0.08f); }
 // The names of knobs, choices and switches inside a section.
-inline juce::FontOptions controlName() { return font(kSans, "Medium", 13.0f); }
-inline juce::FontOptions choice() { return font(kSans, "Medium", 12.5f); }
+inline juce::FontOptions controlName() { return font(kSans, "Medium", 14.5f); }
+inline juce::FontOptions choice() { return font(kSans, "Medium", 14.5f); }
 // The value printed under a knob.
-inline juce::FontOptions value() { return font(kSans, "Demi Bold", 13.5f); }
+inline juce::FontOptions value() { return font(kSans, "Demi Bold", 15.0f); }
 // Ordinary text: labels, status lines, the Library.
-inline juce::FontOptions body() { return font(kSans, "Regular", 14.5f); }
-inline juce::FontOptions small() { return font(kSans, "Regular", 13.5f); }
-inline juce::FontOptions heading() { return font(kSans, "Demi Bold", 16.0f); }
+inline juce::FontOptions body() { return font(kSans, "Regular", 16.0f); }
+inline juce::FontOptions small() { return font(kSans, "Regular", 15.5f); }
+inline juce::FontOptions heading() { return font(kSans, "Demi Bold", 17.5f); }
 // The tags of a Library row.
-inline juce::FontOptions tag() { return font(kSans, "Demi Bold", 11.5f); }
+inline juce::FontOptions tag() { return font(kSans, "Demi Bold", 13.5f); }
 // The tabs above the view.
-inline juce::FontOptions tab() { return font(kSans, "Regular", 15.0f); }
-inline juce::FontOptions frontTab() { return font(kSans, "Demi Bold", 15.0f); }
+inline juce::FontOptions tab() { return font(kSans, "Regular", 16.5f); }
+inline juce::FontOptions frontTab() { return font(kSans, "Demi Bold", 16.5f); }
 // The name in the header bar.
-inline juce::FontOptions header() { return font(kCondensed, "Bold", 20.0f, 0.06f); }
+inline juce::FontOptions header() { return font(kCondensed, "Bold", 21.5f, 0.06f); }
 
 } // namespace NordFonts
 
@@ -104,10 +104,10 @@ inline constexpr int gap = 8;
 inline constexpr float cornerRadius = 5.0f;
 inline constexpr int sectionTitleHeight = 20;
 // One arc knob with its name above and its value below.
-inline constexpr int knobWidth = 64;
-inline constexpr int knobHeight = 88;
+inline constexpr int knobWidth = 70;
+inline constexpr int knobHeight = 90;
 // One row of a list of named choices.
-inline constexpr int choiceRowHeight = 15;
+inline constexpr int choiceRowHeight = 17;
 inline constexpr int switchHeight = 20;
 inline constexpr int buttonHeight = 26;
 inline constexpr int headerHeight = 44;

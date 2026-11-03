@@ -9,11 +9,11 @@ namespace {
 
 constexpr const char* kLibraryFolderKey = "libraryFolder";
 constexpr int kRefreshIntervalMs = 200;
-constexpr int kRowHeight = 24;
+constexpr int kRowHeight = 26;
 constexpr int kStarWidth = 16;
 // The tree's indent per level: room for the open/close triangle and little more.
 constexpr int kIndentSize = 12;
-constexpr int kTagHeight = 17;
+constexpr int kTagHeight = 19;
 constexpr int kTagPadding = 7;
 constexpr int kTagGap = 4;
 // The text a row keeps visible before its tags give way.

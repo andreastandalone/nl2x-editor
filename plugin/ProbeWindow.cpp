@@ -103,7 +103,7 @@ ProbeComponent::ProbeComponent(NL2XEditorProcessor& owner)
     logView.setMultiLine(true, false);
     logView.setReadOnly(true);
     logView.setScrollbarsShown(true);
-    logView.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+    logView.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 14.5f, juce::Font::plain));
     addAndMakeVisible(logView);
 
     clearButton.onClick = [this] {
