@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
+#include <set>
 
 namespace {
 
@@ -90,10 +92,10 @@ void paintRow(juce::Graphics& g, const juce::String& text, int width, int height
     g.drawText(text, kStarWidth, 0, width - kStarWidth, height, juce::Justification::centredLeft, true);
 }
 
-// A tag on a row: a small rounded chip, filled (the category), outlined (a remark) or dashed (a
-// suggested category).
+// A tag on a row: a small rounded chip, filled (the category), darker and edged (an auto-assigned
+// category), outlined (a remark) or dashed (a suggested category).
 struct Tag {
-    enum class Style { Filled, Outlined, Suggested };
+    enum class Style { Filled, Auto, Outlined, Suggested };
     juce::String text;
     Style style = Style::Filled;
 };
@@ -118,7 +120,7 @@ juce::Rectangle<float> paintSoundRow(juce::Graphics& g, const LibraryPanel& pane
 
     std::vector<Tag> tags;
     if (! info.category.empty())
-        tags.push_back({ utf8(info.category), Tag::Style::Filled });
+        tags.push_back({ utf8(info.category), info.autoAssigned ? Tag::Style::Auto : Tag::Style::Filled });
     else if (const auto suggestion = panel.suggestionFor(fingerprint))
         tags.push_back({ utf8(suggestion->category), Tag::Style::Suggested });
     // Recognised by similarity: the sound was changed since it was tagged (on the synth panel, say).
@@ -140,6 +142,8 @@ juce::Rectangle<float> paintSoundRow(juce::Graphics& g, const LibraryPanel& pane
         if (suggested) {
             NordLookAndFeel::drawSuggestedTag(g, tag->text, area);
             suggestedTag = area;
+        } else if (tag->style == Tag::Style::Auto) {
+            NordLookAndFeel::drawAutoTag(g, tag->text, area);
         } else {
             NordLookAndFeel::drawTag(g, tag->text, area, tag->style == Tag::Style::Filled);
         }
@@ -414,6 +418,9 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
 {
     refreshButton.setTooltip("Read the Library folder again");
     refreshButton.onClick = [this] { rescan(); };
+    autoTagButton.setTooltip("Auto-tag: give every sound with no category its suggested one at once (you confirm "
+                             "first), or undo that");
+    autoTagButton.onClick = [this] { showAutoTagMenu(); };
     juce::DrawablePath finderIcon;
     finderIcon.setPath(folderMark(0.0f, 4.5f));
     finderIcon.setFill(juce::FillType());
@@ -438,7 +445,8 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
                     "Performance to send it to the Performance Edit Buffer. Nothing is stored in the synth. In the "
                     "Librarian tab, drag a Program onto a Bank location, or a Bank file onto a Bank. A dashed tag "
                     "such as \"Bass?\" is a suggested category: click it to keep it, or right-click the sound to "
-                    "dismiss it.");
+                    "dismiss it. A darker tag is a category given by Auto-tag: right-click the sound to keep or remove "
+                    "it.");
 
     saveSlotButton.setTooltip("Save the selected Slot's Program as a new .syx file in the Library");
     saveSlotButton.onClick = [this] { saveSlot(); };
@@ -471,6 +479,8 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
         info.category = index >= 0 && index < static_cast<int>(categories.size())
                             ? categories[static_cast<std::size_t>(index)]
                             : std::string();
+        // Picked by hand: the user's own, no longer auto-assigned.
+        info.autoAssigned = false;
         storeInfo(info);
     };
     favouriteButton.setClickingTogglesState(true);
@@ -486,9 +496,9 @@ LibraryPanel::LibraryPanel(NL2XEditorProcessor& owner, std::function<nl2x::Slot(
     statusLabel.setJustificationType(juce::Justification::topLeft);
     statusLabel.setFont(NordFonts::small());
     slotLabel.setFont(NordFonts::small());
-    slotLabel.setTooltip("Clicking a Program or Percussion Kit auditions it on the Slot tab last shown");
+    slotLabel.setTooltip("The Slot that clicking a Program or Percussion Kit auditions it on: the Slot tab last shown");
 
-    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton, &finderButton,
+    for (auto* child : std::initializer_list<juce::Component*> { &refreshButton, &autoTagButton, &finderButton,
                                                                  &slotLabel, &categoryFilter, &favouritesFilter, &tree,
                                                                  &infoTitle, &nameEditor, &categoryBox,
                                                                  &favouriteButton, &saveSlotButton,
@@ -528,7 +538,9 @@ void LibraryPanel::resized()
     auto area = getLocalBounds().withTrimmedTop(NordMetrics::sectionTitleHeight).reduced(8, 6);
     // The folder is shown and chosen in the Settings panel; Refresh reads it again, Finder shows it.
     auto slotRow = area.removeFromTop(26);
-    refreshButton.setBounds(slotRow.removeFromRight(74));
+    refreshButton.setBounds(slotRow.removeFromRight(70));
+    slotRow.removeFromRight(4);
+    autoTagButton.setBounds(slotRow.removeFromRight(80));
     slotRow.removeFromRight(4);
     finderButton.setBounds(slotRow.removeFromRight(36));
     slotRow.removeFromRight(4);
@@ -557,6 +569,8 @@ void LibraryPanel::resized()
     infoTitle.setBounds(area.removeFromBottom(20));
     area.removeFromBottom(6);
     tree.setBounds(area);
+    // The Slot label's text depends on its width.
+    timerCallback();
 }
 
 void LibraryPanel::timerCallback()
@@ -573,7 +587,12 @@ void LibraryPanel::timerCallback()
     const auto performance = nl2x::performanceFile(synth);
     lineage.observe(kPerformancePlace, performance ? fingerprintOf(*performance) : std::nullopt);
 
-    slotLabel.setText("Audition on " + slotName(selectedSlot()), juce::dontSendNotification);
+    // "Audition on Slot A" when the panel is wide enough, otherwise only the Slot (the tooltip says
+    // what it is for).
+    const auto full = "Audition on " + slotName(selectedSlot());
+    const auto room = slotLabel.getWidth() - slotLabel.getBorderSize().getLeftAndRight();
+    const bool fits = juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::small()), full) <= room;
+    slotLabel.setText(fits ? full : slotName(selectedSlot()), juce::dontSendNotification);
 }
 
 juce::File LibraryPanel::folder() const
@@ -724,7 +743,8 @@ void LibraryPanel::showSelectedInfo()
     }
 
     const auto info = libraryMetadata.info(*selectedEntry);
-    infoTitle.setText("Selected: " + utf8(selectedEntry->name), juce::dontSendNotification);
+    infoTitle.setText("Selected: " + utf8(selectedEntry->name) + (info.autoAssigned ? "  (category by Auto-tag)" : ""),
+                      juce::dontSendNotification);
     nameEditor.setText(utf8(info.name), false);
     nameEditor.setTextToShowWhenEmpty(utf8(selectedEntry->name), NordPalette::textDim);
     const auto found = std::find(categories.begin(), categories.end(), info.category);
@@ -754,11 +774,15 @@ std::optional<nl2x::CategorySuggestion> LibraryPanel::suggestionFor(const nl2x::
         return found->second;
     if (fingerprint.kind != nl2x::LibraryEntryKind::Program)
         return std::nullopt;
+    if (const auto known = otherSuggestions.find(key); known != otherSuggestions.end())
+        return known->second;
     std::vector<std::int8_t> values(fingerprint.values.size());
     std::transform(fingerprint.values.begin(), fingerprint.values.end(), values.begin(),
                    [](std::uint8_t value) { return static_cast<std::int8_t>(value); });
     const auto program = nl2x::Program::fromValues(values);
-    return program ? nl2x::suggestCategory(*program) : std::nullopt;
+    auto suggestion = program ? nl2x::suggestCategory(*program, learned) : std::nullopt;
+    otherSuggestions.emplace(key, suggestion);
+    return suggestion;
 }
 
 void LibraryPanel::acceptSuggestion(const nl2x::SoundFingerprint& fingerprint)
@@ -768,6 +792,26 @@ void LibraryPanel::acceptSuggestion(const nl2x::SoundFingerprint& fingerprint)
         return;
     auto info = libraryMetadata.info(fingerprint);
     info.category = suggestion->category;
+    info.autoAssigned = false;
+    storeInfo(fingerprint, info);
+}
+
+void LibraryPanel::keepAutoAssigned(const nl2x::SoundFingerprint& fingerprint)
+{
+    auto info = libraryMetadata.info(fingerprint);
+    if (! info.autoAssigned)
+        return;
+    info.autoAssigned = false;
+    storeInfo(fingerprint, info);
+}
+
+void LibraryPanel::removeAutoAssigned(const nl2x::SoundFingerprint& fingerprint)
+{
+    auto info = libraryMetadata.info(fingerprint);
+    if (! info.autoAssigned)
+        return;
+    info.category.clear();
+    info.autoAssigned = false;
     storeInfo(fingerprint, info);
 }
 
@@ -787,12 +831,14 @@ void LibraryPanel::dismissSuggestion(const nl2x::SoundFingerprint& fingerprint)
 
 void LibraryPanel::findSuggestions()
 {
+    learned = nl2x::LearnedCategories::of(libraryMetadata);
     suggestions.clear();
+    otherSuggestions.clear();
     for (const auto& file : files) {
         if (file.isBackup)
             continue;
         for (const auto& entry : file.entries) {
-            auto suggestion = nl2x::suggestCategory(file, entry);
+            auto suggestion = nl2x::suggestCategory(file, entry, learned);
             if (! suggestion)
                 continue;
             // The same sound in its own named file and in a Bank file: the name is more trusted.
@@ -827,7 +873,13 @@ void LibraryPanel::storeInfo(const nl2x::SoundInfo& info)
 void LibraryPanel::storeInfo(const nl2x::SoundFingerprint& fingerprint, const nl2x::SoundInfo& info)
 {
     ++metadataChanges;
-    switch (libraryMetadata.set(fingerprint, info)) {
+    const auto before = libraryMetadata.info(fingerprint);
+    const auto result = libraryMetadata.set(fingerprint, info);
+    // A category set or removed by hand teaches the suggestions something new.
+    const auto after = libraryMetadata.info(fingerprint);
+    if (before.category != after.category || before.autoAssigned != after.autoAssigned)
+        findSuggestions();
+    switch (result) {
     case nl2x::MetadataSaveResult::Saved:
         break;
     case nl2x::MetadataSaveResult::RefusedUnreadable:
@@ -858,7 +910,8 @@ void LibraryPanel::entryMenu(const nl2x::LibraryEntry& entry)
 {
     const auto fingerprint = nl2x::SoundFingerprint::of(entry);
     const auto suggestion = suggestionFor(fingerprint);
-    if (entry.kind() != nl2x::LibraryEntryKind::Program && ! suggestion)
+    const auto info = libraryMetadata.info(fingerprint);
+    if (entry.kind() != nl2x::LibraryEntryKind::Program && ! suggestion && ! info.autoAssigned)
         return;
     // The entry lives in `files`: the menu finds it again by its description, so that a rescan
     // while the menu is open leaves nothing dangling.
@@ -890,7 +943,141 @@ void LibraryPanel::entryMenu(const nl2x::LibraryEntry& entry)
                 safe->dismissSuggestion(fingerprint);
         });
     }
+    if (info.autoAssigned) {
+        if (menu.getNumItems() > 0)
+            menu.addSeparator();
+        menu.addItem("Keep category given by Auto-tag: " + utf8(info.category), [safe, fingerprint] {
+            if (safe != nullptr)
+                safe->keepAutoAssigned(fingerprint);
+        });
+        menu.addItem("Remove category given by Auto-tag", [safe, fingerprint] {
+            if (safe != nullptr)
+                safe->removeAutoAssigned(fingerprint);
+        });
+    }
     menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
+}
+
+void LibraryPanel::showAutoTagMenu()
+{
+    commitName();
+    const bool ready = libraryMetadata.status() == nl2x::LibraryMetadataStatus::Ready;
+    auto plan = ready ? autoTagPlan() : std::vector<nl2x::LibraryMetadata::AutoAssignment> {};
+    const auto assigned = libraryMetadata.autoAssignedCount();
+    const auto safe = juce::Component::SafePointer<LibraryPanel>(this);
+    const auto ellipsis = juce::String::fromUTF8("\xE2\x80\xA6");
+    juce::PopupMenu menu;
+    menu.addItem(plan.empty() ? juce::String("Auto-tag: no suggestion to keep")
+                              : "Auto-tag " + countText(plan.size(), "sound", "sounds") + ellipsis,
+                 ! plan.empty(), false, [safe, plan] {
+                     if (safe != nullptr)
+                         safe->autoTag(plan);
+                 });
+    menu.addItem(assigned == 0 ? juce::String("Undo auto-tag")
+                               : "Undo auto-tag (" + countText(static_cast<std::size_t>(assigned), "sound", "sounds") + ")" + ellipsis,
+                 ready && assigned > 0, false, [safe] {
+                     if (safe != nullptr)
+                         safe->undoAutoTag();
+                 });
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&autoTagButton));
+}
+
+std::vector<nl2x::LibraryMetadata::AutoAssignment> LibraryPanel::autoTagPlan() const
+{
+    std::vector<nl2x::LibraryMetadata::AutoAssignment> plan;
+    std::set<std::string> seen;
+    for (const auto& file : files) {
+        if (file.isBackup)
+            continue;
+        for (const auto& entry : file.entries) {
+            auto fingerprint = nl2x::SoundFingerprint::of(entry);
+            if (! seen.insert(fingerprintKey(fingerprint)).second)
+                continue;
+            // None for a sound with a category of its own or a dismissed suggestion.
+            if (const auto suggestion = suggestionFor(fingerprint))
+                plan.push_back({ std::move(fingerprint), suggestion->category });
+        }
+    }
+    return plan;
+}
+
+void LibraryPanel::autoTag(const std::vector<nl2x::LibraryMetadata::AutoAssignment>& plan)
+{
+    // "Bass 312, Keys 240, Percussion 89": the most first.
+    std::map<std::string, int> counts;
+    for (const auto& assignment : plan)
+        ++counts[assignment.category];
+    std::vector<std::pair<std::string, int>> byCount(counts.begin(), counts.end());
+    std::stable_sort(byCount.begin(), byCount.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+    juce::StringArray parts;
+    for (const auto& [category, count] : byCount)
+        parts.add(utf8(category) + " " + juce::String(count));
+
+    const auto message = "Give " + countText(plan.size(), "sound", "sounds")
+                         + " with no category of their own the category suggested for them:\n\n"
+                         + parts.joinIntoString(", ")
+                         + ".\n\nThe categories are written to library.json, marked as given by Auto-tag (a darker "
+                           "tag). Picking or keeping one by hand makes it yours; Undo auto-tag removes the others. "
+                           "Dismissed suggestions are left out.";
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Auto-tag the Library")
+                             .withMessage(message)
+                             .withButton("Auto-tag")
+                             .withButton("Cancel")
+                             .withAssociatedComponent(isShowing() ? this : nullptr);
+    juce::AlertWindow::showAsync(options, [safe = juce::Component::SafePointer<LibraryPanel>(this), plan](int result) {
+        if (safe == nullptr || result != 1)
+            return;
+        const auto before = safe->libraryMetadata.autoAssignedCount();
+        const auto saved = safe->libraryMetadata.autoAssign(plan);
+        safe->metadataReplaced(saved);
+        if (saved == nl2x::MetadataSaveResult::Saved)
+            safe->setStatus("Auto-tag gave " + countText(static_cast<std::size_t>(std::max(0, safe->libraryMetadata.autoAssignedCount() - before)),
+                                                     "sound", "sounds")
+                            + " a category. Undo auto-tag, in the same menu, removes those you do not touch.");
+    });
+}
+
+void LibraryPanel::undoAutoTag()
+{
+    const auto count = libraryMetadata.autoAssignedCount();
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Undo auto-tag")
+                             .withMessage("Remove the category Auto-tag gave " + countText(static_cast<std::size_t>(count), "sound", "sounds")
+                                          + "? Categories you picked or kept by hand stay.")
+                             .withButton("Remove")
+                             .withButton("Cancel")
+                             .withAssociatedComponent(isShowing() ? this : nullptr);
+    juce::AlertWindow::showAsync(options, [safe = juce::Component::SafePointer<LibraryPanel>(this)](int result) {
+        if (safe == nullptr || result != 1)
+            return;
+        const auto before = safe->libraryMetadata.autoAssignedCount();
+        const auto saved = safe->libraryMetadata.removeAutoAssigned();
+        safe->metadataReplaced(saved);
+        if (saved == nl2x::MetadataSaveResult::Saved)
+            safe->setStatus("Removed the category Auto-tag gave " + countText(static_cast<std::size_t>(before), "sound", "sounds") + ".");
+    });
+}
+
+void LibraryPanel::metadataReplaced(nl2x::MetadataSaveResult result)
+{
+    switch (result) {
+    case nl2x::MetadataSaveResult::Saved:
+        break;
+    case nl2x::MetadataSaveResult::RefusedUnreadable:
+        setStatus("library.json in the Library folder could not be read, so it is left untouched and nothing was "
+                  "saved. Fix or remove it, then press Refresh.");
+        break;
+    case nl2x::MetadataSaveResult::Failed:
+        setStatus("Could not write " + utf8(libraryMetadata.filePath().string()) + ". Nothing was changed.");
+        break;
+    }
+    ++metadataChanges;
+    findSuggestions();
+    refreshCategoryChoices();
+    rebuildTree();
 }
 
 namespace {

@@ -320,10 +320,10 @@ private:
 
         // Tags from the right end, the category (or a suggested one) nearest the name, as in the
         // Library.
-        enum class Style { Filled, Outlined, Suggested };
+        enum class Style { Filled, Auto, Outlined, Suggested };
         std::vector<std::pair<juce::String, Style>> tags;
         if (text.category.isNotEmpty())
-            tags.emplace_back(text.category, Style::Filled);
+            tags.emplace_back(text.category, text.autoCategory ? Style::Auto : Style::Filled);
         else if (text.suggested.isNotEmpty())
             tags.emplace_back(text.suggested, Style::Suggested);
         if (text.changed)
@@ -343,6 +343,8 @@ private:
             if (suggested) {
                 NordLookAndFeel::drawSuggestedTag(g, tag->first, tagArea);
                 suggestedTag = tagArea;
+            } else if (tag->second == Style::Auto) {
+                NordLookAndFeel::drawAutoTag(g, tag->first, tagArea);
             } else {
                 NordLookAndFeel::drawTag(g, tag->first, tagArea, tag->second == Style::Filled);
             }
@@ -539,6 +541,7 @@ LibrarianView::LocationText LibrarianView::describeProgram(const std::optional<n
     const auto fingerprint = nl2x::SoundFingerprint::of(*program);
     const auto info = metadata.info(fingerprint);
     text.category = utf8(info.category);
+    text.autoCategory = info.autoAssigned;
     if (info.category.empty())
         if (const auto suggestion = libraryPanel.suggestionFor(fingerprint))
             text.suggested = utf8(suggestion->category);
@@ -573,7 +576,7 @@ juce::String LibrarianView::tooltipFor(nl2x::BankLocation location) const
     };
     juce::String tip = locationName(location) + ": " + nameOf(text);
     if (text.category.isNotEmpty())
-        tip << " (" << text.category << ")";
+        tip << " (" << text.category << (text.autoCategory ? ", given by Auto-tag" : "") << ")";
     else if (text.suggested.isNotEmpty())
         tip << " (suggested: " << text.suggested << "; click the dashed tag to keep it)";
     if (processor.librarian().isPending(location))

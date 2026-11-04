@@ -468,3 +468,106 @@ TEST_CASE("A filtered Library keeps its groups, leaving out those with no matchi
         CHECK(shown.groups.empty());
     }
 }
+
+TEST_CASE("Auto-tag writes categories marked auto-assigned, leaving sounds that have a category alone")
+{
+    const auto folder = freshFolder("auto-tag");
+    const auto lead = programEntry(values(kProgramParameterCount, 1));
+    const auto named = programEntry(values(kProgramParameterCount, 2));
+    const auto plain = programEntry(values(kProgramParameterCount, 3));
+    auto metadata = LibraryMetadata::load(folder);
+    REQUIRE(metadata.set(lead, { "Screamer", "Lead", false }) == MetadataSaveResult::Saved);
+    REQUIRE(metadata.set(named, { "Bee", {}, true }) == MetadataSaveResult::Saved);
+
+    REQUIRE(metadata.autoAssign({ { SoundFingerprint::of(lead), "Bass" },
+                                  { SoundFingerprint::of(named), "Pad" },
+                                  { SoundFingerprint::of(plain), "Keys" } })
+            == MetadataSaveResult::Saved);
+    const auto reloaded = LibraryMetadata::load(folder);
+    CHECK(reloaded.info(lead) == SoundInfo { "Screamer", "Lead", false, false });
+    CHECK(reloaded.info(named) == SoundInfo { "Bee", "Pad", true, true });
+    CHECK(reloaded.info(plain) == SoundInfo { {}, "Keys", false, true });
+    CHECK(reloaded.autoAssignedCount() == 2);
+    CHECK_THAT(readText(folder / "library.json"), ContainsSubstring("\"category\": \"Keys\", \"autoAssigned\": true"));
+
+    SECTION("a category set on disk by another window meanwhile is not replaced")
+    {
+        auto other = LibraryMetadata::load(folder);
+        const auto late = programEntry(values(kProgramParameterCount, 4));
+        REQUIRE(other.set(late, { {}, "FX", false }) == MetadataSaveResult::Saved);
+        REQUIRE(metadata.autoAssign({ { SoundFingerprint::of(late), "Bass" } }) == MetadataSaveResult::Saved);
+        CHECK(LibraryMetadata::load(folder).info(late) == SoundInfo { {}, "FX", false, false });
+    }
+}
+
+TEST_CASE("Setting a category by hand makes it the user's; other edits keep the auto-assigned mark")
+{
+    const auto folder = freshFolder("auto-tag-hand");
+    const auto a = programEntry(values(kProgramParameterCount, 1));
+    const auto b = programEntry(values(kProgramParameterCount, 2));
+    const auto c = programEntry(values(kProgramParameterCount, 3));
+    auto metadata = LibraryMetadata::load(folder);
+    REQUIRE(metadata.autoAssign({ { SoundFingerprint::of(a), "Bass" },
+                                  { SoundFingerprint::of(b), "Bass" },
+                                  { SoundFingerprint::of(c), "Bass" } })
+            == MetadataSaveResult::Saved);
+
+    // Another category picked by hand.
+    REQUIRE(metadata.set(a, { {}, "Lead", false, true }) == MetadataSaveResult::Saved);
+    CHECK(metadata.info(a) == SoundInfo { {}, "Lead", false, false });
+    // A name and a favourite flag leave the category as it was, still auto-assigned.
+    REQUIRE(metadata.set(b, { "Wobble", "Bass", true, true }) == MetadataSaveResult::Saved);
+    CHECK(metadata.info(b) == SoundInfo { "Wobble", "Bass", true, true });
+    // The same category kept by hand.
+    REQUIRE(metadata.set(c, { {}, "Bass", false, false }) == MetadataSaveResult::Saved);
+    CHECK(metadata.info(c) == SoundInfo { {}, "Bass", false, false });
+    // set() never marks a category auto-assigned on its own.
+    const auto d = programEntry(values(kProgramParameterCount, 4));
+    REQUIRE(metadata.set(d, { {}, "Pad", false, true }) == MetadataSaveResult::Saved);
+    CHECK_FALSE(metadata.info(d).autoAssigned);
+    CHECK(metadata.autoAssignedCount() == 1);
+}
+
+TEST_CASE("Undo auto-tag removes only the auto-assigned categories the user has not touched")
+{
+    const auto folder = freshFolder("auto-tag-undo");
+    const auto mine = programEntry(values(kProgramParameterCount, 1));
+    const auto changed = programEntry(values(kProgramParameterCount, 2));
+    const auto named = programEntry(values(kProgramParameterCount, 3));
+    const auto untouched = programEntry(values(kProgramParameterCount, 4));
+    auto metadata = LibraryMetadata::load(folder);
+    REQUIRE(metadata.set(mine, { {}, "Lead", false }) == MetadataSaveResult::Saved);
+    REQUIRE(metadata.autoAssign({ { SoundFingerprint::of(changed), "Bass" },
+                                  { SoundFingerprint::of(named), "Pad" },
+                                  { SoundFingerprint::of(untouched), "Keys" } })
+            == MetadataSaveResult::Saved);
+    REQUIRE(metadata.set(changed, { {}, "FX", false, true }) == MetadataSaveResult::Saved);
+    REQUIRE(metadata.set(named, { "Halo", "Pad", false, true }) == MetadataSaveResult::Saved);
+
+    REQUIRE(metadata.removeAutoAssigned() == MetadataSaveResult::Saved);
+    const auto reloaded = LibraryMetadata::load(folder);
+    CHECK(reloaded.info(mine) == SoundInfo { {}, "Lead", false, false });
+    CHECK(reloaded.info(changed) == SoundInfo { {}, "FX", false, false });
+    CHECK(reloaded.info(named) == SoundInfo { "Halo", {}, false, false });
+    CHECK(reloaded.info(untouched).isEmpty());
+    CHECK(reloaded.autoAssignedCount() == 0);
+    CHECK(reloaded.taggedSounds().size() == 3);
+}
+
+TEST_CASE("Auto-tag and its undo never write a file that cannot be read")
+{
+    const auto folder = freshFolder("auto-tag-unreadable");
+    const std::string damaged = "{ \"format\": \"NL2X Editor Library\", \"version\": 1, \"sounds\": [ { \"id\": ";
+    const std::string wrongMark = R"({ "format": "NL2X Editor Library", "version": 1, "sounds": [ { "id": "s1", "kind": "program", "values": ")"
+                                  + std::string(kProgramParameterCount * 2, '0')
+                                  + R"(", "category": "Bass", "autoAssigned": "yes" } ] })";
+    const auto entry = programEntry(values(kProgramParameterCount, 1));
+    for (const auto& text : { damaged, wrongMark }) {
+        writeText(folder / "library.json", text);
+        auto metadata = LibraryMetadata::load(folder);
+        CHECK(metadata.status() == LibraryMetadataStatus::Unreadable);
+        CHECK(metadata.autoAssign({ { SoundFingerprint::of(entry), "Bass" } }) == MetadataSaveResult::RefusedUnreadable);
+        CHECK(metadata.removeAutoAssigned() == MetadataSaveResult::RefusedUnreadable);
+        CHECK(readText(folder / "library.json") == text);
+    }
+}

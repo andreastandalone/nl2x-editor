@@ -122,6 +122,15 @@ int idNumber(const std::string& id)
     return number;
 }
 
+template <typename Sounds>
+int highestIdNumber(const Sounds& sounds)
+{
+    int highest = 0;
+    for (const auto& [id, sound] : sounds)
+        highest = std::max(highest, idNumber(id));
+    return highest;
+}
+
 // Ids sorted by number, so that the file lists sounds in the order they were tagged.
 struct ByIdNumber {
     bool operator()(const std::string& a, const std::string& b) const
@@ -470,6 +479,13 @@ std::optional<Sounds> soundsOf(const JsonValue& document)
                 return std::nullopt;
             sound.info.favourite = *flag;
         }
+        if (const auto* autoAssigned = value.member("autoAssigned")) {
+            const auto* flag = std::get_if<bool>(&autoAssigned->value);
+            if (flag == nullptr)
+                return std::nullopt;
+            // A mark with no category marks nothing.
+            sound.info.autoAssigned = *flag && ! sound.info.category.empty();
+        }
         if (! sound.info.isEmpty())
             result[*id] = std::move(sound);
     }
@@ -525,6 +541,8 @@ std::string toJson(const Sounds& sounds)
         if (! sound.info.category.empty()) {
             out += ", \"category\": ";
             writeJsonString(out, sound.info.category);
+            if (sound.info.autoAssigned)
+                out += ", \"autoAssigned\": true";
         }
         if (sound.info.favourite)
             out += ", \"favourite\": true";
@@ -723,17 +741,88 @@ MetadataSaveResult LibraryMetadata::set(const SoundFingerprint& fingerprint, con
     const auto found = current.match(fingerprint);
 
     auto newSounds = std::move(onDisk.sounds);
-    if (found && newInfo.isEmpty()) {
+    auto stored = newInfo;
+    if (stored.autoAssigned) {
+        const auto* before = found ? &newSounds.at(found->soundId).info : nullptr;
+        stored.autoAssigned = before != nullptr && before->autoAssigned && before->category == stored.category
+                              && ! stored.category.empty();
+    }
+    if (found && stored.isEmpty()) {
         newSounds.erase(found->soundId);
     } else if (found) {
-        newSounds[found->soundId] = { fingerprint, newInfo };
-    } else if (! newInfo.isEmpty()) {
-        int highest = 0;
-        for (const auto& [id, sound] : newSounds)
-            highest = std::max(highest, idNumber(id));
-        newSounds["s" + std::to_string(highest + 1)] = { fingerprint, newInfo };
+        newSounds[found->soundId] = { fingerprint, stored };
+    } else if (! stored.isEmpty()) {
+        newSounds["s" + std::to_string(highestIdNumber(newSounds) + 1)] = { fingerprint, stored };
     }
     return rewrite(newSounds);
+}
+
+MetadataSaveResult LibraryMetadata::autoAssign(const std::vector<AutoAssignment>& assignments)
+{
+    auto onDisk = readFile(filePath());
+    if (onDisk.status == LibraryMetadataStatus::Unreadable) {
+        currentStatus = LibraryMetadataStatus::Unreadable;
+        sounds.clear();
+        reindex();
+        return MetadataSaveResult::RefusedUnreadable;
+    }
+
+    // Each assignment is matched against what is on disk plus the sounds added before it, as a
+    // series of set() calls would, but the index grows one sound at a time instead of being rebuilt.
+    LibraryMetadata current = *this;
+    current.sounds = std::move(onDisk.sounds);
+    current.reindex();
+    int next = highestIdNumber(current.sounds) + 1;
+    for (const auto& [fingerprint, category] : assignments) {
+        if (category.empty())
+            continue;
+        if (const auto found = current.match(fingerprint)) {
+            auto& sound = current.sounds.at(found->soundId);
+            if (! sound.info.category.empty())
+                continue;
+            sound.info.category = category;
+            sound.info.autoAssigned = true;
+            if (sound.fingerprint != fingerprint) {
+                sound.fingerprint = fingerprint;
+                current.exactIndex.emplace(indexKey(fingerprint), found->soundId);
+            }
+        } else {
+            const auto id = "s" + std::to_string(next++);
+            SoundInfo info;
+            info.category = category;
+            info.autoAssigned = true;
+            current.sounds[id] = { fingerprint, info };
+            current.exactIndex.emplace(indexKey(fingerprint), id);
+        }
+    }
+    return rewrite(current.sounds);
+}
+
+MetadataSaveResult LibraryMetadata::removeAutoAssigned()
+{
+    auto onDisk = readFile(filePath());
+    if (onDisk.status == LibraryMetadataStatus::Unreadable) {
+        currentStatus = LibraryMetadataStatus::Unreadable;
+        sounds.clear();
+        reindex();
+        return MetadataSaveResult::RefusedUnreadable;
+    }
+    auto newSounds = std::move(onDisk.sounds);
+    for (auto sound = newSounds.begin(); sound != newSounds.end();) {
+        auto& info = sound->second.info;
+        if (info.autoAssigned) {
+            info.category.clear();
+            info.autoAssigned = false;
+        }
+        sound = info.isEmpty() ? newSounds.erase(sound) : std::next(sound);
+    }
+    return rewrite(newSounds);
+}
+
+int LibraryMetadata::autoAssignedCount() const
+{
+    return static_cast<int>(std::count_if(sounds.begin(), sounds.end(),
+                                          [](const auto& sound) { return sound.second.info.autoAssigned; }));
 }
 
 MetadataSaveResult LibraryMetadata::followEdit(const std::string& soundId, const SoundFingerprint& edited)

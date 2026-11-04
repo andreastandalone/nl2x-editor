@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <variant>
@@ -425,6 +426,61 @@ Scores score(const Reading& r)
     return points;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Learning from the user's categories
+
+constexpr std::size_t kFeatureCount = 25;
+
+// What the neighbours are compared on: the rules' reading, every value scaled to 0 … 1 (Octave
+// Shift to -1 … +1) so that no parameter outweighs another by its range alone, then weighted by
+// how much it tells categories apart (the weight multiplies the squared difference). Chosen
+// offline (2026-11-04) with the measurements in CategorySuggestion.h: the amp envelope's attack,
+// sustain and release, Octave Shift and mono/poly count most, as they do in the rules.
+struct Feature {
+    float value;
+    float weight;
+};
+
+std::array<float, kFeatureCount> featuresOf(const Reading& r)
+{
+    const auto unit = [](int value, double range) {
+        return static_cast<float>(std::clamp(static_cast<double>(value) / range, 0.0, 1.0));
+    };
+    const auto flag = [](bool on) { return on ? 1.0f : 0.0f; };
+    const std::array<Feature, kFeatureCount> scaled {{
+        { unit(r.attack, 127.0), 3.0f },
+        { unit(r.decay, 127.0), 1.0f },
+        { unit(r.sustain, 127.0), 3.0f },
+        { unit(r.release, 127.0), 3.0f },
+        { unit(r.filterAttack, 127.0), 1.0f },
+        { unit(r.cutoff, 127.0), 1.0f },
+        { unit(r.resonance, 127.0), 0.5f },
+        { unit(r.filterEnvAmount, 127.0), 1.0f },
+        { unit(r.fm, 127.0), 0.5f },
+        { unit(r.osc2Semitones, 60.0), 0.5f },
+        { unit(r.portamento, 127.0), 1.0f },
+        { unit(r.gain, 127.0), 0.5f },
+        { unit(r.modEnvAttack, 127.0), 0.5f },
+        { unit(r.modEnvAmount, 64.0), 0.5f },
+        { unit(r.lfo1Amount, 127.0), 0.5f },
+        { unit(r.lfo2Amount, 127.0), 0.5f },
+        { unit(r.filterKeyboardTrack, 3.0), 0.5f },
+        { static_cast<float>(std::clamp(r.octaveShift, -2, 2)) / 2.0f, 3.0f },
+        { static_cast<float>(r.noiseLevel), 1.0f },
+        { flag(r.mono), 3.0f },
+        { flag(r.unison), 0.5f },
+        { flag(r.arpeggiator), 1.0f },
+        { flag(r.modEnvOn), 0.5f },
+        { flag(r.sync), 0.5f },
+        { flag(r.highOrBandPass), 0.5f },
+    }};
+    // Each value times the square root of its weight: a plain squared distance is then weighted.
+    std::array<float, kFeatureCount> features {};
+    for (std::size_t i = 0; i < kFeatureCount; ++i)
+        features[i] = scaled[i].value * std::sqrt(scaled[i].weight);
+    return features;
+}
+
 // How sure the best category is: how far it leads the second (60 %) and how many points it has
 // (40 %, full at 4 points). A tie gives at most 0.4.
 double confidence(int best, int second)
@@ -485,7 +541,73 @@ std::optional<std::string> categoryFromParameters(const Program& program)
     }
 }
 
-std::optional<CategorySuggestion> suggestCategory(const LibraryFile& file, const LibraryEntry& entry)
+LearnedCategories::LearnedCategories(const std::vector<Example>& examples)
+{
+    for (const auto& example : examples) {
+        if (example.category.empty())
+            continue;
+        const auto known = std::find(categories.begin(), categories.end(), example.category);
+        const auto label = static_cast<std::size_t>(known - categories.begin());
+        if (known == categories.end())
+            categories.push_back(example.category);
+        labels.push_back(label);
+        const auto each = featuresOf(read(example.program));
+        features.insert(features.end(), each.begin(), each.end());
+    }
+}
+
+LearnedCategories LearnedCategories::of(const LibraryMetadata& metadata)
+{
+    std::vector<Example> examples;
+    for (const auto& [id, sound] : metadata.taggedSounds()) {
+        if (sound.fingerprint.kind != LibraryEntryKind::Program || sound.info.category.empty()
+            || sound.info.autoAssigned)
+            continue;
+        std::vector<std::int8_t> values(sound.fingerprint.values.size());
+        std::transform(sound.fingerprint.values.begin(), sound.fingerprint.values.end(), values.begin(),
+                       [](std::uint8_t value) { return static_cast<std::int8_t>(value); });
+        if (auto program = Program::fromValues(values))
+            examples.push_back({ *program, sound.info.category });
+    }
+    return LearnedCategories(examples);
+}
+
+std::optional<std::string> LearnedCategories::categoryOf(const Program& program) const
+{
+    constexpr auto neighbours = static_cast<std::size_t>(kLearnedNeighbours);
+    const auto count = labels.size();
+    if (count < neighbours)
+        return std::nullopt;
+    const auto query = featuresOf(read(program));
+    // The closest examples as (squared distance, example), nearest first.
+    std::vector<std::pair<float, std::size_t>> nearest;
+    nearest.reserve(neighbours + 1);
+    for (std::size_t example = 0; example < count; ++example) {
+        const float* point = &features[example * kFeatureCount];
+        float distance = 0.0f;
+        for (std::size_t i = 0; i < kFeatureCount; ++i) {
+            const float difference = point[i] - query[i];
+            distance += difference * difference;
+        }
+        if (nearest.size() == neighbours && distance >= nearest.back().first)
+            continue;
+        const auto at = std::upper_bound(nearest.begin(), nearest.end(), distance,
+                                         [](float value, const auto& other) { return value < other.first; });
+        nearest.insert(at, { distance, example });
+        if (nearest.size() > neighbours)
+            nearest.pop_back();
+    }
+    std::vector<int> votes(categories.size(), 0);
+    for (const auto& [distance, example] : nearest)
+        ++votes[labels[example]];
+    const auto best = static_cast<std::size_t>(std::max_element(votes.begin(), votes.end()) - votes.begin());
+    if (votes[best] < kMinLearnedAgreement || std::sqrt(nearest.front().first) > kMaxLearnedDistance)
+        return std::nullopt;
+    return categories[best];
+}
+
+std::optional<CategorySuggestion> suggestCategory(const LibraryFile& file, const LibraryEntry& entry,
+                                                  const LearnedCategories& learned)
 {
     switch (entry.kind()) {
     case LibraryEntryKind::PercussionKit:
@@ -498,11 +620,13 @@ std::optional<CategorySuggestion> suggestCategory(const LibraryFile& file, const
     if (file.entries.size() == 1)
         if (auto category = categoryFromName(entry.name))
             return CategorySuggestion { std::move(*category), CategorySuggestionSource::Name };
-    return suggestCategory(std::get<ProgramDump>(entry.dump).program);
+    return suggestCategory(std::get<ProgramDump>(entry.dump).program, learned);
 }
 
-std::optional<CategorySuggestion> suggestCategory(const Program& program)
+std::optional<CategorySuggestion> suggestCategory(const Program& program, const LearnedCategories& learned)
 {
+    if (auto category = learned.categoryOf(program))
+        return CategorySuggestion { std::move(*category), CategorySuggestionSource::Learned };
     if (auto category = categoryFromParameters(program))
         return CategorySuggestion { std::move(*category), CategorySuggestionSource::Parameters };
     return std::nullopt;

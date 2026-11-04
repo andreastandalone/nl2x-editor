@@ -86,6 +86,19 @@ void NordLookAndFeel::drawTag(juce::Graphics& g, const juce::String& text, juce:
                juce::Justification::centred, true);
 }
 
+void NordLookAndFeel::drawAutoTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> area)
+{
+    const auto radius = area.getHeight() * 0.5f;
+    g.setColour(P::tagAutoFill);
+    g.fillRoundedRectangle(area, radius);
+    g.setColour(P::tagFill);
+    g.drawRoundedRectangle(area.reduced(0.5f), radius, 1.0f);
+    g.setColour(P::textDim);
+    g.setFont(NordFonts::tag());
+    g.drawText(category, area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
+               juce::Justification::centred, true);
+}
+
 void NordLookAndFeel::drawSuggestedTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> area)
 {
     const auto radius = area.getHeight() * 0.5f;

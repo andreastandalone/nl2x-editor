@@ -28,7 +28,8 @@
 //   with it. A location's context menu undoes its change; "Discard changes" drops all of a Bank's.
 // - Clicking a location auditions its Program (pending ones too) on the selected Slot. A sound
 //   with no category shows the Library's suggested one as a dashed tag ("Bass?"): clicking the tag
-//   keeps it, the context menu keeps or dismisses it.
+//   keeps it, the context menu keeps or dismisses it. A category given by Auto-tag shows as a
+//   darker tag.
 // - "Send Bank N to synth…" writes the pending locations, "Save Bank as .syx…" writes the
 //   Composed Bank into the Library folder; a single Library Program or the Slot being edited is
 //   stored with askWhereToStore() and askWhereToStoreSlot().
@@ -66,6 +67,8 @@ public:
         juce::String name;
         bool userName = false;
         juce::String category;
+        // The category was given by Auto-tag and not touched since.
+        bool autoCategory = false;
         // A suggested category, shown only when the sound has none of its own.
         juce::String suggested;
         bool favourite = false;

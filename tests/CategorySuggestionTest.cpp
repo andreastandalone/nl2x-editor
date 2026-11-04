@@ -1,17 +1,19 @@
 // Suggested categories for Library sounds: Percussion for every Percussion Kit, the category a
-// keyword in a single sound's file name says, and Bass or Keys from clear parameters, never any
-// other category from parameters. The Programs here are synthetic, built with the values that
-// make each case.
+// keyword in a single sound's file name says, any category the user's own hand-set categories
+// teach (nearest neighbours), and Bass or Keys from clear parameters, never any other category
+// from the fixed rules. The Programs here are synthetic, built with the values that make each case.
 
 #include "nl2x/CategorySuggestion.h"
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Library.h"
+#include "nl2x/LibraryMetadata.h"
 #include "nl2x/Performance.h"
 #include "nl2x/SysEx.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -225,4 +227,120 @@ TEST_CASE("The entries of a Bank file are judged by their parameters only")
     REQUIRE(bank.entries.size() == 2);
     CHECK(suggestCategory(bank, bank.entries[0]) == byParameters("Bass"));
     CHECK_FALSE(suggestCategory(bank, bank.entries[1]));
+}
+
+namespace {
+
+// `count` variations of `program`, each a little further from it in a few values, as a user's own
+// sounds of one kind are. They differ in more values than an edit of one sound
+// (kSimilarSoundMaxDifferences), so that library.json keeps them as different sounds.
+std::vector<Program> variations(const Program& program, int count)
+{
+    std::vector<Program> result;
+    for (int i = 0; i < count; ++i) {
+        auto variation = program;
+        for (const auto parameter : { P::FilterCutoff, P::FilterResonance, P::FilterEnvDecay, P::Lfo1Rate,
+                                      P::ModEnvDecay, P::Osc2FineTune })
+            variation.setValue(parameter, program.value(parameter) + i);
+        result.push_back(variation);
+    }
+    return result;
+}
+
+std::vector<LearnedCategories::Example> tagged(const Program& program, int count, const std::string& category)
+{
+    std::vector<LearnedCategories::Example> examples;
+    for (const auto& each : variations(program, count))
+        examples.push_back({ each, category });
+    return examples;
+}
+
+std::vector<LearnedCategories::Example> joined(std::vector<LearnedCategories::Example> a,
+                                               const std::vector<LearnedCategories::Example>& b)
+{
+    a.insert(a.end(), b.begin(), b.end());
+    return a;
+}
+
+CategorySuggestion learned(const std::string& category)
+{
+    return { category, CategorySuggestionSource::Learned };
+}
+
+} // namespace
+
+TEST_CASE("Programs the user tagged by hand teach their category, Pad included")
+{
+    const LearnedCategories learnedFrom(
+        joined(joined(tagged(padSound(), 10, "Pad"), tagged(keysSound(), 10, "Keys")), tagged(leadSound(), 10, "Lead")));
+    auto pad = padSound();
+    pad.setValue(P::FilterResonance, 20);
+    CHECK(suggestCategory(pad, learnedFrom) == learned("Pad"));
+    CHECK(suggestCategory(leadSound(), learnedFrom) == learned("Lead"));
+    CHECK_FALSE(suggestCategory(pad));
+
+    const auto file = singleProgramFile("Mimiac", pad);
+    CHECK(suggestCategory(file, file.entries.front(), learnedFrom) == learned("Pad"));
+}
+
+TEST_CASE("Learning needs enough tagged Programs of a category, and neighbours that agree")
+{
+    // Seven Pads: one short of the agreement needed among the nine nearest.
+    CHECK_FALSE(LearnedCategories(joined(tagged(padSound(), 7, "Pad"), tagged(keysSound(), 10, "Keys")))
+                    .categoryOf(padSound()));
+    CHECK(LearnedCategories(joined(tagged(padSound(), 8, "Pad"), tagged(keysSound(), 10, "Keys")))
+              .categoryOf(padSound())
+          == "Pad");
+    // The same kind of sound tagged two ways: no suggestion.
+    CHECK_FALSE(LearnedCategories(joined(tagged(padSound(), 5, "Pad"), tagged(padSound(), 5, "Brass/Strings")))
+                    .categoryOf(padSound()));
+    // Too few tagged Programs to learn from at all.
+    CHECK_FALSE(LearnedCategories(tagged(padSound(), 8, "Pad")).categoryOf(padSound()));
+}
+
+TEST_CASE("A sound far from every tagged Program is left to the fixed rules")
+{
+    const LearnedCategories padsOnly(tagged(padSound(), 12, "Pad"));
+    CHECK(padsOnly.categoryOf(padSound()) == "Pad");
+    CHECK_FALSE(padsOnly.categoryOf(bassSound()));
+    CHECK(suggestCategory(bassSound(), padsOnly) == byParameters("Bass"));
+}
+
+TEST_CASE("Precedence: Percussion Kit, then the file name, then learned categories, then the fixed rules")
+{
+    // The user files these basses under a category of his own.
+    const LearnedCategories learnedFrom(joined(tagged(bassSound(), 10, "Synth Bass"), tagged(padSound(), 10, "Pad")));
+    CHECK(suggestCategory(bassSound(), learnedFrom) == learned("Synth Bass"));
+    const auto unnamed = singleProgramFile("Mimiac", bassSound());
+    CHECK(suggestCategory(unnamed, unnamed.entries.front(), learnedFrom) == learned("Synth Bass"));
+    const auto named = singleProgramFile("Warm Pad", bassSound());
+    CHECK(suggestCategory(named, named.entries.front(), learnedFrom) == byName("Pad"));
+
+    PercussionKit kit;
+    kit.fill(bassSound());
+    const auto kitFile = recogniseLibraryFile("Kit", toSysEx(PercussionKitDump { 0, 0, 16, kit }));
+    REQUIRE(kitFile.entries.size() == 1);
+    CHECK(suggestCategory(kitFile, kitFile.entries.front(), learnedFrom)
+          == CategorySuggestion { "Percussion", CategorySuggestionSource::PercussionKit });
+}
+
+TEST_CASE("Only categories set by hand in library.json teach; auto-assigned ones do not")
+{
+    const auto folder = std::filesystem::path(NL2X_TEST_OUTPUT_DIR) / "category-learning";
+    std::filesystem::remove_all(folder);
+    auto metadata = LibraryMetadata::load(folder);
+
+    std::vector<LibraryMetadata::AutoAssignment> assignments;
+    for (const auto& pad : variations(padSound(), 10))
+        assignments.push_back({ SoundFingerprint::of(pad), "Pad" });
+    REQUIRE(metadata.autoAssign(assignments) == MetadataSaveResult::Saved);
+    CHECK_FALSE(LearnedCategories::of(metadata).categoryOf(padSound()));
+
+    // Keeping each category by hand (the same category, no longer marked) makes it the user's.
+    for (const auto& pad : variations(padSound(), 10)) {
+        SoundInfo byHand;
+        byHand.category = "Pad";
+        REQUIRE(metadata.set(SoundFingerprint::of(pad), byHand) == MetadataSaveResult::Saved);
+    }
+    CHECK(LearnedCategories::of(LibraryMetadata::load(folder)).categoryOf(padSound()) == "Pad");
 }

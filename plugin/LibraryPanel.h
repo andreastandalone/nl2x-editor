@@ -29,8 +29,15 @@
 //
 // A sound with no category of its own shows a suggested one (nl2x::suggestCategory) as a dashed
 // tag such as "Bass?": clicking the tag keeps it as the sound's category, the sound's context menu
-// keeps or dismisses it. A suggestion is never written to library.json until the user keeps it;
-// dismissed suggestions are remembered in the editor's settings.
+// keeps or dismisses it. A suggestion is never written to library.json until the user keeps it or
+// runs Auto-tag; dismissed suggestions are remembered in the editor's settings. Suggestions learn
+// from the categories the user set by hand (nl2x::LearnedCategories), relearned whenever one
+// changes.
+//
+// The "Auto-tag…" button's menu keeps every current suggestion at once, after a confirmation that
+// counts them by category, as auto-assigned categories (a solid but darker tag); "Undo auto-tag"
+// removes those the user has not touched since. Picking or keeping a category by hand makes it
+// the user's own.
 //
 // For the Librarian (#44): a Program can be dragged onto a Bank location and a Bank file onto a
 // Bank (the drag description names it; draggedEntry() and draggedBankFile() resolve it), and a
@@ -64,6 +71,9 @@ public:
     void acceptSuggestion(const nl2x::SoundFingerprint& fingerprint);
     // Hides the suggestion for this sound from now on.
     void dismissSuggestion(const nl2x::SoundFingerprint& fingerprint);
+    // Makes an auto-assigned category the user's own, or removes it.
+    void keepAutoAssigned(const nl2x::SoundFingerprint& fingerprint);
+    void removeAutoAssigned(const nl2x::SoundFingerprint& fingerprint);
 
     // The files as last scanned; valid until the next rescan(), whose count `contentsRevision()`
     // gives, so that views built from them know when to rebuild.
@@ -116,12 +126,22 @@ private:
     void commitName();
     void storeInfo(const nl2x::SoundInfo& info);
     void storeInfo(const nl2x::SoundFingerprint& fingerprint, const nl2x::SoundInfo& info);
+    // Learns again from the categories set by hand, then finds the suggestion for every sound in
+    // the Library.
     void findSuggestions();
+    // The "Auto-tag…" button: a menu with Auto-tag and Undo auto-tag, each confirmed first.
+    void showAutoTagMenu();
+    std::vector<nl2x::LibraryMetadata::AutoAssignment> autoTagPlan() const;
+    void autoTag(const std::vector<nl2x::LibraryMetadata::AutoAssignment>& plan);
+    void undoAutoTag();
+    // After a change to many sounds' information: suggestions, choices and the tree again.
+    void metadataReplaced(nl2x::MetadataSaveResult result);
 
     NL2XEditorProcessor& processor;
     std::function<nl2x::Slot()> selectedSlot;
 
     juce::TextButton refreshButton { "Refresh" };
+    juce::TextButton autoTagButton { juce::String::fromUTF8("Auto-tag\xE2\x80\xA6") };
     juce::DrawableButton finderButton { "Finder", juce::DrawableButton::ImageOnButtonBackground };
     juce::Label slotLabel;
     juce::ComboBox categoryFilter;
@@ -142,8 +162,13 @@ private:
     nl2x::LibraryFilter filter;
     nl2x::SoundLineage lineage;
     int metadataChanges = 0;
+    // What the categories set by hand teach, as of the last findSuggestions().
+    nl2x::LearnedCategories learned;
     // By fingerprint key: the suggestion for each sound in the Library.
     std::unordered_map<std::string, nl2x::CategorySuggestion> suggestions;
+    // By fingerprint key: the suggestion for a Program not in the Library (a Bank location), kept
+    // until the next findSuggestions() so that painting does not ask the neighbours again.
+    mutable std::unordered_map<std::string, std::optional<nl2x::CategorySuggestion>> otherSuggestions;
     // Fingerprint keys of the sounds whose suggestion the user dismissed.
     std::set<std::string> dismissedSuggestions;
     bool showingFiltered = false;

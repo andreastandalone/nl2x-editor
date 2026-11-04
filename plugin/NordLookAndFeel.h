@@ -62,6 +62,9 @@ inline const juce::Colour statusOff { 0xff8f949c };
 // The tags of a Library row (the category): a small rounded chip.
 inline const juce::Colour tagFill { 0xff3d4350 };
 inline const juce::Colour tagText { 0xffe3e6ec };
+// An auto-assigned category (Auto-tag): a darker chip edged in tagFill, so that it reads as a
+// category but apart from those the user set.
+inline const juce::Colour tagAutoFill { 0xff2b2f37 };
 
 // The Librarian's Bank locations (#44): a location's plate, and the amber of a location changed
 // but not sent yet ("to send"), which is neither the red accent nor a warning about the synth.
@@ -138,6 +141,9 @@ public:
     static void drawTag(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds, bool filled);
     // A suggested category: a dashed chip in the dim text colour, apart from the user's own tags,
     // showing suggestedTagText(category); tagWidth() of that text is the width it needs.
+    // An auto-assigned category: a solid chip like the user's own, darker, edged and with dimmed
+    // text; tagWidth() of the category is the width it needs.
+    static void drawAutoTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> bounds);
     static void drawSuggestedTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> bounds);
     static juce::String suggestedTagText(const juce::String& category) { return category + "?"; }
     static int tagWidth(const juce::String& text);

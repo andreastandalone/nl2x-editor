@@ -45,8 +45,12 @@ The user's collection of Programs, Percussion Kits, Performances and Banks kept 
 _Avoid_: Browser, patch folder
 
 **Suggested category**:
-A category the Library guesses for a sound that has none (Percussion for a Percussion Kit, a keyword in the file name, or Bass or Keys from clear parameters), shown apart from the user's own categories and stored only when the user keeps it.
-_Avoid_: Auto-tag, automatic category
+A category the Library guesses for a sound that has none (Percussion for a Percussion Kit, a keyword in the file name, the category of the closest Programs the user tagged by hand, or Bass or Keys from clear parameters), shown apart from the user's own categories and stored only when the user keeps it or runs Auto-tag.
+_Avoid_: automatic category
+
+**Auto-tag**:
+The Library action that stores the suggested category of every sound with no category of its own at once, after the user confirms. Each category so stored is an **auto-assigned category** until the user picks or keeps that sound's category by hand; Undo auto-tag removes the auto-assigned categories, and they never teach the suggestions.
+_Avoid_: auto-categorise, bulk tagging
 
 **Audition**:
 Sending a Program from the Library to a Slot's Edit Buffer to hear it, without storing it in any Bank.
