@@ -44,12 +44,16 @@ _Avoid_: Current patch, working copy
 The user's collection of Programs, Percussion Kits, Performances and Banks kept as files on the computer, outside the synth. Each subfolder of the Library folder is a **group** named after it (for example `Factory`, `My sounds`); the `Backups` subfolder holds Bank backups and is listed apart.
 _Avoid_: Browser, patch folder
 
-**Suggested category**:
-A category the Library guesses for a sound that has none (Percussion for a Percussion Kit, a keyword in the file name, the category of the closest Programs the user tagged by hand, or Bass or Keys from clear parameters), shown apart from the user's own categories and stored only when the user keeps it or runs Auto-tag.
-_Avoid_: automatic category
+**Tag**:
+A word the user gives a Library sound to find it again (Bass, Pad, Pluck, Arp, or one of his own); a sound can have any number of tags, kept in `library.json` with its name and favourite flag, and the Library can be filtered by one.
+_Avoid_: category (the editor's name for a single tag per sound before tags), label, genre
+
+**Suggested tag**:
+A tag the Library guesses for a sound (Percussion for a Percussion Kit, keywords in the file name, the tags of the closest Programs the user tagged by hand, or Bass or Keys from clear parameters), shown beside the sound's own tags as a dashed chip and stored only when the user keeps it or runs Auto-tag.
+_Avoid_: automatic tag, suggested category
 
 **Auto-tag**:
-The Library action that stores the suggested category of every sound with no category of its own at once, after the user confirms. Each category so stored is an **auto-assigned category** until the user picks or keeps that sound's category by hand; Undo auto-tag removes the auto-assigned categories, and they never teach the suggestions.
+The Library action that adds the suggested tags of every sound at once, after the user confirms. Each tag so added is an **auto-assigned tag** until the user keeps or replaces it by hand; Undo auto-tag removes the auto-assigned tags, and they never teach the suggestions.
 _Avoid_: auto-categorise, bulk tagging
 
 **Audition**:

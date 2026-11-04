@@ -59,11 +59,11 @@ inline const juce::Colour statusBusy { 0xffe8b02a };
 inline const juce::Colour statusBad { 0xffff5247 };
 inline const juce::Colour statusOff { 0xff8f949c };
 
-// The tags of a Library row (the category): a small rounded chip.
+// The tags of a Library row: small rounded chips.
 inline const juce::Colour tagFill { 0xff3d4350 };
 inline const juce::Colour tagText { 0xffe3e6ec };
-// An auto-assigned category (Auto-tag): a darker chip edged in tagFill, so that it reads as a
-// category but apart from those the user set.
+// An auto-assigned tag (Auto-tag): a darker chip edged in tagFill, so that it reads as a tag but
+// apart from those the user set.
 inline const juce::Colour tagAutoFill { 0xff2b2f37 };
 
 // The Librarian's Bank locations (#44): a location's plate, and the amber of a location changed
@@ -136,17 +136,20 @@ public:
     static void drawSection(juce::Graphics& g, juce::Rectangle<int> bounds, const juce::String& title);
     // An LED: lit or not.
     static void drawLed(juce::Graphics& g, juce::Rectangle<float> bounds, bool on);
-    // A tag (Library rows, Librarian locations): a small rounded chip, filled (the category) or
-    // outlined (a remark such as "changed"). tagWidth() is the width it needs.
+    // A tag (Library rows, Librarian locations): a small rounded chip, filled (the user's tag) or
+    // outlined (a remark such as "changed", or "+3" for tags with no room). tagWidth() is the
+    // width it needs.
     static void drawTag(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> bounds, bool filled);
-    // A suggested category: a dashed chip in the dim text colour, apart from the user's own tags,
-    // showing suggestedTagText(category); tagWidth() of that text is the width it needs.
-    // An auto-assigned category: a solid chip like the user's own, darker, edged and with dimmed
-    // text; tagWidth() of the category is the width it needs.
-    static void drawAutoTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> bounds);
-    static void drawSuggestedTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> bounds);
-    static juce::String suggestedTagText(const juce::String& category) { return category + "?"; }
+    // A suggested tag: a dashed chip in the dim text colour, apart from the user's own tags,
+    // showing suggestedTagText(tag); tagWidth() of that text is the width it needs.
+    // An auto-assigned tag: a solid chip like the user's own, darker, edged and with dimmed text;
+    // tagWidth() of the tag is the width it needs.
+    static void drawAutoTag(juce::Graphics& g, const juce::String& tag, juce::Rectangle<float> bounds);
+    static void drawSuggestedTag(juce::Graphics& g, const juce::String& tag, juce::Rectangle<float> bounds);
+    static juce::String suggestedTagText(const juce::String& tag) { return tag + "?"; }
     static int tagWidth(const juce::String& text);
+    // Where a tag can be added: a dim "+" in `bounds`, or with a `label` an outlined chip.
+    static void drawAddTag(juce::Graphics& g, juce::Rectangle<float> bounds, const juce::String& label = {});
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
                               bool highlighted, bool down) override;

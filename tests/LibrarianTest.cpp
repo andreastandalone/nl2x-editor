@@ -516,13 +516,13 @@ TEST_CASE("Librarian: names and tags of a location come from the Library metadat
     rig.readSynthBanks();
     auto metadata = LibraryMetadata::load(rig.folder / "Library");
     const auto stored = *rig.librarian().synthProgram({ 1, 7 });
-    REQUIRE(metadata.set(SoundFingerprint::of(stored), { "Glass pad", "Pad", true }) == MetadataSaveResult::Saved);
+    REQUIRE(metadata.set(SoundFingerprint::of(stored), { "Glass pad", { "Pad" }, true }) == MetadataSaveResult::Saved);
 
     // Exact match, on the synth and in another location where the same Program was put.
     CHECK(rig.librarian().soundInfo(metadata, { 1, 7 }).name == "Glass pad");
     CHECK(rig.librarian().soundMatch(metadata, { 1, 7 })->differences == 0);
     REQUIRE(rig.librarian().copy({ 1, 7 }, { 3, 1 }) == LibrarianRefusal::None);
-    CHECK(rig.librarian().soundInfo(metadata, { 3, 1 }).category == "Pad");
+    CHECK(rig.librarian().soundInfo(metadata, { 3, 1 }).hasTag("Pad"));
 
     // The same Program edited on the panel (two values) is still that sound.
     auto edited = stored;

@@ -19,8 +19,8 @@ constexpr int kRows = (kPrograms + kColumns - 1) / kColumns;
 constexpr int kCellGap = 3;
 constexpr int kNumberWidth = 26;
 constexpr int kStarWidth = 14;
-// The name a location keeps visible before its tags give way.
-constexpr int kMinNameWidth = 64;
+// A location's tags: the name keeps this much before they give way to "+N"; the add zone after them.
+const TagChipRow::Layout kLocationTags { 64, 16, 32, {} };
 constexpr int kToolRowHeight = 30;
 constexpr int kButtonRowHeight = 28;
 constexpr int kStatusHeight = 26;
@@ -207,10 +207,15 @@ public:
         selectedProgram = *pressed;
         repaint();
         const nl2x::BankLocation location { view.bank, *pressed };
-        if (! e.mods.isPopupMenu() && suggestedTags[static_cast<std::size_t>(*pressed)].contains(e.position)) {
-            pressed.reset();
-            view.acceptSuggestion(location);
-            return;
+        // The sound clicked last is the one the Library's edit area edits.
+        view.libraryPanel.editLocation(location);
+        if (! e.mods.isPopupMenu()) {
+            const auto hit = tagRows[static_cast<std::size_t>(*pressed)].hitTest(e.position);
+            if (hit.kind != TagChipRow::Hit::Kind::None) {
+                pressed.reset();
+                view.tagsClicked(location, hit);
+                return;
+            }
         }
         if (e.mods.isPopupMenu())
             view.locationMenu(location);
@@ -318,37 +323,14 @@ private:
             content.removeFromLeft(2);
         }
 
-        // Tags from the right end, the category (or a suggested one) nearest the name, as in the
-        // Library.
-        enum class Style { Filled, Auto, Outlined, Suggested };
-        std::vector<std::pair<juce::String, Style>> tags;
-        if (text.category.isNotEmpty())
-            tags.emplace_back(text.category, text.autoCategory ? Style::Auto : Style::Filled);
-        else if (text.suggested.isNotEmpty())
-            tags.emplace_back(text.suggested, Style::Suggested);
-        if (text.changed)
-            tags.emplace_back("changed", Style::Outlined);
-        auto& suggestedTag = suggestedTags[static_cast<std::size_t>(program)];
-        suggestedTag = {};
-        const auto tagHeight = static_cast<float>(std::min(content.getHeight() - 6, NordMetrics::tagHeight));
-        const auto tagTop = static_cast<float>(content.getY()) + (static_cast<float>(content.getHeight()) - tagHeight) * 0.5f;
-        for (auto tag = tags.rbegin(); tag != tags.rend(); ++tag) {
-            const bool suggested = tag->second == Style::Suggested;
-            const int size = NordLookAndFeel::tagWidth(suggested ? NordLookAndFeel::suggestedTagText(tag->first)
-                                                                  : tag->first);
-            if (content.getWidth() - size - NordMetrics::tagGap < kMinNameWidth)
-                continue;
-            const auto chip = content.removeFromRight(size);
-            const juce::Rectangle<float> tagArea { static_cast<float>(chip.getX()), tagTop, static_cast<float>(size), tagHeight };
-            if (suggested) {
-                NordLookAndFeel::drawSuggestedTag(g, tag->first, tagArea);
-                suggestedTag = tagArea;
-            } else if (tag->second == Style::Auto) {
-                NordLookAndFeel::drawAutoTag(g, tag->first, tagArea);
-            } else {
-                NordLookAndFeel::drawTag(g, tag->first, tagArea, tag->second == Style::Filled);
-            }
-            content.removeFromRight(NordMetrics::tagGap);
+        // Tags at the right end, as in the Library; the add zone shows on the selected or hovered
+        // location. A location not read yet has none to click.
+        auto& tags = tagRows[static_cast<std::size_t>(program)];
+        tags = {};
+        if (text.known) {
+            tags.layout(text.chips, content, kLocationTags);
+            tags.paint(g, selectedProgram == program || hover == program);
+            content = tags.textArea();
         }
 
         g.setFont(NordFonts::body());
@@ -389,9 +371,8 @@ private:
     std::optional<int> pressed;
     std::optional<int> dropTarget;
     bool dragging = false;
-    // Where each location's suggested category tag was last painted (empty: none), by Program
-    // number.
-    std::array<juce::Rectangle<float>, kPrograms + 1> suggestedTags {};
+    // Where each location's tags were last painted, by Program number.
+    std::array<TagChipRow, kPrograms + 1> tagRows {};
 };
 
 LibrarianView::LibrarianView(NL2XEditorProcessor& owner, LibraryPanel& library, std::function<nl2x::Slot()> slotChoice)
@@ -540,14 +521,8 @@ LibrarianView::LocationText LibrarianView::describeProgram(const std::optional<n
     const auto& metadata = libraryPanel.metadata();
     const auto fingerprint = nl2x::SoundFingerprint::of(*program);
     const auto info = metadata.info(fingerprint);
-    text.category = utf8(info.category);
-    text.autoCategory = info.autoAssigned;
-    if (info.category.empty())
-        if (const auto suggestion = libraryPanel.suggestionFor(fingerprint))
-            text.suggested = utf8(suggestion->category);
+    text.chips = libraryPanel.chipsFor(fingerprint);
     text.favourite = info.favourite;
-    if (const auto match = metadata.match(fingerprint))
-        text.changed = match->differences > 0;
     if (! info.name.empty()) {
         text.name = utf8(info.name);
         text.userName = true;
@@ -575,14 +550,23 @@ juce::String LibrarianView::tooltipFor(nl2x::BankLocation location) const
                             : each.name.isEmpty() ? juce::String("a sound with no name") : each.name;
     };
     juce::String tip = locationName(location) + ": " + nameOf(text);
-    if (text.category.isNotEmpty())
-        tip << " (" << text.category << (text.autoCategory ? ", given by Auto-tag" : "") << ")";
-    else if (text.suggested.isNotEmpty())
-        tip << " (suggested: " << text.suggested << "; click the dashed tag to keep it)";
+    juce::StringArray tags;
+    juce::StringArray suggested;
+    for (const auto& chip : text.chips) {
+        if (chip.style == TagChip::Style::Suggested)
+            suggested.add(utf8(chip.tag));
+        else if (chip.style != TagChip::Style::Remark)
+            tags.add(utf8(chip.tag) + (chip.style == TagChip::Style::Auto ? " (Auto-tag)" : ""));
+    }
+    if (! tags.isEmpty())
+        tip << " (" << tags.joinIntoString(", ") << ")";
+    if (! suggested.isEmpty())
+        tip << "; suggested: " << suggested.joinIntoString(", ") << ", click a dashed tag to keep it";
     if (processor.librarian().isPending(location))
         tip << ". To send: it replaces " << nameOf(describeSynth(location)) << " on the synth";
     tip << ".\nClick to audition it on " << slotName(selectedSlot())
-        << "; drag it onto another location to copy it there; right-click to undo a change.";
+        << " and edit its name and tags in the Library; click a tag to change it, or the end of the location to add "
+           "one; drag it onto another location to copy it there; right-click to undo a change.";
     return tip;
 }
 
@@ -631,6 +615,17 @@ void LibrarianView::refresh()
                 "Bank " + juce::String(each) + (count > 0 ? "  (" + juce::String(count) + ")" : juce::String()));
         }
         grid->repaint();
+    }
+
+    // The location marked selected is the one the Library's edit area edits, if any. Not while a
+    // dialog is open: a Store asking where marks the location it would replace.
+    if (! dialogOpen) {
+        const auto edited = libraryPanel.editedLocation();
+        const int marked = edited && edited->bank == bank ? edited->program : 0;
+        if (grid->selectedProgram != marked) {
+            grid->selectedProgram = marked;
+            grid->repaint();
+        }
     }
 
     const auto pending = librarian.pendingPrograms(bank);
@@ -774,25 +769,32 @@ void LibrarianView::locationMenu(nl2x::BankLocation location)
     });
     if (const auto program = librarian.program(location)) {
         const auto fingerprint = nl2x::SoundFingerprint::of(*program);
-        if (const auto suggestion = libraryPanel.suggestionFor(fingerprint)) {
+        const auto suggested = libraryPanel.suggestionsFor(fingerprint);
+        if (! suggested.empty())
             menu.addSeparator();
-            menu.addItem("Keep suggested category: " + utf8(suggestion->category), [safe, fingerprint] {
+        for (const auto& suggestion : suggested)
+            menu.addItem("Keep suggested tag " + utf8(suggestion.tag), [safe, fingerprint, tag = suggestion.tag] {
                 if (safe != nullptr)
-                    safe->libraryPanel.acceptSuggestion(fingerprint);
+                    safe->libraryPanel.acceptSuggestion(fingerprint, tag);
             });
-            menu.addItem("Dismiss suggested category", [safe, fingerprint] {
+        for (const auto& suggestion : suggested)
+            menu.addItem("Dismiss suggested tag " + utf8(suggestion.tag), [safe, fingerprint, tag = suggestion.tag] {
                 if (safe != nullptr)
-                    safe->libraryPanel.dismissSuggestion(fingerprint);
+                    safe->libraryPanel.dismissSuggestion(fingerprint, tag);
             });
-        }
+        menu.addSeparator();
+        menu.addItem(juce::String::fromUTF8("Add a tag\xE2\x80\xA6"), [safe, fingerprint] {
+            if (safe != nullptr)
+                safe->libraryPanel.tagClicked(fingerprint, { TagChipRow::Hit::Kind::Add, {} });
+        });
     }
     menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
 }
 
-void LibrarianView::acceptSuggestion(nl2x::BankLocation location)
+void LibrarianView::tagsClicked(nl2x::BankLocation location, const TagChipRow::Hit& hit)
 {
     if (const auto program = processor.librarian().program(location))
-        libraryPanel.acceptSuggestion(nl2x::SoundFingerprint::of(*program));
+        libraryPanel.tagClicked(nl2x::SoundFingerprint::of(*program), hit);
 }
 
 void LibrarianView::readBanks()
@@ -943,6 +945,7 @@ void LibrarianView::askForLocation(const juce::String& title, const juce::String
                                 safe->lastStoreProgram = location.program;
                                 safe->showBank(location.bank);
                                 safe->grid->selectedProgram = location.program;
+                                safe->libraryPanel.editLocation(location);
                                 onChosen(location);
                             }),
                             true);
