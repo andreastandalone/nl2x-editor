@@ -28,7 +28,7 @@ All colours, fonts and sizes are named in `plugin/NordLookAndFeel.h`; the compon
 - `NordPalette::morph`, `morphNegative`: the Morph Amount ring (positive and negative amounts) and the Morph button; deliberately not the title colour.
 - `NordPalette::knobTrack`, `valueArc`, `knobCap`: the knob.
 - `NordPalette::ledOn`, `ledOff`: the LEDs of stepped choices and switches.
-- `NordPalette::tagFill`, `tagText`: the tag chips of a Library row and of a Librarian location (`NordLookAndFeel::drawTag`).
+- `NordPalette::tagFill`, `tagText`: the tag chips of a Library row and of a Librarian location (`NordLookAndFeel::drawTag`). `tagAutoFill`: an auto-assigned category, a darker chip with a solid edge in `tagFill` and dimmed text (`drawAutoTag`); a suggested category is a dashed chip (`drawSuggestedTag`).
 - `NordPalette::location`, `pending`: a Librarian location's plate, and the amber of a location "to send".
 - The others (`text`, `textDim`, `textOnAccent`, `control`, `outline`, `hairline`, the status colours) are the editor's own.
 - `NordFonts`: Avenir Next and Avenir Next Condensed, by role (section title, control name, choice, value, body, small, heading, tab, tag, header).

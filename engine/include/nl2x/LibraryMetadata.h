@@ -19,6 +19,13 @@
 // the old one (which is kept as library.json.bak), so a crash never leaves half a file. Every change
 // reads the file again first, so two editor windows open on the same folder keep each other's
 // changes.
+//
+// Auto-tag writes many suggested categories at once (autoAssign). Each is marked auto-assigned in
+// the file ("autoAssigned": true), so that Undo auto-tag (removeAutoAssigned) takes back exactly
+// those the user has not touched since, and so that learned suggestions (LearnedCategories) learn
+// only from the user's own categories. The mark is an optional field of format version 1: an
+// older editor reads the file and ignores it (if it rewrites the file, the mark is lost and the
+// category stays as if set by hand, which loses nothing the user typed).
 
 #include "nl2x/Library.h"
 
@@ -76,6 +83,9 @@ struct SoundInfo {
     // Empty: no category.
     std::string category;
     bool favourite = false;
+    // The category was written by Auto-tag and not touched by the user since. Only autoAssign()
+    // sets it; set() keeps it only while the category stays the same (see set()).
+    bool autoAssigned = false;
 
     bool isEmpty() const { return name.empty() && category.empty() && ! favourite; }
     friend bool operator==(const SoundInfo&, const SoundInfo&) = default;
@@ -144,6 +154,23 @@ public:
     {
         return set(SoundFingerprint::of(entry), info);
     }
+    // set() is the user's hand: it never marks a category auto-assigned. It keeps the mark only
+    // when `info` keeps both the category stored now and the mark; picking a category, even the
+    // same one with `autoAssigned` false, makes it the user's own.
+
+    struct AutoAssignment {
+        SoundFingerprint fingerprint;
+        std::string category;
+    };
+    // Auto-tag: gives each sound its category, marked auto-assigned, unless the sound has a
+    // category on disk by now (set in another window). One read and one write for all of them;
+    // on RefusedUnreadable or Failed nothing changes.
+    MetadataSaveResult autoAssign(const std::vector<AutoAssignment>& assignments);
+    // Undo auto-tag: removes every auto-assigned category; a sound left with no information is
+    // removed from the file.
+    MetadataSaveResult removeAutoAssigned();
+    // The sounds whose category is auto-assigned.
+    int autoAssignedCount() const;
 
     // The sound `soundId` was edited in the editor into `edited` (and saved): its fingerprint
     // becomes `edited`. Nothing happens when the sound is gone or another sound already has
@@ -157,6 +184,8 @@ public:
         SoundFingerprint fingerprint;
         SoundInfo info;
     };
+    // Every tagged sound, by id.
+    const std::map<std::string, Sound>& taggedSounds() const { return sounds; }
 
 private:
     MetadataSaveResult rewrite(const std::map<std::string, Sound>& newSounds);

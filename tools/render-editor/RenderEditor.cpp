@@ -298,6 +298,9 @@ int render(const Options& options)
                 metadata.set(file.entries.front(), { "Warm lead", "Lead", true });
             else if (file.name == "Slot B sound")
                 metadata.set(file.entries.front(), { "Fat bass", "Bass", false });
+            // A category given by Auto-tag.
+            else if (file.name == "Slot D sound")
+                metadata.autoAssign({ { nl2x::SoundFingerprint::of(file.entries.front()), "Pad" } });
         }
     }
 
