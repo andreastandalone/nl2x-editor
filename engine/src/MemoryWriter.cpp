@@ -132,6 +132,7 @@ MemoryWriter::MemoryWriter(const Engine& owner, SynthConnection& synthConnection
     : engine(owner),
       connection(synthConnection),
       reading { switches.bankReadingVerified, switches.bankRequestTypeOfSysExBank1 },
+      performanceDumpsApplied(switches.performanceEditBufferDumpIsApplied),
       onChange(std::move(changedCallback))
 {
 }
@@ -495,9 +496,15 @@ void MemoryWriter::offerPlan(std::string message)
             plan.details += " Its " + std::to_string(task->skippedKits)
                             + " Percussion Kits are not sent: storing Kits in a Bank is not supported yet.";
     }
-    plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel: select " + bank
-                    + " on the synth (any Program in it) before you confirm, and do not change it until this is "
-                      "done.";
+    if (selectedBankUnreadable())
+        plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel. Before you "
+                        "confirm, select a Program in " + bank + " on the synth's panel, even if " + bank
+                        + " is shown already" + notOnStoredSlot() + ", and do not change it until this is done. "
+                        + sentDumpReason();
+    else
+        plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel: select " + bank
+                        + " on the synth (any Program in it) before you confirm, and do not change it until this is "
+                          "done.";
     if (current.backupFile)
         plan.details += "\n\nA backup of " + bank + " was saved to " + current.backupFile->string() + ".";
     else
@@ -536,11 +543,48 @@ MemoryConfirmResult MemoryWriter::confirm(std::uint64_t token, NoBackupConsent c
         task->programs = { *program };
     }
 
-    if (hardware::kPerformanceNamesSelectedBank)
+    if (selectedBankUnreadable()) {
+        const auto bank = bankText(task->bank);
+        offerPlan("The editor cannot read which Bank is selected on the synth yet. Select a Program in " + bank
+                  + " on the synth's panel" + notOnStoredSlot() + ", then confirm again. Nothing was written. "
+                  + sentDumpReason());
+    } else if (hardware::kPerformanceNamesSelectedBank) {
         checkSelectedBank(timeMs);
+    }
     else
         startWriting(timeMs);
     return MemoryConfirmResult::Accepted;
+}
+
+bool MemoryWriter::selectedBankUnreadable() const
+{
+    return hardware::kPerformanceNamesSelectedBank && performanceEditBufferHoldsSentDump;
+}
+
+std::string MemoryWriter::notOnStoredSlot() const
+{
+    // Selecting a Program on the Slot being stored would replace the sound about to be stored.
+    if (! task || ! task->slot)
+        return {};
+    return std::string(" (on a Slot other than ") + slotLetter(*task->slot) + ", whose sound is the one stored)";
+}
+
+std::string MemoryWriter::sentDumpReason()
+{
+    return "(The editor sent the synth a Performance, when the project opened or for an Audition; the synth keeps "
+           "it without playing it, so until a sound is selected on the synth the editor reads that Performance "
+           "instead of the Banks the Slots play.)";
+}
+
+void MemoryWriter::performanceDumpSent()
+{
+    if (! performanceDumpsApplied)
+        performanceEditBufferHoldsSentDump = true;
+}
+
+void MemoryWriter::soundSelectedOnSynth()
+{
+    performanceEditBufferHoldsSentDump = false;
 }
 
 void MemoryWriter::checkSelectedBank(TimeMs timeMs)

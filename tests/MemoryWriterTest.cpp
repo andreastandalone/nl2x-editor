@@ -7,6 +7,7 @@
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Library.h"
 #include "nl2x/MemoryWriter.h"
+#include "nl2x/ProjectState.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -224,6 +225,45 @@ TEST_CASE("Memory writer: a write waits until the synth has the target Bank sele
     CHECK(rig.status().stage == MemoryStage::Finished);
     CHECK(rig.synth.bankProgram(2, 4) == rig.synth.editBuffer(Slot::A));
     CHECK(rig.synth.bankProgram(1, 4) == patternProgram(104));
+}
+
+TEST_CASE("Memory writer: after project recall the Bank selected on the panel is asked for, not misread")
+{
+    // Andrea, 2026-11-04: with the target Bank selected on the panel, every Overwrite brought the
+    // same question back. Project recall had sent a Performance dump, which the synth keeps
+    // without applying (kPerformanceEditBufferDumpIsApplied), so the Performance read for the
+    // check named the project's Bank instead of the panel's.
+    Rig rig(kVerified, "recalled-performance");
+    rig.synth.setSlotChannel(Slot::A, 0);
+    const auto project = rig.engine.projectState();
+    rig.synth.selectProgramOnPanel(Slot::A, 1, 0);
+    rig.runFor(1000);
+    REQUIRE(rig.engine.loadProjectState(project, true, rig.now) == ProjectLoadResult::Sending);
+    rig.runFor(3000);
+    REQUIRE(rig.synth.selectedBank() == 1);
+
+    const Program stored(patternProgram(4242));
+    REQUIRE(rig.memory().prepareStoreProgram(stored, "Fat bass", 1, 5, rig.backupFolder, kNow, rig.now)
+            == MemoryRefusal::None);
+    rig.settle();
+    // The question says, before any Overwrite, why the panel must be touched.
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->details.find("select a Program in Bank 1 on the synth's panel") != std::string::npos);
+
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+    REQUIRE(rig.status().stage == MemoryStage::AwaitingConfirmation);
+    CHECK(rig.status().message.find("is selected on the synth, not Bank 1") == std::string::npos);
+    CHECK(rig.status().message.find("Select a Program in Bank 1 on the synth's panel") != std::string::npos);
+    CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 0);
+
+    // Selecting on the panel makes the synth's Performance Edit Buffer its own again.
+    rig.synth.selectProgramOnPanel(Slot::A, 1, 7);
+    rig.runFor(1000);
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+    CHECK(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.synth.bankProgram(1, 4) == patternProgram(4242));
 }
 
 TEST_CASE("Memory writer: reading a Bank gives a Program Bank file that round-trips")

@@ -225,7 +225,10 @@ constexpr int sysExBankOfShownBank(int shownBank)
 // false: the writer then relies on the user having selected the Bank, as its confirmation asks.
 // Status: [INF], not verified (plan steps 6 and 11). Step 6 [HW 2026-10-29] showed type 40 reads
 // the live Performance Edit Buffer; but offset 322 lies in the bytes that vary between reads
-// (kFirstVolatilePerformanceValue), so it may not be trustworthy.
+// (kFirstVolatilePerformanceValue), so it may not be trustworthy. A Performance dump the editor
+// sent (project recall, a Performance Audition) is read back instead of what the synth plays
+// (kPerformanceEditBufferDumpIsApplied), so after one the writer asks the user to select a Program on
+// the panel rather than trust the read [HW 2026-11-04: Store asked again on every Overwrite].
 inline constexpr bool kPerformanceNamesSelectedBank = true;
 
 // Performance dumps: type 30 = Edit Buffer, 31–34 = Performance Bank 1–4, spec 0 or 0–99

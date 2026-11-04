@@ -232,6 +232,16 @@ public:
     // yet stay as they were); the plan of a write not confirmed yet is unaffected, since the Bank
     // is checked after confirming.
     void selectionChangedOnSynth();
+    // The Engine sent a Performance dump to the Performance Edit Buffer (project recall, a
+    // Performance Audition). Unless the synth applies such dumps, it keeps it without playing it,
+    // and a read of the Performance Edit Buffer returns that dump, not the Banks the Slots play
+    // (hardware::kPerformanceEditBufferDumpIsApplied). Until a sound is selected on the synth the
+    // check of the selected Bank cannot be made: the writer asks the user to select one instead of
+    // naming a Bank the synth does not have selected.
+    void performanceDumpSent();
+    // A Program Change arrived from the synth: a sound was loaded, and the Performance Edit Buffer
+    // names what the synth plays again.
+    void soundSelectedOnSynth();
 
 private:
     struct Task;
@@ -250,6 +260,10 @@ private:
     void backupComplete(TimeMs timeMs);
     void readComplete();
     void offerPlan(std::string message);
+    // The Performance Edit Buffer holds a dump the Engine sent, so it does not name the selected Bank.
+    bool selectedBankUnreadable() const;
+    std::string notOnStoredSlot() const;
+    static std::string sentDumpReason();
     void checkSelectedBank(TimeMs timeMs);
     void selectedBankChecked(std::optional<std::span<const std::uint8_t>> reply, TimeMs timeMs);
     void startWriting(TimeMs timeMs);
@@ -296,6 +310,9 @@ private:
         std::uint8_t requestTypeOfSysExBank1;
     };
     BankReading reading;
+    bool performanceDumpsApplied;
+    // A Performance dump sent by the Engine is in the Performance Edit Buffer (performanceDumpSent).
+    bool performanceEditBufferHoldsSentDump = false;
     std::function<void()> onChange;
     MemoryWriterListener* listener = nullptr;
     std::optional<Task> task;

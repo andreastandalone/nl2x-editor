@@ -25,6 +25,11 @@ constexpr int kToolRowHeight = 30;
 constexpr int kButtonRowHeight = 28;
 constexpr int kStatusHeight = 26;
 constexpr int kProgressWidth = 180;
+// What happens after a Store's location is chosen. Reading a Bank takes about 0.1 s per Program.
+constexpr const char* kBackupFirst = "First the whole Bank is read from the synth into a backup, which takes about "
+                                     "10 seconds (the progress shows at the bottom of the Librarian); then you "
+                                     "confirm before anything is written.";
+
 // The most locations a send confirmation lists one by one.
 constexpr std::size_t kMostListed = 12;
 constexpr const char* kLocationDragPrefix = "nl2x-location:";
@@ -955,8 +960,7 @@ void LibrarianView::askWhereToStoreSlot(nl2x::Slot slot)
 {
     askForLocation("Store " + slotName(slot),
                    "Where should " + slotName(slot)
-                       + "'s Program be stored? The Bank is backed up first, and you confirm before anything is "
-                         "written.",
+                       + "'s Program be stored? " + kBackupFirst,
                    [this, slot](nl2x::BankLocation location) {
                        message.clear();
                        showMemoryRefusal(processor.synthMemory().prepareStoreProgram(
@@ -971,7 +975,7 @@ void LibrarianView::askWhereToStore(const nl2x::LibraryEntry& entry)
     const auto name = utf8(libraryPanel.metadata().displayName(entry));
     askForLocation("Store " + name,
                    "Where should \"" + name
-                       + "\" be stored? The Bank is backed up first, and you confirm before anything is written.",
+                       + "\" be stored? " + kBackupFirst,
                    [this, description](nl2x::BankLocation location) {
                        const auto* found = libraryPanel.draggedEntry(description);
                        if (found == nullptr) {
@@ -990,8 +994,11 @@ void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
     askedToken = plan.token;
     juce::String details;
     const auto& status = processor.synthMemory().status();
-    if (! status.message.empty())
-        details << utf8(status.message) << "\n\n";
+    // Asked again after an Overwrite that wrote nothing: the reason comes first, under its own
+    // title, so the question does not look like the one just answered.
+    const bool askedAgain = ! status.message.empty();
+    if (askedAgain)
+        details << utf8(status.message) << "\n\n" << utf8(plan.question) << "\n\n";
     // What each location will hold and what it holds now, while the list stays readable.
     if (plan.operation == nl2x::MemoryOperation::SendPrograms && plan.programs.size() <= kMostListed) {
         const auto nameOf = [](const LocationText& text) {
@@ -1008,7 +1015,7 @@ void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
 
     const auto options = juce::MessageBoxOptions()
                              .withIconType(juce::MessageBoxIconType::WarningIcon)
-                             .withTitle(utf8(plan.question))
+                             .withTitle(askedAgain ? juce::String("Not written yet") : utf8(plan.question))
                              .withMessage(details)
                              .withButton("Overwrite")
                              .withButton("Cancel")

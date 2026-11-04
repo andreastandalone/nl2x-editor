@@ -128,6 +128,7 @@ void Engine::sendDueAudition(TimeMs timeMs)
 
     if (! audition.slot) {
         connection->sendWithoutReply(performanceEditBufferDump(*foundGlobalChannel, audition.values), timeMs);
+        memory->performanceDumpSent();
         // What the synth now plays: Kit references and settings it does not receive stay its own.
         for (auto slot : kAllSlots)
             readSlot(slot, timeMs);
