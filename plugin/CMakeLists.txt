@@ -42,7 +42,8 @@ target_sources(NL2XEditor PRIVATE
     SelectorBar.cpp
     SettingsPanel.cpp
     SlotView.cpp
-    SynthControl.cpp)
+    SynthControl.cpp
+    TagChips.cpp)
 
 target_compile_definitions(NL2XEditor PUBLIC
     JUCE_WEB_BROWSER=0

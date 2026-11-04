@@ -86,7 +86,7 @@ void NordLookAndFeel::drawTag(juce::Graphics& g, const juce::String& text, juce:
                juce::Justification::centred, true);
 }
 
-void NordLookAndFeel::drawAutoTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> area)
+void NordLookAndFeel::drawAutoTag(juce::Graphics& g, const juce::String& tag, juce::Rectangle<float> area)
 {
     const auto radius = area.getHeight() * 0.5f;
     g.setColour(P::tagAutoFill);
@@ -95,11 +95,11 @@ void NordLookAndFeel::drawAutoTag(juce::Graphics& g, const juce::String& categor
     g.drawRoundedRectangle(area.reduced(0.5f), radius, 1.0f);
     g.setColour(P::textDim);
     g.setFont(NordFonts::tag());
-    g.drawText(category, area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
+    g.drawText(tag, area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
                juce::Justification::centred, true);
 }
 
-void NordLookAndFeel::drawSuggestedTag(juce::Graphics& g, const juce::String& category, juce::Rectangle<float> area)
+void NordLookAndFeel::drawSuggestedTag(juce::Graphics& g, const juce::String& tag, juce::Rectangle<float> area)
 {
     const auto radius = area.getHeight() * 0.5f;
     juce::Path outline;
@@ -110,13 +110,26 @@ void NordLookAndFeel::drawSuggestedTag(juce::Graphics& g, const juce::String& ca
     g.setColour(P::textDim);
     g.fillPath(dashed);
     g.setFont(NordFonts::tag());
-    g.drawText(suggestedTagText(category), area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
+    g.drawText(suggestedTagText(tag), area.reduced(static_cast<float>(NordMetrics::tagPadding) - 1.0f, 0.0f),
                juce::Justification::centred, true);
 }
 
 int NordLookAndFeel::tagWidth(const juce::String& text)
 {
     return juce::GlyphArrangement::getStringWidthInt(juce::Font(NordFonts::tag()), text) + 2 * NordMetrics::tagPadding;
+}
+
+void NordLookAndFeel::drawAddTag(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& label)
+{
+    if (label.isNotEmpty()) {
+        drawTag(g, label, area, false);
+        return;
+    }
+    const auto centre = area.getCentre();
+    const auto arm = std::min(4.0f, std::min(area.getWidth(), area.getHeight()) * 0.3f);
+    g.setColour(P::textDim);
+    g.drawLine(centre.x - arm, centre.y, centre.x + arm, centre.y, 1.4f);
+    g.drawLine(centre.x, centre.y - arm, centre.x, centre.y + arm, 1.4f);
 }
 
 void NordLookAndFeel::drawLed(juce::Graphics& g, juce::Rectangle<float> bounds, bool on)

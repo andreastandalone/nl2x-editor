@@ -11,7 +11,7 @@ An editor for the Nord Lead 2X: a free, open-source VST3/AU plugin for macOS tha
 - Two-way sync: turning a knob on the synth moves it in the plugin.
 - Your DAW project recalls the synth's sounds when it is reopened.
 - A Library of standard `.syx` files, each subfolder a collapsible group, with instant audition, and safe writing to the synth's memory with automatic backups.
-- Your own names, categories and favourites for Library sounds (the synth stores no names), kept in `library.json` in the Library folder, with filters by category and favourites. A sound with no category shows a suggested one (from its file name, from the sounds you tagged yourself that it resembles, or Bass or Keys from its parameters), kept with one click; Auto-tag keeps them all at once, and Undo auto-tag takes back those you have not touched.
+- Your own names, tags and favourites for Library sounds and for the sounds in the synth's Banks (the synth stores no names), kept in `library.json` in the Library folder, with filters by tag and favourites. A sound can have any number of tags: click one to change or remove it, or the end of the row to add one (Bass, Pad, Pluck, Arp… or your own). Suggested tags (from the file name, from the sounds you tagged yourself that it resembles, or Bass or Keys from its parameters) show dashed and are kept with one click; Auto-tag keeps them all at once, and Undo auto-tag takes back those you have not kept.
 
 ## Requirements
 

@@ -16,8 +16,9 @@
 // --view librarian shows the Librarian tab once the simulated synth's Banks are read: Bank 1 holds
 // the Slots' sounds at Programs 1–4 (so the Library's names and tags show), and a few locations
 // are changed ("to send") by putting Library Programs there and copying one location to another.
-// --bank <0–3> shows another Bank.
+// --bank <0–3> shows another Bank; --edit <1–99> makes the Library edit that location of it.
 
+#include "LibraryPanel.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
@@ -58,6 +59,8 @@ struct Options {
     float scale = 1.0f;
     int width = 0;
     int bank = 1;
+    // A location of the shown Bank whose sound the Library's edit area edits (0: none).
+    int edit = 0;
     juce::File work;
 };
 
@@ -104,6 +107,8 @@ std::optional<Options> parse(const juce::StringArray& args)
             options.scale = juce::jlimit(1.0f, 4.0f, next().getFloatValue());
         else if (arg == "--bank")
             options.bank = juce::jlimit(0, 3, next().getIntValue());
+        else if (arg == "--edit")
+            options.edit = juce::jlimit(0, 99, next().getIntValue());
         else if (arg == "--width")
             options.width = next().getIntValue();
         else if (arg == "--work")
@@ -149,6 +154,16 @@ juce::Component* findById(juce::Component& root, const juce::String& id)
         return &root;
     for (auto* child : root.getChildren())
         if (auto* found = findById(*child, id))
+            return found;
+    return nullptr;
+}
+
+LibraryPanel* findPanel(juce::Component& root)
+{
+    if (auto* panel = dynamic_cast<LibraryPanel*>(&root))
+        return panel;
+    for (auto* child : root.getChildren())
+        if (auto* found = findPanel(*child))
             return found;
     return nullptr;
 }
@@ -267,7 +282,7 @@ int render(const Options& options)
     // sounds" with a nested "Live", and "Factory" with two Bank files made of the same Programs (our
     // own, never Clavia's). A Bank backup is listed under the Backups heading, two sounds carry
     // the user's own information, and Slot C's sound is also saved as "Glass Bells", whose name
-    // suggests a category.
+    // suggests a tag.
     library.deleteRecursively();
     const auto save = [](const juce::File& file, const std::vector<std::uint8_t>& bytes) {
         nl2x::saveLibraryFile(file.getFullPathName().toStdString(), bytes);
@@ -279,7 +294,7 @@ int render(const Options& options)
             const auto name = juce::String("Slot ") + nl2x::slotLetter(slot) + " sound.syx";
             save(slot == nl2x::Slot::A ? library.getChildFile(name) : mySounds.getChildFile(name), *file);
             bank.insert(bank.end(), file->begin(), file->end());
-            // A sound with no category whose file name says one: the Library suggests it.
+            // A sound with no tag whose file name says one: the Library suggests it.
             if (slot == nl2x::Slot::C)
                 save(library.getChildFile("Glass Bells.syx"), *file);
         }
@@ -295,12 +310,12 @@ int render(const Options& options)
         auto metadata = nl2x::LibraryMetadata::load(libraryPath);
         for (const auto& file : nl2x::scanLibrary(libraryPath)) {
             if (file.name == "Slot A sound")
-                metadata.set(file.entries.front(), { "Warm lead", "Lead", true });
+                metadata.set(file.entries.front(), { "Warm lead", { "Lead", "Mono", "Sweep", "Synth" }, true });
             else if (file.name == "Slot B sound")
-                metadata.set(file.entries.front(), { "Fat bass", "Bass", false });
-            // A category given by Auto-tag.
+                metadata.set(file.entries.front(), { "Fat bass", { "Bass" }, false });
+            // Tags given by Auto-tag.
             else if (file.name == "Slot D sound")
-                metadata.autoAssign({ { nl2x::SoundFingerprint::of(file.entries.front()), "Pad" } });
+                metadata.autoAssign({ { nl2x::SoundFingerprint::of(file.entries.front()), { "Pad", "Ambient" } } });
         }
     }
 
@@ -336,6 +351,8 @@ int render(const Options& options)
         librarian.copy({ 1, 3 }, { 1, 60 });
         put("Slot C sound", { 2, 5 });
         click(*editor, "bankTab" + juce::String(options.bank));
+        if (auto* panel = findPanel(*editor); panel != nullptr && options.edit > 0)
+            panel->editLocation({ options.bank, options.edit });
     }
     if (options.morph)
         click(*editor, "morph");
@@ -378,7 +395,7 @@ int main(int argc, char* argv[])
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|librarian] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
                      "                          [--edge-cases] [--open-library] [--favourites] [--width <px>]\n"
-                     "                          [--scale <n>] [--bank <0-3>] [--work <dir>]\n";
+                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--work <dir>]\n";
         return 2;
     }
     const juce::ScopedJuceInitialiser_GUI juce;

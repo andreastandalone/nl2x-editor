@@ -17,7 +17,7 @@
 #include <string>
 
 // The synth side of the Librarian tab (#44): the four RAM Program Banks, one shown at a time as a
-// grid of its 99 Programs, each with its location, the user's name and category (Library metadata,
+// grid of its 99 Programs, each with its location, the user's name and tags (Library metadata,
 // by fingerprint) or the name the Library gives the same sound, and pending locations marked "to
 // send". The Library panel sits on its left while the tab is shown (EditorContent).
 //
@@ -26,10 +26,11 @@
 // - Dropping a Library Program on a location puts it there; dragging a location onto another
 //   copies it; dropping a Program Bank file on a Bank tab or the grid replaces the Composed Bank
 //   with it. A location's context menu undoes its change; "Discard changes" drops all of a Bank's.
-// - Clicking a location auditions its Program (pending ones too) on the selected Slot. A sound
-//   with no category shows the Library's suggested one as a dashed tag ("Bass?"): clicking the tag
-//   keeps it, the context menu keeps or dismisses it. A category given by Auto-tag shows as a
-//   darker tag.
+// - Clicking a location auditions its Program (pending ones too) on the selected Slot, and makes it
+//   the sound the Library's edit area edits (LibraryPanel::editLocation). Its tags are clicked as
+//   in the Library (LibraryPanel::tagClicked): a tag to keep, replace or remove it, the place after
+//   the tags to add one, a suggested tag ("Bass?", dashed) to keep it; the context menu keeps or
+//   dismisses suggestions. A tag given by Auto-tag shows darker.
 // - "Send Bank N to synth…" writes the pending locations, "Save Bank as .syx…" writes the
 //   Composed Bank into the Library folder; a single Library Program or the Slot being edited is
 //   stored with askWhereToStore() and askWhereToStoreSlot().
@@ -58,22 +59,17 @@ public:
     bool accepts(const juce::var& description, bool onBankTab) const;
     void locationClicked(nl2x::BankLocation location);
     void locationMenu(nl2x::BankLocation location);
-    // Keeps the suggested category of the Program at `location` (a click on its dashed tag).
-    void acceptSuggestion(nl2x::BankLocation location);
+    // A click on the tags of the Program at `location`.
+    void tagsClicked(nl2x::BankLocation location, const TagChipRow::Hit& hit);
 
     // What a location shows.
     struct LocationText {
         // The user's name, else the name the Library gives the same sound; empty when unknown.
         juce::String name;
         bool userName = false;
-        juce::String category;
-        // The category was given by Auto-tag and not touched since.
-        bool autoCategory = false;
-        // A suggested category, shown only when the sound has none of its own.
-        juce::String suggested;
+        // Its tags, suggested tags and "changed" (LibraryPanel::chipsFor).
+        std::vector<TagChip> chips;
         bool favourite = false;
-        // Recognised by similarity: an edited version of a tagged sound.
-        bool changed = false;
         bool known = false;
     };
     LocationText describe(nl2x::BankLocation location) const;
