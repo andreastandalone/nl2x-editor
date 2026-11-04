@@ -1,6 +1,7 @@
 #pragma once
 
-// The user's own information about Library sounds (#39): a name, a category and a favourite flag.
+// The user's own information about Library sounds (#39): a name, any number of tags and a favourite
+// flag.
 // Nord Lead 2X dumps hold no names (research §3), so this is user data kept beside the .syx files,
 // in one JSON file in the Library folder.
 //
@@ -20,12 +21,15 @@
 // reads the file again first, so two editor windows open on the same folder keep each other's
 // changes.
 //
-// Auto-tag writes many suggested categories at once (autoAssign). Each is marked auto-assigned in
-// the file ("autoAssigned": true), so that Undo auto-tag (removeAutoAssigned) takes back exactly
-// those the user has not touched since, and so that learned suggestions (LearnedCategories) learn
-// only from the user's own categories. The mark is an optional field of format version 1: an
-// older editor reads the file and ignores it (if it rewrites the file, the mark is lost and the
-// category stays as if set by hand, which loses nothing the user typed).
+// Auto-tag writes many suggested tags at once (autoAssign). Each is marked auto-assigned in the
+// file (listed in "autoTags" besides "tags"), so that Undo auto-tag (removeAutoAssigned) takes back
+// exactly those the user has not confirmed since, and so that learned suggestions (LearnedTags)
+// learn only from the user's own tags.
+//
+// Format version 2 holds a list of tags per sound. Version 1 (one "category" per sound, and an
+// "autoAssigned" flag for it) is still read: the category becomes the sound's only tag, auto-assigned
+// if it was. The first save over a version 1 file also keeps it as library.json.v1.bak, once. An
+// editor older than version 2 finds a version 2 file unreadable and so never overwrites it.
 
 #include "nl2x/Library.h"
 
@@ -42,11 +46,16 @@
 
 namespace nl2x {
 
-// The categories offered by default. The file stores the category as text, so a category not in
-// this list (added here later, or written by hand) is kept and offered too.
-inline constexpr std::array<std::string_view, 8> kLibraryCategories {
-    "Bass", "Lead", "Pad", "Keys", "Brass/Strings", "FX", "Percussion", "Other",
+// The tags offered by default: what a sound is first, then how it plays. The file stores tags as
+// text, so a tag not in this list (typed by the user, or a category of format version 1 such as
+// "Brass/Strings" or "Other") is kept and offered too.
+inline constexpr std::array<std::string_view, 18> kLibraryTags {
+    "Bass", "Lead", "Pad", "Keys", "Organ", "Bell", "Pluck", "Strings", "Brass",
+    "Synth", "Poly", "Mono", "Arp", "Rhythmic", "Sweep", "Ambient", "FX", "Percussion",
 };
+
+// A tag as stored: spaces at either end removed. Empty: no tag.
+std::string normalisedTag(std::string_view tag);
 
 // The file in the Library folder that holds the information.
 inline constexpr std::string_view kLibraryMetadataFileName = "library.json";
@@ -80,14 +89,29 @@ int soundDifferences(const SoundFingerprint& a, const SoundFingerprint& b);
 struct SoundInfo {
     // Empty: the entry keeps the name the Library gives it (LibraryEntry::name).
     std::string name;
-    // Empty: no category.
-    std::string category;
+    // In the order they were added; no duplicates, none empty.
+    std::vector<std::string> tags {};
     bool favourite = false;
-    // The category was written by Auto-tag and not touched by the user since. Only autoAssign()
-    // sets it; set() keeps it only while the category stays the same (see set()).
-    bool autoAssigned = false;
+    // The tags written by Auto-tag and not confirmed by the user since: some of `tags`. Only
+    // autoAssign() adds to it; set() keeps a tag here only while it was here before (see set()).
+    std::vector<std::string> autoTags {};
 
-    bool isEmpty() const { return name.empty() && category.empty() && ! favourite; }
+    bool hasTag(std::string_view tag) const;
+    bool isAutoTag(std::string_view tag) const;
+    // The tags the user set or confirmed himself.
+    std::vector<std::string> ownTags() const;
+    // Adds the normalised `tag` at the end, as the user's own; false when it is empty or already
+    // there.
+    bool addTag(std::string_view tag);
+    // Removes `tag` (and its auto-assigned mark); false when it is not there.
+    bool removeTag(std::string_view tag);
+    // Puts `to` in the place of `from`, as the user's own; when `to` is already there, `from` is
+    // only removed. False when `from` is not there or `to` is empty.
+    bool replaceTag(std::string_view from, std::string_view to);
+    // Makes an auto-assigned tag the user's own.
+    void confirmTag(std::string_view tag);
+
+    bool isEmpty() const { return name.empty() && tags.empty() && ! favourite; }
     friend bool operator==(const SoundInfo&, const SoundInfo&) = default;
 };
 
@@ -114,13 +138,13 @@ enum class MetadataSaveResult : std::uint8_t {
     Failed,
 };
 
-// What the Library shows: every entry, or only those of one category and/or the favourites.
+// What the Library shows: every entry, or only those with one tag and/or the favourites.
 struct LibraryFilter {
-    // Empty: any category.
-    std::string category;
+    // Empty: any tags.
+    std::string tag;
     bool favouritesOnly = false;
 
-    bool isActive() const { return ! category.empty() || favouritesOnly; }
+    bool isActive() const { return ! tag.empty() || favouritesOnly; }
     bool matches(const SoundInfo& info) const;
 };
 
@@ -154,22 +178,22 @@ public:
     {
         return set(SoundFingerprint::of(entry), info);
     }
-    // set() is the user's hand: it never marks a category auto-assigned. It keeps the mark only
-    // when `info` keeps both the category stored now and the mark; picking a category, even the
-    // same one with `autoAssigned` false, makes it the user's own.
+    // set() is the user's hand: it never marks a tag auto-assigned. A tag keeps the mark only when
+    // it is auto-assigned on disk now and `info` keeps both the tag and the mark; dropping a tag's
+    // mark (SoundInfo::confirmTag) makes it the user's own.
 
     struct AutoAssignment {
         SoundFingerprint fingerprint;
-        std::string category;
+        std::vector<std::string> tags;
     };
-    // Auto-tag: gives each sound its category, marked auto-assigned, unless the sound has a
-    // category on disk by now (set in another window). One read and one write for all of them;
-    // on RefusedUnreadable or Failed nothing changes.
+    // Auto-tag: adds each sound's tags, marked auto-assigned, leaving out those the sound has on
+    // disk by now (set in another window). One read and one write for all of them; on
+    // RefusedUnreadable or Failed nothing changes.
     MetadataSaveResult autoAssign(const std::vector<AutoAssignment>& assignments);
-    // Undo auto-tag: removes every auto-assigned category; a sound left with no information is
-    // removed from the file.
+    // Undo auto-tag: removes every auto-assigned tag; a sound left with no information is removed
+    // from the file.
     MetadataSaveResult removeAutoAssigned();
-    // The sounds whose category is auto-assigned.
+    // The sounds with at least one auto-assigned tag.
     int autoAssignedCount() const;
 
     // The sound `soundId` was edited in the editor into `edited` (and saved): its fingerprint
@@ -177,8 +201,8 @@ public:
     // exactly these values.
     MetadataSaveResult followEdit(const std::string& soundId, const SoundFingerprint& edited);
 
-    // kLibraryCategories followed by any other category found in the file, sorted.
-    std::vector<std::string> categoryChoices() const;
+    // kLibraryTags followed by any other tag found in the file, sorted.
+    std::vector<std::string> tagChoices() const;
 
     struct Sound {
         SoundFingerprint fingerprint;
@@ -188,7 +212,8 @@ public:
     const std::map<std::string, Sound>& taggedSounds() const { return sounds; }
 
 private:
-    MetadataSaveResult rewrite(const std::map<std::string, Sound>& newSounds);
+    // `versionOnDisk`: the format version of the file being replaced (0: none).
+    MetadataSaveResult rewrite(const std::map<std::string, Sound>& newSounds, int versionOnDisk);
     void reindex();
 
     std::filesystem::path folder;

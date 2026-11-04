@@ -19,8 +19,12 @@ namespace nl2x {
 namespace {
 
 // Written in the file; a file with a higher version came from a newer editor and is not
-// overwritten, since this version would drop what it does not know.
-constexpr int kFormatVersion = 1;
+// overwritten, since this version would drop what it does not know. Version 1 held one category
+// per sound; it is read, and replaced by version 2 on the next save.
+constexpr int kFormatVersion = 2;
+constexpr int kCategoryFormatVersion = 1;
+// The copy of a version 1 file kept, once, when it is first replaced by version 2.
+constexpr const char* kVersion1BackupSuffix = ".v1.bak";
 constexpr const char* kFormatName = "NL2X Editor Library";
 // Far above any real file (about 100 bytes per sound).
 constexpr std::uintmax_t kLargestMetadataFileSize = 16 * 1024 * 1024;
@@ -425,6 +429,8 @@ using Sounds = std::map<std::string, LibraryMetadata::Sound>;
 struct ReadResult {
     LibraryMetadataStatus status = LibraryMetadataStatus::Ready;
     Sounds sounds;
+    // The file's format version; 0 when there is no file.
+    int version = 0;
 };
 
 const std::string* stringMember(const JsonValue& object, std::string_view name, bool& wrongType)
@@ -437,7 +443,25 @@ const std::string* stringMember(const JsonValue& object, std::string_view name, 
     return text;
 }
 
-std::optional<Sounds> soundsOf(const JsonValue& document)
+// A list of tags: absent is none; anything but an array of strings is an error.
+bool readTags(const JsonValue& object, std::string_view name, std::vector<std::string>& tags)
+{
+    const auto* member = object.member(name);
+    if (member == nullptr)
+        return true;
+    const auto* array = std::get_if<std::shared_ptr<std::vector<JsonValue>>>(&member->value);
+    if (array == nullptr)
+        return false;
+    for (const auto& value : **array) {
+        const auto* text = std::get_if<std::string>(&value.value);
+        if (text == nullptr)
+            return false;
+        tags.push_back(*text);
+    }
+    return true;
+}
+
+std::optional<Sounds> soundsOf(const JsonValue& document, int& versionRead)
 {
     const auto* format = document.member("format");
     const auto* version = document.member("version");
@@ -448,8 +472,9 @@ std::optional<Sounds> soundsOf(const JsonValue& document)
     const auto* versionNumber = std::get_if<double>(&version->value);
     const auto* soundArray = std::get_if<std::shared_ptr<std::vector<JsonValue>>>(&sounds->value);
     if (formatName == nullptr || *formatName != kFormatName || versionNumber == nullptr || soundArray == nullptr
-        || *versionNumber < 1 || *versionNumber > kFormatVersion)
+        || *versionNumber < kCategoryFormatVersion || *versionNumber > kFormatVersion)
         return std::nullopt;
+    versionRead = static_cast<int>(*versionNumber);
 
     Sounds result;
     for (const auto& value : **soundArray) {
@@ -471,20 +496,34 @@ std::optional<Sounds> soundsOf(const JsonValue& document)
         sound.fingerprint = { *entryKind, std::move(*bytes) };
         if (name != nullptr)
             sound.info.name = *name;
+        std::vector<std::string> tags;
+        std::vector<std::string> autoTags;
+        if (! readTags(value, "tags", tags) || ! readTags(value, "autoTags", autoTags))
+            return std::nullopt;
+        // Version 1's category (or one added by hand to a later file): one more tag.
         if (category != nullptr)
-            sound.info.category = *category;
+            tags.push_back(*category);
+        for (const auto& tag : tags)
+            sound.info.addTag(tag);
         if (const auto* favourite = value.member("favourite")) {
             const auto* flag = std::get_if<bool>(&favourite->value);
             if (flag == nullptr)
                 return std::nullopt;
             sound.info.favourite = *flag;
         }
+        // Version 1 marked its category auto-assigned.
         if (const auto* autoAssigned = value.member("autoAssigned")) {
             const auto* flag = std::get_if<bool>(&autoAssigned->value);
             if (flag == nullptr)
                 return std::nullopt;
-            // A mark with no category marks nothing.
-            sound.info.autoAssigned = *flag && ! sound.info.category.empty();
+            if (*flag && category != nullptr)
+                autoTags.push_back(*category);
+        }
+        // A mark on a tag the sound does not have marks nothing.
+        for (const auto& tag : autoTags) {
+            auto normalised = normalisedTag(tag);
+            if (sound.info.hasTag(normalised) && ! sound.info.isAutoTag(normalised))
+                sound.info.autoTags.push_back(std::move(normalised));
         }
         if (! sound.info.isEmpty())
             result[*id] = std::move(sound);
@@ -512,10 +551,27 @@ ReadResult readFile(const std::filesystem::path& path)
     const auto document = JsonParser(text).parseDocument();
     if (! document)
         return unreadable;
-    auto sounds = soundsOf(*document);
+    int version = 0;
+    auto sounds = soundsOf(*document, version);
     if (! sounds)
         return unreadable;
-    return { LibraryMetadataStatus::Ready, std::move(*sounds) };
+    return { LibraryMetadataStatus::Ready, std::move(*sounds), version };
+}
+
+// `, "key": ["a", "b"]`, nothing when there are no tags.
+void writeTags(std::string& out, std::string_view key, const std::vector<std::string>& tags)
+{
+    if (tags.empty())
+        return;
+    out += ", ";
+    writeJsonString(out, key);
+    out += ": [";
+    for (std::size_t i = 0; i < tags.size(); ++i) {
+        if (i > 0)
+            out += ", ";
+        writeJsonString(out, tags[i]);
+    }
+    out += "]";
 }
 
 std::string toJson(const Sounds& sounds)
@@ -538,12 +594,8 @@ std::string toJson(const Sounds& sounds)
             out += ", \"name\": ";
             writeJsonString(out, sound.info.name);
         }
-        if (! sound.info.category.empty()) {
-            out += ", \"category\": ";
-            writeJsonString(out, sound.info.category);
-            if (sound.info.autoAssigned)
-                out += ", \"autoAssigned\": true";
-        }
+        writeTags(out, "tags", sound.info.tags);
+        writeTags(out, "autoTags", sound.info.autoTags);
         if (sound.info.favourite)
             out += ", \"favourite\": true";
         out += ",\n      \"kind\": ";
@@ -633,9 +685,80 @@ int soundDifferences(const SoundFingerprint& a, const SoundFingerprint& b)
     return count;
 }
 
+std::string normalisedTag(std::string_view tag)
+{
+    const auto isSpace = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; };
+    while (! tag.empty() && isSpace(tag.front()))
+        tag.remove_prefix(1);
+    while (! tag.empty() && isSpace(tag.back()))
+        tag.remove_suffix(1);
+    return std::string(tag);
+}
+
+bool SoundInfo::hasTag(std::string_view tag) const
+{
+    return std::find(tags.begin(), tags.end(), tag) != tags.end();
+}
+
+bool SoundInfo::isAutoTag(std::string_view tag) const
+{
+    return std::find(autoTags.begin(), autoTags.end(), tag) != autoTags.end();
+}
+
+std::vector<std::string> SoundInfo::ownTags() const
+{
+    std::vector<std::string> own;
+    std::copy_if(tags.begin(), tags.end(), std::back_inserter(own), [this](const auto& tag) { return ! isAutoTag(tag); });
+    return own;
+}
+
+bool SoundInfo::addTag(std::string_view tag)
+{
+    auto normalised = normalisedTag(tag);
+    if (normalised.empty() || hasTag(normalised))
+        return false;
+    tags.push_back(std::move(normalised));
+    return true;
+}
+
+bool SoundInfo::removeTag(std::string_view tag)
+{
+    const auto found = std::find(tags.begin(), tags.end(), tag);
+    if (found == tags.end())
+        return false;
+    // `tag` may refer to the element erased.
+    const std::string removed = *found;
+    tags.erase(found);
+    confirmTag(removed);
+    return true;
+}
+
+bool SoundInfo::replaceTag(std::string_view from, std::string_view to)
+{
+    auto normalised = normalisedTag(to);
+    const auto found = std::find(tags.begin(), tags.end(), from);
+    if (found == tags.end() || normalised.empty())
+        return false;
+    const std::string old = *found;
+    if (normalised == old) {
+        confirmTag(old);
+        return true;
+    }
+    if (hasTag(normalised))
+        return removeTag(old);
+    confirmTag(old);
+    *found = std::move(normalised);
+    return true;
+}
+
+void SoundInfo::confirmTag(std::string_view tag)
+{
+    autoTags.erase(std::remove(autoTags.begin(), autoTags.end(), tag), autoTags.end());
+}
+
 bool LibraryFilter::matches(const SoundInfo& info) const
 {
-    return (category.empty() || info.category == category) && (! favouritesOnly || info.favourite);
+    return (tag.empty() || info.hasTag(tag)) && (! favouritesOnly || info.favourite);
 }
 
 LibraryMetadata LibraryMetadata::load(const std::filesystem::path& libraryFolder)
@@ -712,10 +835,18 @@ std::string LibraryMetadata::displayName(const LibraryEntry& entry) const
     return name.empty() ? entry.name : name;
 }
 
-MetadataSaveResult LibraryMetadata::rewrite(const std::map<std::string, Sound>& newSounds)
+MetadataSaveResult LibraryMetadata::rewrite(const std::map<std::string, Sound>& newSounds, int versionOnDisk)
 {
     std::error_code error;
     const bool nothingToWrite = newSounds.empty() && ! std::filesystem::exists(filePath(), error);
+    if (! nothingToWrite && versionOnDisk == kCategoryFormatVersion) {
+        // The last file an editor older than tags can read, kept once. A copy that could not be
+        // made does not stop the save: library.json.bak holds it until the next save.
+        auto keep = filePath();
+        keep += kVersion1BackupSuffix;
+        if (! std::filesystem::exists(keep, error))
+            std::filesystem::copy_file(filePath(), keep, error);
+    }
     if (! nothingToWrite && ! writeAtomically(filePath(), toJson(newSounds)))
         return MetadataSaveResult::Failed;
     currentStatus = LibraryMetadataStatus::Ready;
@@ -741,12 +872,14 @@ MetadataSaveResult LibraryMetadata::set(const SoundFingerprint& fingerprint, con
     const auto found = current.match(fingerprint);
 
     auto newSounds = std::move(onDisk.sounds);
-    auto stored = newInfo;
-    if (stored.autoAssigned) {
-        const auto* before = found ? &newSounds.at(found->soundId).info : nullptr;
-        stored.autoAssigned = before != nullptr && before->autoAssigned && before->category == stored.category
-                              && ! stored.category.empty();
-    }
+    // Tags normalised, duplicates left out; a mark only where there was one on disk.
+    SoundInfo stored { newInfo.name, {}, newInfo.favourite, {} };
+    for (const auto& tag : newInfo.tags)
+        stored.addTag(tag);
+    const auto* before = found ? &newSounds.at(found->soundId).info : nullptr;
+    for (const auto& tag : stored.tags)
+        if (newInfo.isAutoTag(tag) && before != nullptr && before->isAutoTag(tag))
+            stored.autoTags.push_back(tag);
     if (found && stored.isEmpty()) {
         newSounds.erase(found->soundId);
     } else if (found) {
@@ -754,7 +887,7 @@ MetadataSaveResult LibraryMetadata::set(const SoundFingerprint& fingerprint, con
     } else if (! stored.isEmpty()) {
         newSounds["s" + std::to_string(highestIdNumber(newSounds) + 1)] = { fingerprint, stored };
     }
-    return rewrite(newSounds);
+    return rewrite(newSounds, onDisk.version);
 }
 
 MetadataSaveResult LibraryMetadata::autoAssign(const std::vector<AutoAssignment>& assignments)
@@ -773,29 +906,32 @@ MetadataSaveResult LibraryMetadata::autoAssign(const std::vector<AutoAssignment>
     current.sounds = std::move(onDisk.sounds);
     current.reindex();
     int next = highestIdNumber(current.sounds) + 1;
-    for (const auto& [fingerprint, category] : assignments) {
-        if (category.empty())
+    for (const auto& [fingerprint, tags] : assignments) {
+        SoundInfo added;
+        for (const auto& tag : tags)
+            if (added.addTag(tag))
+                added.autoTags.push_back(added.tags.back());
+        if (added.tags.empty())
             continue;
         if (const auto found = current.match(fingerprint)) {
             auto& sound = current.sounds.at(found->soundId);
-            if (! sound.info.category.empty())
-                continue;
-            sound.info.category = category;
-            sound.info.autoAssigned = true;
-            if (sound.fingerprint != fingerprint) {
+            bool changed = false;
+            for (const auto& tag : added.tags)
+                if (sound.info.addTag(tag)) {
+                    sound.info.autoTags.push_back(tag);
+                    changed = true;
+                }
+            if (changed && sound.fingerprint != fingerprint) {
                 sound.fingerprint = fingerprint;
                 current.exactIndex.emplace(indexKey(fingerprint), found->soundId);
             }
         } else {
             const auto id = "s" + std::to_string(next++);
-            SoundInfo info;
-            info.category = category;
-            info.autoAssigned = true;
-            current.sounds[id] = { fingerprint, info };
+            current.sounds[id] = { fingerprint, added };
             current.exactIndex.emplace(indexKey(fingerprint), id);
         }
     }
-    return rewrite(current.sounds);
+    return rewrite(current.sounds, onDisk.version);
 }
 
 MetadataSaveResult LibraryMetadata::removeAutoAssigned()
@@ -810,19 +946,17 @@ MetadataSaveResult LibraryMetadata::removeAutoAssigned()
     auto newSounds = std::move(onDisk.sounds);
     for (auto sound = newSounds.begin(); sound != newSounds.end();) {
         auto& info = sound->second.info;
-        if (info.autoAssigned) {
-            info.category.clear();
-            info.autoAssigned = false;
-        }
+        for (const auto& tag : std::vector<std::string>(info.autoTags))
+            info.removeTag(tag);
         sound = info.isEmpty() ? newSounds.erase(sound) : std::next(sound);
     }
-    return rewrite(newSounds);
+    return rewrite(newSounds, onDisk.version);
 }
 
 int LibraryMetadata::autoAssignedCount() const
 {
     return static_cast<int>(std::count_if(sounds.begin(), sounds.end(),
-                                          [](const auto& sound) { return sound.second.info.autoAssigned; }));
+                                          [](const auto& sound) { return ! sound.second.info.autoTags.empty(); }));
 }
 
 MetadataSaveResult LibraryMetadata::followEdit(const std::string& soundId, const SoundFingerprint& edited)
@@ -845,17 +979,17 @@ MetadataSaveResult LibraryMetadata::followEdit(const std::string& soundId, const
         return MetadataSaveResult::Saved;
     }
     sound->second.fingerprint = edited;
-    return rewrite(onDisk.sounds);
+    return rewrite(onDisk.sounds, onDisk.version);
 }
 
-std::vector<std::string> LibraryMetadata::categoryChoices() const
+std::vector<std::string> LibraryMetadata::tagChoices() const
 {
-    std::vector<std::string> choices(kLibraryCategories.begin(), kLibraryCategories.end());
+    std::vector<std::string> choices(kLibraryTags.begin(), kLibraryTags.end());
     std::set<std::string> others;
     for (const auto& [id, sound] : sounds)
-        if (! sound.info.category.empty()
-            && std::find(choices.begin(), choices.end(), sound.info.category) == choices.end())
-            others.insert(sound.info.category);
+        for (const auto& tag : sound.info.tags)
+            if (std::find(choices.begin(), choices.end(), tag) == choices.end())
+                others.insert(tag);
     choices.insert(choices.end(), others.begin(), others.end());
     return choices;
 }

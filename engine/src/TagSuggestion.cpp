@@ -1,10 +1,11 @@
-#include "nl2x/CategorySuggestion.h"
+#include "nl2x/TagSuggestion.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -15,33 +16,64 @@ namespace {
 // ---------------------------------------------------------------------------------------------
 // Names
 
-// What a keyword says the sound is. Several kinds share an editor category (Keys holds pianos,
-// organs, bells and plucked strings); Voice is kept apart for "Lead Voice", which is a Lead.
-enum class SoundKind : std::uint8_t { Bass, Lead, Pad, Voice, Strings, Brass, Woodwind, Keys, Percussion, Fx, Arpeggio };
+// What a keyword says. The first kinds say what the sound is, and a name holds at most one of
+// them (the last, see headKind); Voice is kept apart from Pad for "Lead Voice", which is a Lead.
+// The kinds from Arpeggio on say how the sound plays, and every one found counts.
+enum class SoundKind : std::uint8_t {
+    Bass, Lead, Pad, Atmosphere, Voice, Strings, Brass, Woodwind, Keys, Organ, Bell, Pluck, Percussion, Fx,
+    Arpeggio, Sequence, Sweep, Synth, Poly, Mono, Ambient,
+};
 
-std::string_view categoryOf(SoundKind kind)
+bool saysHowItPlays(SoundKind kind)
+{
+    return kind >= SoundKind::Arpeggio;
+}
+
+std::vector<std::string_view> kindTags(SoundKind kind)
 {
     switch (kind) {
     case SoundKind::Bass:
-        return "Bass";
+        return { "Bass" };
     case SoundKind::Lead:
-        return "Lead";
+        return { "Lead" };
     case SoundKind::Pad:
     case SoundKind::Voice:
-        return "Pad";
+        return { "Pad" };
+    case SoundKind::Atmosphere:
+        return { "Pad", "Ambient" };
     case SoundKind::Strings:
+        return { "Strings" };
     case SoundKind::Brass:
+        return { "Brass" };
     case SoundKind::Woodwind:
-        return "Brass/Strings";
-    case SoundKind::Keys:
-        return "Keys";
-    case SoundKind::Percussion:
-        return "Percussion";
-    case SoundKind::Fx:
-        return "FX";
-    case SoundKind::Arpeggio:
-        // An arpeggio or sequence names how a sound is played, not a category: no suggestion.
+        // No default tag fits a flute or a clarinet: nothing rather than a wrong one.
         return {};
+    case SoundKind::Keys:
+        return { "Keys" };
+    case SoundKind::Organ:
+        return { "Keys", "Organ" };
+    case SoundKind::Bell:
+        return { "Bell" };
+    case SoundKind::Pluck:
+        return { "Pluck" };
+    case SoundKind::Percussion:
+        return { "Percussion" };
+    case SoundKind::Fx:
+        return { "FX" };
+    case SoundKind::Arpeggio:
+        return { "Arp" };
+    case SoundKind::Sequence:
+        return { "Rhythmic" };
+    case SoundKind::Sweep:
+        return { "Sweep" };
+    case SoundKind::Synth:
+        return { "Synth" };
+    case SoundKind::Poly:
+        return { "Poly" };
+    case SoundKind::Mono:
+        return { "Mono" };
+    case SoundKind::Ambient:
+        return { "Ambient" };
     }
     return {};
 }
@@ -75,7 +107,7 @@ const std::vector<Keyword>& keywords()
 
         { "PAD", K::Pad },
         { "SWELL", K::Pad },
-        { "ATMOS", K::Pad },
+        { "ATMOS", K::Atmosphere },
 
         { "VOICE", K::Voice },
         { "VOCAL", K::Voice },
@@ -124,40 +156,43 @@ const std::vector<Keyword>& keywords()
         { "HARPSICHORD", K::Keys },
         { "KEYS", K::Keys, kWord, kWord },
         { "GRAND", K::Keys, false, kWord },
-        { "CELESTE", K::Keys },
-        { "MUSIC BOX", K::Keys },
-        { "MUSICBOX", K::Keys },
         { "ACCORDI", K::Keys },
         { "DX7", K::Keys, kWord, kWord },
         { "DX 7", K::Keys, kWord, kWord },
-        { "ORGAN", K::Keys },
-        { "FARFISA", K::Keys },
-        { "DRAWBAR", K::Keys },
-        { "HAMMOND", K::Keys },
-        { "B3", K::Keys, kWord, kWord },
-        { "BELL", K::Keys, false, false, { "Y" } },
-        { "CHIME", K::Keys },
         { "MARIMBA", K::Keys },
         { "VIBES", K::Keys, kWord, kWord },
         { "VIBRAPHON", K::Keys },
         { "XYLO", K::Keys },
-        { "GLOCK", K::Keys },
-        { "CELESTA", K::Keys },
         { "KALIMBA", K::Keys },
         { "STEEL DRUM", K::Keys },
         { "STEELDRUM", K::Keys },
-        { "TUBULAR", K::Keys },
-        { "PLUCK", K::Keys },
-        { "GUITAR", K::Keys },
-        { "GTR", K::Keys, kWord, kWord },
-        { "KOTO", K::Keys },
-        { "SITAR", K::Keys },
-        { "HARP", K::Keys, false, false, { "SI" } },
-        { "BANJO", K::Keys },
-        { "PIZZ", K::Keys },
-        { "MANDOLIN", K::Keys },
-        { "DULCIMER", K::Keys },
-        { "PICK", K::Keys, kWord, kWord },
+
+        { "ORGAN", K::Organ },
+        { "FARFISA", K::Organ },
+        { "DRAWBAR", K::Organ },
+        { "HAMMOND", K::Organ },
+        { "B3", K::Organ, kWord, kWord },
+
+        { "BELL", K::Bell, false, false, { "Y" } },
+        { "CHIME", K::Bell },
+        { "GLOCK", K::Bell },
+        { "CELESTA", K::Bell },
+        { "CELESTE", K::Bell },
+        { "TUBULAR", K::Bell },
+        { "MUSIC BOX", K::Bell },
+        { "MUSICBOX", K::Bell },
+
+        { "PLUCK", K::Pluck },
+        { "GUITAR", K::Pluck },
+        { "GTR", K::Pluck, kWord, kWord },
+        { "KOTO", K::Pluck },
+        { "SITAR", K::Pluck },
+        { "HARP", K::Pluck, false, false, { "SI" } },
+        { "BANJO", K::Pluck },
+        { "PIZZ", K::Pluck },
+        { "MANDOLIN", K::Pluck },
+        { "DULCIMER", K::Pluck },
+        { "PICK", K::Pluck, kWord, kWord },
 
         { "DRUM", K::Percussion, false, false, { "BASS", " BASS", "SBASS", "S BASS" } },
         { "KICK", K::Percussion },
@@ -210,8 +245,15 @@ const std::vector<Keyword>& keywords()
         { "ARPEGG", K::Arpeggio },
         { "ARP", K::Arpeggio, kWord, kWord },
         { "ARPS", K::Arpeggio, kWord, kWord },
-        { "SEQ", K::Arpeggio, kWord, kWord },
-        { "SEQUENC", K::Arpeggio },
+        { "SEQ", K::Sequence, kWord, kWord },
+        { "SEQUENC", K::Sequence },
+        { "GATE", K::Sequence, kWord, kWord },
+        { "GATED", K::Sequence, kWord, kWord },
+        { "SWEEP", K::Sweep },
+        { "SYNTH", K::Synth },
+        { "POLY", K::Poly, kWord },
+        { "MONO", K::Mono, kWord },
+        { "AMBIEN", K::Ambient },
     };
     return list;
 }
@@ -249,6 +291,7 @@ std::vector<Found> findKeywords(const std::string& upper)
     return found;
 }
 
+// The kind of sound among `found` (keywords that say what a sound is).
 std::optional<SoundKind> headKind(const std::vector<Found>& found)
 {
     if (found.empty())
@@ -264,15 +307,21 @@ std::optional<SoundKind> headKind(const std::vector<Found>& found)
     return head.kind;
 }
 
+void addOnce(std::vector<std::string>& tags, std::string_view tag)
+{
+    if (std::find(tags.begin(), tags.end(), tag) == tags.end())
+        tags.emplace_back(tag);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Parameters
 
-// Every category the rules score, so that Bass and Keys are suggested only when they clearly
+// Every kind of sound the rules score, so that Bass and Keys are suggested only when they clearly
 // beat the others. Lead, Pad, Brass/Strings, FX, Percussion and arpeggios are never suggested.
 enum class Scored : std::uint8_t { Bass, Lead, Pad, Keys, BrassStrings, Fx, Percussion, Arpeggio, Count };
 
 // A suggestion needs at least this confidence (0 … 1, see confidence()). Chosen offline
-// (2026-11-03) for at least 80 % right suggestions per category; see CategorySuggestion.h.
+// (2026-11-03) for at least 80 % right suggestions per kind; see TagSuggestion.h.
 constexpr double kMinParameterConfidence = 0.7;
 
 // The rules' reading of a Program: raw stored values, plus a few derived ones.
@@ -329,13 +378,13 @@ Reading read(const Program& program)
     return r;
 }
 
-// Points per category, in half points.
+// Points per kind of sound, in half points.
 using Scores = std::array<int, static_cast<std::size_t>(Scored::Count)>;
 
 Scores score(const Reading& r)
 {
     Scores points {};
-    const auto add = [&](Scored category, int halfPoints) { points[static_cast<std::size_t>(category)] += halfPoints; };
+    const auto add = [&](Scored kind, int halfPoints) { points[static_cast<std::size_t>(kind)] += halfPoints; };
     const bool held = r.sustain >= 80;
     const bool fast = r.attack <= 12;
     const bool poly = ! r.mono;
@@ -427,14 +476,14 @@ Scores score(const Reading& r)
 }
 
 // ---------------------------------------------------------------------------------------------
-// Learning from the user's categories
+// Learning from the user's tags
 
 constexpr std::size_t kFeatureCount = 25;
 
 // What the neighbours are compared on: the rules' reading, every value scaled to 0 … 1 (Octave
 // Shift to -1 … +1) so that no parameter outweighs another by its range alone, then weighted by
-// how much it tells categories apart (the weight multiplies the squared difference). Chosen
-// offline (2026-11-04) with the measurements in CategorySuggestion.h: the amp envelope's attack,
+// how much it tells kinds of sound apart (the weight multiplies the squared difference). Chosen
+// offline (2026-11-04) with the measurements in TagSuggestion.h: the amp envelope's attack,
 // sustain and release, Octave Shift and mono/poly count most, as they do in the rules.
 struct Feature {
     float value;
@@ -481,7 +530,7 @@ std::array<float, kFeatureCount> featuresOf(const Reading& r)
     return features;
 }
 
-// How sure the best category is: how far it leads the second (60 %) and how many points it has
+// How sure the best kind is: how far it leads the second (60 %) and how many points it has
 // (40 %, full at 4 points). A tie gives at most 0.4.
 double confidence(int best, int second)
 {
@@ -492,7 +541,7 @@ double confidence(int best, int second)
 
 } // namespace
 
-std::optional<std::string> categoryFromName(std::string_view name)
+std::vector<std::string> tagsFromName(std::string_view name)
 {
     std::string upper(name);
     for (auto& c : upper) {
@@ -501,27 +550,37 @@ std::optional<std::string> categoryFromName(std::string_view name)
         else if (c == '_')
             c = ' ';
     }
-    const auto found = findKeywords(upper);
-    const auto head = headKind(found);
-    if (! head)
-        return std::nullopt;
-    // "Bass/Lead": two categories joined, so neither is the sound.
-    if (upper.find('/') != std::string::npos) {
-        const auto first = categoryOf(found.front().kind);
-        if (std::any_of(found.begin(), found.end(), [&](const Found& each) { return categoryOf(each.kind) != first; }))
-            return std::nullopt;
+    const auto all = findKeywords(upper);
+    std::vector<Found> kinds;
+    std::vector<Found> ways;
+    for (const auto& each : all)
+        (saysHowItPlays(each.kind) ? ways : kinds).push_back(each);
+
+    std::vector<std::string> tags;
+    if (const auto head = headKind(kinds)) {
+        auto kind = *head;
+        // "Lead Voice" is a Lead with a vocal colour, not a choir.
+        if (kind == SoundKind::Voice
+            && std::any_of(kinds.begin(), kinds.end(), [](const Found& each) { return each.kind == SoundKind::Lead; }))
+            kind = SoundKind::Lead;
+        // "Bass/Lead": two kinds of sound joined, so neither is the sound.
+        const bool joined = upper.find('/') != std::string::npos
+                            && std::any_of(kinds.begin(), kinds.end(), [&](const Found& each) {
+                                   return kindTags(each.kind) != kindTags(kinds.front().kind);
+                               });
+        if (! joined)
+            for (const auto tag : kindTags(kind))
+                addOnce(tags, tag);
     }
-    // "Lead Voice" is a Lead with a vocal colour, not a choir.
-    if (*head == SoundKind::Voice
-        && std::any_of(found.begin(), found.end(), [](const Found& each) { return each.kind == SoundKind::Lead; }))
-        return std::string(categoryOf(SoundKind::Lead));
-    const auto category = categoryOf(*head);
-    if (category.empty())
-        return std::nullopt;
-    return std::string(category);
+    // How it plays, in the order of the name.
+    std::sort(ways.begin(), ways.end(), [](const Found& a, const Found& b) { return a.start < b.start; });
+    for (const auto& way : ways)
+        for (const auto tag : kindTags(way.kind))
+            addOnce(tags, tag);
+    return tags;
 }
 
-std::optional<std::string> categoryFromParameters(const Program& program)
+std::vector<std::string> tagsFromParameters(const Program& program)
 {
     const auto points = score(read(program));
     std::array<std::size_t, static_cast<std::size_t>(Scored::Count)> order {};
@@ -530,54 +589,63 @@ std::optional<std::string> categoryFromParameters(const Program& program)
     std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return points[a] > points[b]; });
     const auto best = points[order[0]];
     if (best <= 0 || confidence(best, points[order[1]]) < kMinParameterConfidence)
-        return std::nullopt;
+        return {};
     switch (static_cast<Scored>(order[0])) {
     case Scored::Bass:
-        return std::string("Bass");
+        return { "Bass" };
     case Scored::Keys:
-        return std::string("Keys");
+        return { "Keys" };
     default:
-        return std::nullopt;
+        return {};
     }
 }
 
-LearnedCategories::LearnedCategories(const std::vector<Example>& examples)
+LearnedTags::LearnedTags(const std::vector<Example>& examples)
 {
     for (const auto& example : examples) {
-        if (example.category.empty())
+        std::vector<std::size_t> exampleLabels;
+        for (const auto& tag : example.tags) {
+            if (tag.empty())
+                continue;
+            const auto known = std::find(tags.begin(), tags.end(), tag);
+            const auto label = static_cast<std::size_t>(known - tags.begin());
+            if (known == tags.end())
+                tags.push_back(tag);
+            if (std::find(exampleLabels.begin(), exampleLabels.end(), label) == exampleLabels.end())
+                exampleLabels.push_back(label);
+        }
+        if (exampleLabels.empty())
             continue;
-        const auto known = std::find(categories.begin(), categories.end(), example.category);
-        const auto label = static_cast<std::size_t>(known - categories.begin());
-        if (known == categories.end())
-            categories.push_back(example.category);
-        labels.push_back(label);
+        labels.push_back(std::move(exampleLabels));
         const auto each = featuresOf(read(example.program));
         features.insert(features.end(), each.begin(), each.end());
     }
 }
 
-LearnedCategories LearnedCategories::of(const LibraryMetadata& metadata)
+LearnedTags LearnedTags::of(const LibraryMetadata& metadata)
 {
     std::vector<Example> examples;
     for (const auto& [id, sound] : metadata.taggedSounds()) {
-        if (sound.fingerprint.kind != LibraryEntryKind::Program || sound.info.category.empty()
-            || sound.info.autoAssigned)
+        if (sound.fingerprint.kind != LibraryEntryKind::Program)
+            continue;
+        auto own = sound.info.ownTags();
+        if (own.empty())
             continue;
         std::vector<std::int8_t> values(sound.fingerprint.values.size());
         std::transform(sound.fingerprint.values.begin(), sound.fingerprint.values.end(), values.begin(),
                        [](std::uint8_t value) { return static_cast<std::int8_t>(value); });
         if (auto program = Program::fromValues(values))
-            examples.push_back({ *program, sound.info.category });
+            examples.push_back({ *program, std::move(own) });
     }
-    return LearnedCategories(examples);
+    return LearnedTags(examples);
 }
 
-std::optional<std::string> LearnedCategories::categoryOf(const Program& program) const
+std::vector<std::string> LearnedTags::tagsOf(const Program& program) const
 {
     constexpr auto neighbours = static_cast<std::size_t>(kLearnedNeighbours);
     const auto count = labels.size();
     if (count < neighbours)
-        return std::nullopt;
+        return {};
     const auto query = featuresOf(read(program));
     // The closest examples as (squared distance, example), nearest first.
     std::vector<std::pair<float, std::size_t>> nearest;
@@ -597,39 +665,63 @@ std::optional<std::string> LearnedCategories::categoryOf(const Program& program)
         if (nearest.size() > neighbours)
             nearest.pop_back();
     }
-    std::vector<int> votes(categories.size(), 0);
+    if (std::sqrt(nearest.front().first) > kMaxLearnedDistance)
+        return {};
+    // Each tag against the rest: how many of the neighbours carry it.
+    std::vector<int> votes(tags.size(), 0);
     for (const auto& [distance, example] : nearest)
-        ++votes[labels[example]];
-    const auto best = static_cast<std::size_t>(std::max_element(votes.begin(), votes.end()) - votes.begin());
-    if (votes[best] < kMinLearnedAgreement || std::sqrt(nearest.front().first) > kMaxLearnedDistance)
-        return std::nullopt;
-    return categories[best];
+        for (const auto label : labels[example])
+            ++votes[label];
+    std::vector<std::size_t> agreed;
+    for (std::size_t label = 0; label < votes.size(); ++label)
+        if (votes[label] >= kMinLearnedAgreement)
+            agreed.push_back(label);
+    std::stable_sort(agreed.begin(), agreed.end(), [&](std::size_t a, std::size_t b) { return votes[a] > votes[b]; });
+    std::vector<std::string> result;
+    for (const auto label : agreed)
+        result.push_back(tags[label]);
+    return result;
 }
 
-std::optional<CategorySuggestion> suggestCategory(const LibraryFile& file, const LibraryEntry& entry,
-                                                  const LearnedCategories& learned)
+namespace {
+
+void addSuggestions(std::vector<TagSuggestion>& suggestions, const std::vector<std::string>& tags,
+                    TagSuggestionSource source)
+{
+    for (const auto& tag : tags)
+        if (std::none_of(suggestions.begin(), suggestions.end(), [&](const auto& each) { return each.tag == tag; }))
+            suggestions.push_back({ tag, source });
+}
+
+} // namespace
+
+std::vector<TagSuggestion> suggestTags(const LibraryFile& file, const LibraryEntry& entry, const LearnedTags& learned)
 {
     switch (entry.kind()) {
     case LibraryEntryKind::PercussionKit:
-        return CategorySuggestion { "Percussion", CategorySuggestionSource::PercussionKit };
+        return { { "Percussion", TagSuggestionSource::PercussionKit } };
     case LibraryEntryKind::Performance:
-        return std::nullopt;
+        return {};
     case LibraryEntryKind::Program:
         break;
     }
+    std::vector<TagSuggestion> suggestions;
     if (file.entries.size() == 1)
-        if (auto category = categoryFromName(entry.name))
-            return CategorySuggestion { std::move(*category), CategorySuggestionSource::Name };
-    return suggestCategory(std::get<ProgramDump>(entry.dump).program, learned);
+        addSuggestions(suggestions, tagsFromName(entry.name), TagSuggestionSource::Name);
+    const auto& program = std::get<ProgramDump>(entry.dump).program;
+    addSuggestions(suggestions, learned.tagsOf(program), TagSuggestionSource::Learned);
+    if (suggestions.empty())
+        addSuggestions(suggestions, tagsFromParameters(program), TagSuggestionSource::Parameters);
+    return suggestions;
 }
 
-std::optional<CategorySuggestion> suggestCategory(const Program& program, const LearnedCategories& learned)
+std::vector<TagSuggestion> suggestTags(const Program& program, const LearnedTags& learned)
 {
-    if (auto category = learned.categoryOf(program))
-        return CategorySuggestion { std::move(*category), CategorySuggestionSource::Learned };
-    if (auto category = categoryFromParameters(program))
-        return CategorySuggestion { std::move(*category), CategorySuggestionSource::Parameters };
-    return std::nullopt;
+    std::vector<TagSuggestion> suggestions;
+    addSuggestions(suggestions, learned.tagsOf(program), TagSuggestionSource::Learned);
+    if (suggestions.empty())
+        addSuggestions(suggestions, tagsFromParameters(program), TagSuggestionSource::Parameters);
+    return suggestions;
 }
 
 } // namespace nl2x

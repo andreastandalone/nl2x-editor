@@ -1,6 +1,6 @@
 # The engine: plain C++20, no JUCE, no platform headers (CODING_STANDARDS.md).
 add_library(nl2x_engine STATIC
-    src/CategorySuggestion.cpp
+    src/TagSuggestion.cpp
     src/CcParameters.cpp
     src/ConnectionCheck.cpp
     src/EditHistory.cpp
