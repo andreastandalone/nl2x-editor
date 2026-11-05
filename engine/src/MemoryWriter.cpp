@@ -3,7 +3,6 @@
 #include "SynthConnection.h"
 
 #include "nl2x/Engine.h"
-#include "nl2x/Performance.h"
 #include "nl2x/SysEx.h"
 
 #include <algorithm>
@@ -24,11 +23,6 @@ constexpr int kProgramsPerBank = hardware::kProgramsPerRamBank;
 bool isProgramDumpReply(std::span<const std::uint8_t> message)
 {
     return message.size() == kProgramDumpSize && parseProgramDump(message).has_value();
-}
-
-bool isPerformanceReply(std::span<const std::uint8_t> message)
-{
-    return message.size() == kPerformanceDumpSize && parsePerformanceDump(message).has_value();
 }
 
 std::string bankText(int bank)
@@ -132,7 +126,6 @@ MemoryWriter::MemoryWriter(const Engine& owner, SynthConnection& synthConnection
     : engine(owner),
       connection(synthConnection),
       reading { switches.bankReadingVerified, switches.bankRequestTypeOfSysExBank1 },
-      performanceDumpsApplied(switches.performanceEditBufferDumpIsApplied),
       onChange(std::move(changedCallback))
 {
 }
@@ -151,8 +144,7 @@ bool MemoryWriter::busy() const
 
 bool MemoryWriter::holdsEditBufferDumps() const
 {
-    return current.stage == MemoryStage::CheckingSelectedBank || current.stage == MemoryStage::Writing
-           || current.stage == MemoryStage::Verifying;
+    return current.stage == MemoryStage::Writing || current.stage == MemoryStage::Verifying;
 }
 
 MemoryRefusal MemoryWriter::startRefusal(int bank) const
@@ -252,7 +244,7 @@ MemoryRefusal MemoryWriter::startWrite(MemoryOperation operation, int bank, std:
         changed();
         readLocation(0, timeMs);
     } else {
-        offerPlan({});
+        offerPlan();
     }
     return MemoryRefusal::None;
 }
@@ -356,10 +348,16 @@ void MemoryWriter::locationRead(int location, std::optional<std::span<const std:
             return;
         }
         const auto readBack = parseProgramDump(*reply)->program;
-        if (readBack == task->programs[index])
+        const bool stored = readBack == task->programs[index];
+        if (stored)
             ++task->matches;
-        if (listener)
+        else
+            task->notStored.push_back(location + 1);
+        if (listener) {
+            if (! stored)
+                listener->programNotStored(task->bank, location + 1);
             listener->programRead(task->bank, location + 1, readBack);
+        }
         ++current.done;
         changed();
         if (index + 1 < task->locations.size()) {
@@ -421,7 +419,7 @@ void MemoryWriter::backupComplete(TimeMs)
         return;
     }
     current.backupFile = path;
-    offerPlan({});
+    offerPlan();
 }
 
 void MemoryWriter::readComplete()
@@ -461,7 +459,7 @@ std::string MemoryWriter::locationsText() const
     return "Programs " + listed(programs) + in;
 }
 
-void MemoryWriter::offerPlan(std::string message)
+void MemoryWriter::offerPlan()
 {
     MemoryWritePlan plan;
     plan.token = ++lastToken;
@@ -477,6 +475,7 @@ void MemoryWriter::offerPlan(std::string message)
     const auto bank = bankText(task->bank);
     const auto locations = locationsText();
     plan.question = "Overwrite " + locations + " on the synth?";
+    plan.panelSteps = panelStepsText();
 
     const auto count = task->locations.size();
     const auto spacing = ", one every " + std::to_string(hardware::kBankWriteSpacingMs) + " ms.";
@@ -496,15 +495,10 @@ void MemoryWriter::offerPlan(std::string message)
             plan.details += " Its " + std::to_string(task->skippedKits)
                             + " Percussion Kits are not sent: storing Kits in a Bank is not supported yet.";
     }
-    if (selectedBankUnreadable())
-        plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel. Before you "
-                        "confirm, select a Program in " + bank + " on the synth's panel, even if " + bank
-                        + " is shown already" + notOnStoredSlot() + ", and do not change it until this is done. "
-                        + sentDumpReason();
-    else
-        plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel: select " + bank
-                        + " on the synth (any Program in it) before you confirm, and do not change it until this is "
-                          "done.";
+    plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel, and the editor "
+                    "cannot see which Bank that is.";
+    if (reading.verified)
+        plan.details += " Afterwards it reads " + locations + " back to check that the write arrived there.";
     if (current.backupFile)
         plan.details += "\n\nA backup of " + bank + " was saved to " + current.backupFile->string() + ".";
     else
@@ -520,8 +514,25 @@ void MemoryWriter::offerPlan(std::string message)
     current.done = 0;
     current.total = 0;
     current.plan = std::move(plan);
-    current.message = std::move(message);
+    current.message.clear();
     changed();
+}
+
+std::string MemoryWriter::panelStepsText() const
+{
+    std::vector<std::string> steps;
+    // Selecting a Program on the Slot being stored would replace the sound about to be stored.
+    if (task->slot) {
+        const auto letter = std::string(1, slotLetter(*task->slot));
+        steps.push_back("Press a Slot other than " + letter + " (Slot " + letter + " holds the sound being stored).");
+    }
+    steps.push_back("Select " + bankText(task->bank) + " and any Program in it.");
+    steps.push_back("Then click Overwrite, and do not change the Bank or Program on the synth until the write is "
+                    "done.");
+    std::string text = "On the synth:";
+    for (std::size_t i = 0; i < steps.size(); ++i)
+        text += "\n" + std::to_string(i + 1) + ". " + steps[i];
+    return text;
 }
 
 MemoryConfirmResult MemoryWriter::confirm(std::uint64_t token, NoBackupConsent consent, TimeMs timeMs)
@@ -542,89 +553,8 @@ MemoryConfirmResult MemoryWriter::confirm(std::uint64_t token, NoBackupConsent c
         }
         task->programs = { *program };
     }
-
-    if (selectedBankUnreadable()) {
-        const auto bank = bankText(task->bank);
-        offerPlan("The editor cannot read which Bank is selected on the synth yet. Select a Program in " + bank
-                  + " on the synth's panel" + notOnStoredSlot() + ", then confirm again. Nothing was written. "
-                  + sentDumpReason());
-    } else if (hardware::kPerformanceNamesSelectedBank) {
-        checkSelectedBank(timeMs);
-    }
-    else
-        startWriting(timeMs);
-    return MemoryConfirmResult::Accepted;
-}
-
-bool MemoryWriter::selectedBankUnreadable() const
-{
-    return hardware::kPerformanceNamesSelectedBank && performanceEditBufferHoldsSentDump;
-}
-
-std::string MemoryWriter::notOnStoredSlot() const
-{
-    // Selecting a Program on the Slot being stored would replace the sound about to be stored.
-    if (! task || ! task->slot)
-        return {};
-    return std::string(" (on a Slot other than ") + slotLetter(*task->slot) + ", whose sound is the one stored)";
-}
-
-std::string MemoryWriter::sentDumpReason()
-{
-    return "(The editor sent the synth a Performance, when the project opened or for an Audition; the synth keeps "
-           "it without playing it, so until a sound is selected on the synth the editor reads that Performance "
-           "instead of the Banks the Slots play.)";
-}
-
-void MemoryWriter::performanceDumpSent()
-{
-    if (! performanceDumpsApplied)
-        performanceEditBufferHoldsSentDump = true;
-}
-
-void MemoryWriter::soundSelectedOnSynth()
-{
-    performanceEditBufferHoldsSentDump = false;
-}
-
-void MemoryWriter::checkSelectedBank(TimeMs timeMs)
-{
-    const auto channel = engine.globalChannel();
-    if (! channel) {
-        fail("The connection to the synth was lost. Nothing was written to the synth.");
-        return;
-    }
-    current.stage = MemoryStage::CheckingSelectedBank;
-    changed();
-    connection.enqueue(performanceEditBufferRequest(*channel), isPerformanceReply,
-                       [this](auto reply, TimeMs doneMs) { selectedBankChecked(reply, doneMs); }, timeMs,
-                       kMemoryWriterOwner);
-}
-
-void MemoryWriter::selectedBankChecked(std::optional<std::span<const std::uint8_t>> reply, TimeMs timeMs)
-{
-    if (! task)
-        return;
-    const auto target = bankText(task->bank);
-    if (! reply) {
-        offerPlan("The synth did not say which Bank is selected (no answer to the Performance request). Nothing "
-                  "was written.");
-        return;
-    }
-    const auto performance = parsePerformanceDump(*reply)->performance;
-    const auto active = performance.setting(PerformanceSetting::SelectedSlot);
-    if (active < 0 || active >= static_cast<int>(kAllSlots.size())) {
-        offerPlan("The synth did not say which Bank is selected (active Slot " + std::to_string(active)
-                  + "). Nothing was written.");
-        return;
-    }
-    const auto selected = performance.setting(PerformanceSetting::ProgramBank, kAllSlots[static_cast<std::size_t>(active)]);
-    if (selected != task->bank) {
-        offerPlan(bankText(selected) + " is selected on the synth, not " + target + ". Select " + target
-                  + " on the synth, then confirm again. Nothing was written.");
-        return;
-    }
     startWriting(timeMs);
+    return MemoryConfirmResult::Accepted;
 }
 
 void MemoryWriter::startWriting(TimeMs timeMs)
@@ -653,7 +583,7 @@ void MemoryWriter::writeDue(TimeMs timeMs)
     const auto index = static_cast<std::size_t>(task->written);
     const auto location = static_cast<std::uint8_t>(task->locations[index]);
     // The type byte names the manual's SysEx Bank; the synth ignores it and stores into the Bank
-    // selected on its panel [OFF-2X p.78], which was checked above.
+    // selected on its panel [OFF-2X p.78], which the user was asked to select.
     const auto type = static_cast<std::uint8_t>(hardware::kFirstProgramBankDumpType
                                                 + hardware::sysExBankOfShownBank(task->bank) - 1);
     connection.sendWithoutReply(bankProgramDump(*channel, type, location, task->programs[index].bytes()), timeMs);
@@ -678,6 +608,18 @@ void MemoryWriter::writeDue(TimeMs timeMs)
 void MemoryWriter::verified(TimeMs)
 {
     const auto count = std::to_string(task->locations.size());
+    if (! task->notStored.empty()) {
+        // The usual cause: another Bank was selected on the panel, and the dumps went there.
+        const auto bank = bankText(task->bank);
+        const bool one = task->notStored.size() == 1;
+        const auto where = (one ? "Program " : "Programs ") + listed(task->notStored) + " in " + bank;
+        fail("Not stored: " + where + (one ? " does not hold" : " do not hold") + " what was sent (read back: "
+             + std::to_string(task->matches) + " of " + count + " match). The synth probably stored "
+             + (one ? "it" : "them") + " in the Bank selected on its panel instead, at the same Program "
+             + (one ? "number" : "numbers") + ", replacing what was there; only " + bank
+             + " was backed up. Select " + bank + " and any Program in it on the synth, then try again.");
+        return;
+    }
     std::string message;
     if (task->operation == MemoryOperation::StoreProgram)
         message = "Stored "
@@ -742,7 +684,7 @@ void MemoryWriter::abort(const std::string& reason)
 
 void MemoryWriter::selectionChangedOnSynth()
 {
-    if (current.stage == MemoryStage::CheckingSelectedBank || current.stage == MemoryStage::Writing)
+    if (current.stage == MemoryStage::Writing)
         abort("A Program or Bank was selected on the synth during the write, so it was stopped.");
 }
 

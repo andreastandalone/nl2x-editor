@@ -130,8 +130,9 @@ public:
     const Program& bankProgram(int shownBank, int location) const;
     void setBankProgram(int shownBank, int location, const Program& program);
     // The Bank selected on the synth's panel: Bank dumps are stored there [OFF-2X p.78]. It is the
-    // active Slot's Bank, which the Performance Edit Buffer names (offset 332 + Slot;
-    // kPerformanceNamesSelectedBank in HardwareAssumptions.h). It is the only notion of the selected
+    // active Slot's Bank, kept in the Performance Edit Buffer (offset 332 + Slot). On the real synth
+    // a type-40 read does not follow the panel (kPerformanceNamesSelectedBank in
+    // HardwareAssumptions.h), so the editor never relies on it. It is the only notion of the selected
     // Bank: loading a Program into the active Slot (panel, or Bank Select + Program Change on its
     // channel) or loading a Performance changes it too. A dump arriving while a ROM Bank is selected
     // is not stored. selectBank() changes only the number, not the Slot's sound.

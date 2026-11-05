@@ -17,8 +17,12 @@
 // the Slots' sounds at Programs 1–4 (so the Library's names and tags show), and a few locations
 // are changed ("to send") by putting Library Programs there and copying one location to another.
 // --bank <0–3> shows another Bank; --edit <1–99> makes the Library edit that location of it.
+// --dialog store paints, instead of the editor, the confirmation of a Store of Slot A to Bank 3,
+// Program 1; --dialog failed the error after that Store was written with Bank 0 selected.
 
 #include "LibraryPanel.h"
+#include "NordLookAndFeel.h"
+#include "SelectableAlert.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
@@ -61,6 +65,8 @@ struct Options {
     int bank = 1;
     // A location of the shown Bank whose sound the Library's edit area edits (0: none).
     int edit = 0;
+    // "store" or "failed": a memory writer dialog instead of the editor.
+    juce::String dialog;
     juce::File work;
 };
 
@@ -109,6 +115,8 @@ std::optional<Options> parse(const juce::StringArray& args)
             options.bank = juce::jlimit(0, 3, next().getIntValue());
         else if (arg == "--edit")
             options.edit = juce::jlimit(0, 99, next().getIntValue());
+        else if (arg == "--dialog")
+            options.dialog = next();
         else if (arg == "--width")
             options.width = next().getIntValue();
         else if (arg == "--work")
@@ -368,7 +376,47 @@ int render(const Options& options)
         openGroups(*tree->getRootItem());
     pump(600);
 
-    const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, options.scale);
+    // The dialog as LibrarianView shows it, painted without opening a window. The editor goes
+    // first, or its Librarian would open the confirmation as a real window.
+    NordLookAndFeel lookAndFeel;
+    juce::Component owner;
+    owner.setLookAndFeel(&lookAndFeel);
+    std::unique_ptr<SelectableAlertWindow> dialog;
+    if (options.dialog.isNotEmpty()) {
+        processor.editorBeingDeleted(editor.get());
+        editor.reset();
+        auto& memory = processor.synthMemory();
+        if (options.dialog == "failed")
+            link.synth.selectBank(0);
+        const auto backups = std::filesystem::path(options.work.getChildFile("Backups").getFullPathName().toStdString());
+        memory.prepareStoreProgram(nl2x::Slot::A, 3, 1, backups, {}, NL2XEditorProcessor::engineTimeMs());
+        pump(30000, [&] { return memory.status().stage == nl2x::MemoryStage::AwaitingConfirmation; });
+        const auto plan = memory.status().plan;
+        if (! plan) {
+            std::cerr << "No plan: " << memory.status().message << "\n";
+            return 1;
+        }
+        if (options.dialog == "failed") {
+            memory.confirm(plan->token, nl2x::NoBackupConsent::Given, NL2XEditorProcessor::engineTimeMs());
+            pump(30000, [&] { return ! memory.busy(); });
+            dialog = std::make_unique<SelectableAlertWindow>(
+                "Writing to the synth failed",
+                juce::String::fromUTF8(memory.status().message.c_str()).replace(" Backup: ", "\n\nBackup: "),
+                &owner);
+            dialog->addButton("OK", 0);
+        } else {
+            dialog = std::make_unique<SelectableAlertWindow>(
+                juce::String::fromUTF8(plan->question.c_str()),
+                juce::String::fromUTF8((plan->panelSteps + "\n\n" + plan->details).c_str()),
+                &owner);
+            dialog->addButton("Overwrite", 1);
+            dialog->addButton("Cancel", 0);
+            memory.cancel();
+        }
+    }
+    juce::Component& shown = dialog != nullptr ? static_cast<juce::Component&>(*dialog) : *editor;
+
+    const auto image = shown.createComponentSnapshot(shown.getLocalBounds(), true, options.scale);
     options.out.getParentDirectory().createDirectory();
     options.out.deleteFile();
     juce::FileOutputStream stream(options.out);
@@ -376,10 +424,12 @@ int render(const Options& options)
         std::cerr << "Cannot write " << options.out.getFullPathName() << "\n";
         return 1;
     }
-    std::cout << options.out.getFullPathName() << " (" << editor->getWidth() << " x " << editor->getHeight()
-              << ")\n";
-    processor.editorBeingDeleted(editor.get());
+    std::cout << options.out.getFullPathName() << " (" << shown.getWidth() << " x " << shown.getHeight() << ")\n";
+    dialog.reset();
+    if (editor != nullptr)
+        processor.editorBeingDeleted(editor.get());
     editor.reset();
+    owner.setLookAndFeel(nullptr);
     return 0;
 }
 
@@ -395,7 +445,8 @@ int main(int argc, char* argv[])
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|librarian] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
                      "                          [--edge-cases] [--open-library] [--favourites] [--width <px>]\n"
-                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--work <dir>]\n";
+                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--dialog store|failed]\n"
+                     "                          [--work <dir>]\n";
         return 2;
     }
     const juce::ScopedJuceInitialiser_GUI juce;

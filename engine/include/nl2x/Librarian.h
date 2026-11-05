@@ -14,9 +14,9 @@
 //   drops a location's change; replaceWithFile() makes every Program of a Bank file a change (a
 //   "whole Bank", sent whole); saveBankFile() writes the Composed Bank as a Library Bank file.
 // - Writing: prepareSend() and prepareStore() start a MemoryWriter plan (MemoryWriter.h): the
-//   Bank is backed up into the backup folder, the plan waits for the user's confirmation, the Bank
-//   selected on the synth is checked, then only the pending locations are written, one Program
-//   dump each. The confirmation, its token, the no-backup consent, cancel() and the progress are
+//   Bank is backed up into the backup folder, the plan waits for the user's confirmation (after
+//   selecting the Bank on the synth), then only the pending locations are written, one Program
+//   dump each, and read back: a location whose read-back differs is pending again. The confirmation, its token, the no-backup consent, cancel() and the progress are
 //   the memory writer's, exactly as for the other memory tasks: the GUI shows
 //   Engine::memoryWriter().status() and calls its confirm() and cancel().
 // - Names and tags: soundInfo() looks a location's Program up in the Library metadata, by
@@ -163,6 +163,7 @@ public:
     // MemoryWriterListener: called by the memory writer only.
     void programRead(int bank, int program, const Program& value) override;
     void programWritten(int bank, int program, const Program& value) override;
+    void programNotStored(int bank, int program) override;
     void taskEnded() override;
 
 private:
@@ -174,6 +175,10 @@ private:
         // Location (0–98) → the Program to send there.
         std::map<int, Program> changes;
         std::optional<std::string> wholeBankSource;
+        // Changes taken off by programWritten during the current task, kept until its read-back
+        // says whether they arrived (programNotStored puts them back).
+        std::map<int, Program> sent;
+        std::optional<std::string> sentWholeBankSource;
     };
 
     static bool valid(BankLocation location);

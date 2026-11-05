@@ -1,6 +1,7 @@
 #include "LibraryPanel.h"
 
 #include "NordLookAndFeel.h"
+#include "SelectableAlert.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -1280,14 +1281,9 @@ void LibraryPanel::autoTag(const std::vector<nl2x::LibraryMetadata::AutoAssignme
                          + ".\n\nThe tags are added to those the sounds have, in library.json, marked as given by "
                            "Auto-tag (a darker tag). Keeping or replacing one by hand makes it yours; Undo auto-tag "
                            "removes the others. Dismissed suggestions are left out.";
-    const auto options = juce::MessageBoxOptions()
-                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
-                             .withTitle("Auto-tag the Library")
-                             .withMessage(message)
-                             .withButton("Auto-tag")
-                             .withButton("Cancel")
-                             .withAssociatedComponent(isShowing() ? this : nullptr);
-    juce::AlertWindow::showAsync(options, [safe = juce::Component::SafePointer<LibraryPanel>(this), plan](int result) {
+    showSelectableAlert("Auto-tag the Library", message, { "Auto-tag", "Cancel" },
+                        isShowing() ? this : nullptr,
+                        [safe = juce::Component::SafePointer<LibraryPanel>(this), plan](int result) {
         if (safe == nullptr || result != 1)
             return;
         const auto saved = safe->libraryMetadata.autoAssign(plan);
@@ -1301,15 +1297,11 @@ void LibraryPanel::autoTag(const std::vector<nl2x::LibraryMetadata::AutoAssignme
 void LibraryPanel::undoAutoTag()
 {
     const auto count = libraryMetadata.autoAssignedCount();
-    const auto options = juce::MessageBoxOptions()
-                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
-                             .withTitle("Undo auto-tag")
-                             .withMessage("Remove the tags Auto-tag gave " + countText(static_cast<std::size_t>(count), "sound", "sounds")
-                                          + "? Tags you set or kept by hand stay.")
-                             .withButton("Remove")
-                             .withButton("Cancel")
-                             .withAssociatedComponent(isShowing() ? this : nullptr);
-    juce::AlertWindow::showAsync(options, [safe = juce::Component::SafePointer<LibraryPanel>(this)](int result) {
+    showSelectableAlert("Undo auto-tag",
+                        "Remove the tags Auto-tag gave " + countText(static_cast<std::size_t>(count), "sound", "sounds")
+                            + "? Tags you set or kept by hand stay.",
+                        { "Remove", "Cancel" }, isShowing() ? this : nullptr,
+                        [safe = juce::Component::SafePointer<LibraryPanel>(this)](int result) {
         if (safe == nullptr || result != 1)
             return;
         const auto before = safe->libraryMetadata.autoAssignedCount();

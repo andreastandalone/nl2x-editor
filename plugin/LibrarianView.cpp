@@ -1,6 +1,7 @@
 #include "LibrarianView.h"
 
 #include "NordLookAndFeel.h"
+#include "SelectableAlert.h"
 
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/LibraryMetadata.h"
@@ -27,8 +28,9 @@ constexpr int kStatusHeight = 26;
 constexpr int kProgressWidth = 180;
 // What happens after a Store's location is chosen. Reading a Bank takes about 0.1 s per Program.
 constexpr const char* kBackupFirst = "First the whole Bank is read from the synth into a backup, which takes about "
-                                     "10 seconds (the progress shows at the bottom of the Librarian); then you "
-                                     "confirm before anything is written.";
+                                     "10 seconds (the progress shows at the bottom of the Librarian); then the "
+                                     "editor says what to select on the synth, and you confirm before anything is "
+                                     "written.";
 
 // The most locations a send confirmation lists one by one.
 constexpr std::size_t kMostListed = 12;
@@ -86,8 +88,6 @@ juce::String stageText(const nl2x::MemoryTaskStatus& status)
         return "Backing up Bank " + juce::String(status.bank) + progress + ". Nothing is written yet.";
     case nl2x::MemoryStage::AwaitingConfirmation:
         return "Waiting for your confirmation. Nothing is written yet.";
-    case nl2x::MemoryStage::CheckingSelectedBank:
-        return "Checking which Bank is selected on the synth.";
     case nl2x::MemoryStage::Writing:
         return "Writing to Bank " + juce::String(status.bank) + progress + ". Do not change the Bank on the synth.";
     case nl2x::MemoryStage::Verifying:
@@ -602,6 +602,13 @@ void LibrarianView::refresh()
         message = utf8(status.message);
         if (status.backupFile && message.indexOf("ackup") < 0)
             message << "  Backup: " << utf8(status.backupFile->string());
+        // A write that failed (a read-back that did not match, above all) must not pass unseen
+        // in the status line.
+        const bool write = status.operation != nl2x::MemoryOperation::ReadBank
+                           && status.operation != nl2x::MemoryOperation::ReadBanks;
+        if (write && status.stage == nl2x::MemoryStage::Failed)
+            showSelectableAlert("Writing to the synth failed", message.replace(" Backup: ", "\n\nBackup: "), { "OK" },
+                                isShowing() ? this : nullptr, {});
     }
 
     wasBusy = busy;
@@ -911,7 +918,7 @@ void LibrarianView::saveBankFile()
 void LibrarianView::askForLocation(const juce::String& title, const juce::String& text,
                                    std::function<void(nl2x::BankLocation)> store)
 {
-    auto* window = new juce::AlertWindow(title, text, juce::MessageBoxIconType::NoIcon, isShowing() ? this : nullptr);
+    auto* window = new SelectableAlertWindow(title, text, isShowing() ? this : nullptr);
     juce::StringArray banks;
     for (int each = kFirstBank; each <= kLastBank; ++each)
         banks.add("Bank " + juce::String(each));
@@ -992,13 +999,8 @@ void LibrarianView::askWhereToStore(const nl2x::LibraryEntry& entry)
 void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
 {
     askedToken = plan.token;
-    juce::String details;
-    const auto& status = processor.synthMemory().status();
-    // Asked again after an Overwrite that wrote nothing: the reason comes first, under its own
-    // title, so the question does not look like the one just answered.
-    const bool askedAgain = ! status.message.empty();
-    if (askedAgain)
-        details << utf8(status.message) << "\n\n" << utf8(plan.question) << "\n\n";
+    // What to do on the synth's panel first: without it the write goes to another Bank.
+    juce::String details = utf8(plan.panelSteps) + "\n\n";
     // What each location will hold and what it holds now, while the list stays readable.
     if (plan.operation == nl2x::MemoryOperation::SendPrograms && plan.programs.size() <= kMostListed) {
         const auto nameOf = [](const LocationText& text) {
@@ -1013,14 +1015,9 @@ void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
     }
     details << utf8(plan.details);
 
-    const auto options = juce::MessageBoxOptions()
-                             .withIconType(juce::MessageBoxIconType::WarningIcon)
-                             .withTitle(askedAgain ? juce::String("Not written yet") : utf8(plan.question))
-                             .withMessage(details)
-                             .withButton("Overwrite")
-                             .withButton("Cancel")
-                             .withAssociatedComponent(isShowing() ? this : nullptr);
-    juce::AlertWindow::showAsync(options, [safe = juce::Component::SafePointer<LibrarianView>(this), plan](int result) {
+    showSelectableAlert(utf8(plan.question), details, { "Overwrite", "Cancel" },
+                        isShowing() ? this : nullptr,
+                        [safe = juce::Component::SafePointer<LibrarianView>(this), plan](int result) {
         if (safe == nullptr)
             return;
         if (result != 1) {
@@ -1036,14 +1033,9 @@ void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
 
 void LibrarianView::askForNoBackupConsent(const nl2x::MemoryWritePlan& plan)
 {
-    const auto options = juce::MessageBoxOptions()
-                             .withIconType(juce::MessageBoxIconType::WarningIcon)
-                             .withTitle("No backup possible")
-                             .withMessage(utf8(plan.noBackupWarning))
-                             .withButton("Write without a backup")
-                             .withButton("Cancel")
-                             .withAssociatedComponent(isShowing() ? this : nullptr);
-    juce::AlertWindow::showAsync(options, [safe = juce::Component::SafePointer<LibrarianView>(this), plan](int result) {
+    showSelectableAlert("No backup possible", utf8(plan.noBackupWarning),
+                        { "Write without a backup", "Cancel" }, isShowing() ? this : nullptr,
+                        [safe = juce::Component::SafePointer<LibrarianView>(this), plan](int result) {
         if (safe == nullptr)
             return;
         if (result == 1)

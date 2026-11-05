@@ -39,6 +39,7 @@ target_sources(NL2XEditor PRIVATE
     ProgramPanel.cpp
     SavedProjectSounds.cpp
     SavedSelection.cpp
+    SelectableAlert.cpp
     SelectorBar.cpp
     SettingsPanel.cpp
     SlotView.cpp

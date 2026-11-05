@@ -57,7 +57,12 @@ TEST_CASE("Memory writer, locked: storing a Program asks first and needs the no-
     CHECK(plan.needsNoBackupConsent);
     CHECK_FALSE(plan.backupFile);
     CHECK_FALSE(plan.noBackupWarning.empty());
-    CHECK(plan.details.find("select Bank 2 on the synth") != std::string::npos);
+    // What to do on the synth's panel comes first, as numbered steps.
+    CHECK(plan.panelSteps
+          == "On the synth:\n"
+             "1. Press a Slot other than B (Slot B holds the sound being stored).\n"
+             "2. Select Bank 2 and any Program in it.\n"
+             "3. Then click Overwrite, and do not change the Bank or Program on the synth until the write is done.");
     // Locked: nothing was even read, and no backup folder exists.
     CHECK(std::none_of(rig.toSynth.messages().begin(), rig.toSynth.messages().end(), isBankRequest));
     CHECK(rig.backups().empty());
@@ -201,69 +206,49 @@ TEST_CASE("Memory writer, verified: storing a Program backs up its Bank first an
     CHECK(rig.status().message.find("Read back: 1 of 1") != std::string::npos);
 }
 
-TEST_CASE("Memory writer: a write waits until the synth has the target Bank selected")
+TEST_CASE("Memory writer: Overwrite writes at once, without asking the synth which Bank is selected")
 {
-    Rig rig(kNotVerified, "wrong-bank");
+    // Andrea, 2026-11-05: with Bank 3 selected on the panel on Slot B, the type-40 read of the
+    // Performance Edit Buffer still named Bank 0, so every Overwrite was refused.
+    Rig rig(kVerified, "no-bank-check");
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    const auto sentBefore = rig.toSynth.messages().size();
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+
+    CHECK(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.synth.bankProgram(2, 4) == rig.synth.editBuffer(Slot::A));
+    const auto& sent = rig.toSynth.messages();
+    const auto performanceRequests = std::count_if(sent.begin() + static_cast<std::ptrdiff_t>(sentBefore), sent.end(),
+                                                   [](const auto& message) {
+                                                       return message.size() > 4 && message[0] == 0xF0
+                                                              && message[4] == hardware::kPerformanceEditBufferRequestType;
+                                                   });
+    CHECK(performanceRequests == 0);
+}
+
+TEST_CASE("Memory writer: a Program the read-back does not find in the target Bank fails and says where it went")
+{
+    Rig rig(kVerified, "wrong-bank");
+    const auto slotA = rig.synth.editBuffer(Slot::A);
     rig.synth.selectBank(1);
 
     REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
     rig.settle();
-    const auto firstToken = rig.status().plan->token;
-    REQUIRE(rig.confirm(NoBackupConsent::Given) == MemoryConfirmResult::Accepted);
-    rig.settle();
-
-    // Offered again, with the reason; nothing written anywhere.
-    REQUIRE(rig.status().stage == MemoryStage::AwaitingConfirmation);
-    CHECK(rig.status().message.find("Bank 1 is selected on the synth, not Bank 2") != std::string::npos);
-    CHECK(rig.status().plan->token != firstToken);
-    CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 0);
-    CHECK(rig.memory().confirm(firstToken, NoBackupConsent::Given, rig.now) == MemoryConfirmResult::RefusedNoSuchPlan);
-
-    rig.synth.selectBank(2);
-    REQUIRE(rig.confirm(NoBackupConsent::Given) == MemoryConfirmResult::Accepted);
-    rig.settle();
-    CHECK(rig.status().stage == MemoryStage::Finished);
-    CHECK(rig.synth.bankProgram(2, 4) == rig.synth.editBuffer(Slot::A));
-    CHECK(rig.synth.bankProgram(1, 4) == patternProgram(104));
-}
-
-TEST_CASE("Memory writer: after project recall the Bank selected on the panel is asked for, not misread")
-{
-    // Andrea, 2026-11-04: with the target Bank selected on the panel, every Overwrite brought the
-    // same question back. Project recall had sent a Performance dump, which the synth keeps
-    // without applying (kPerformanceEditBufferDumpIsApplied), so the Performance read for the
-    // check named the project's Bank instead of the panel's.
-    Rig rig(kVerified, "recalled-performance");
-    rig.synth.setSlotChannel(Slot::A, 0);
-    const auto project = rig.engine.projectState();
-    rig.synth.selectProgramOnPanel(Slot::A, 1, 0);
-    rig.runFor(1000);
-    REQUIRE(rig.engine.loadProjectState(project, true, rig.now) == ProjectLoadResult::Sending);
-    rig.runFor(3000);
-    REQUIRE(rig.synth.selectedBank() == 1);
-
-    const Program stored(patternProgram(4242));
-    REQUIRE(rig.memory().prepareStoreProgram(stored, "Fat bass", 1, 5, rig.backupFolder, kNow, rig.now)
-            == MemoryRefusal::None);
-    rig.settle();
-    // The question says, before any Overwrite, why the panel must be touched.
-    REQUIRE(rig.status().plan);
-    CHECK(rig.status().plan->details.find("select a Program in Bank 1 on the synth's panel") != std::string::npos);
-
     REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
     rig.settle();
-    REQUIRE(rig.status().stage == MemoryStage::AwaitingConfirmation);
-    CHECK(rig.status().message.find("is selected on the synth, not Bank 1") == std::string::npos);
-    CHECK(rig.status().message.find("Select a Program in Bank 1 on the synth's panel") != std::string::npos);
-    CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 0);
 
-    // Selecting on the panel makes the synth's Performance Edit Buffer its own again.
-    rig.synth.selectProgramOnPanel(Slot::A, 1, 7);
-    rig.runFor(1000);
-    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
-    rig.settle();
-    CHECK(rig.status().stage == MemoryStage::Finished);
-    CHECK(rig.synth.bankProgram(1, 4) == patternProgram(4242));
+    // The synth stored it in the Bank selected on its panel; the read-back of Bank 2 says so.
+    REQUIRE(rig.status().stage == MemoryStage::Failed);
+    CHECK(rig.synth.bankProgram(1, 4) == slotA);
+    CHECK(rig.synth.bankProgram(2, 4) == patternProgram(204));
+    const auto& message = rig.status().message;
+    CHECK(message.find("Not stored: Program 5 in Bank 2 does not hold what was sent (read back: 0 of 1 match).")
+          != std::string::npos);
+    CHECK(message.find("probably stored it in the Bank selected on its panel instead") != std::string::npos);
+    REQUIRE(rig.backups().size() == 1);
+    CHECK(message.find("Backup: " + rig.backups().front().string()) != std::string::npos);
 }
 
 TEST_CASE("Memory writer: reading a Bank gives a Program Bank file that round-trips")

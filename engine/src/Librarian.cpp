@@ -326,15 +326,36 @@ void Librarian::programWritten(int bank, int number, const Program& value)
     state.synth[index(number)] = value;
     // Sent: no longer pending, unless the user put something else there meanwhile.
     if (const auto change = state.changes.find(number - 1); change != state.changes.end() && change->second == value) {
+        state.sent[change->first] = change->second;
         state.changes.erase(change);
-        if (state.changes.empty())
+        if (state.changes.empty() && state.wholeBankSource) {
+            state.sentWholeBankSource = state.wholeBankSource;
             state.wholeBankSource.reset();
+        }
+    }
+    changed();
+}
+
+void Librarian::programNotStored(int bank, int number)
+{
+    if (! isRamBank(bank) || number < 1 || number > kProgramsPerBank)
+        return;
+    auto& state = bankAt(bank);
+    // Pending again, unless the user put something else there meanwhile.
+    if (const auto sent = state.sent.find(number - 1); sent != state.sent.end()) {
+        if (state.changes.emplace(sent->first, sent->second).second && ! state.wholeBankSource)
+            state.wholeBankSource = state.sentWholeBankSource;
+        state.sent.erase(sent);
     }
     changed();
 }
 
 void Librarian::taskEnded()
 {
+    for (auto& state : banks) {
+        state.sent.clear();
+        state.sentWholeBankSource.reset();
+    }
     if (readStage != SynthBanksStage::Reading)
         return;
     const auto& status = memory.status();
