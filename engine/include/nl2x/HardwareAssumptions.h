@@ -217,19 +217,17 @@ constexpr int sysExBankOfShownBank(int shownBank)
     return shownBank - kShownBankOfSysExBank1 + 1;
 }
 
-// The Bank a received Bank dump is stored in ("the Bank currently selected", [OFF-2X p.78]) is the
-// Bank of the active Slot, and the Performance Edit Buffer names both: offset 322 (selected_channel,
-// the active Slot, 0–3) and offset 332 + Slot (bankselect, the Bank shown) [OFF-2X p.112]. The
-// memory writer reads the Performance Edit Buffer just before writing and refuses unless it names
-// the target Bank. If plan step 11 shows the Performance does not follow the panel, set this to
-// false: the writer then relies on the user having selected the Bank, as its confirmation asks.
-// Status: [INF], not verified (plan steps 6 and 11). Step 6 [HW 2026-10-29] showed type 40 reads
-// the live Performance Edit Buffer; but offset 322 lies in the bytes that vary between reads
-// (kFirstVolatilePerformanceValue), so it may not be trustworthy. A Performance dump the editor
-// sent (project recall, a Performance Audition) is read back instead of what the synth plays
-// (kPerformanceEditBufferDumpIsApplied), so after one the writer asks the user to select a Program on
-// the panel rather than trust the read [HW 2026-11-04: Store asked again on every Overwrite].
-inline constexpr bool kPerformanceNamesSelectedBank = true;
+// Whether a type-40 read of the Performance Edit Buffer names the Bank a received Bank dump is
+// stored in ("the Bank currently selected", [OFF-2X p.78]): the active Slot's (offset 322,
+// selected_channel) bankselect (offset 332 + Slot) [OFF-2X p.112]. It does not, so the editor
+// cannot read which Bank is selected on the panel. The memory writer relies on the user selecting
+// the target Bank, as the confirmation asks first, and reads the written locations back from the
+// target Bank to catch a write that went elsewhere. Nothing reads this constant; it records why.
+// Status: refuted [HW 2026-11-05]: with Bank 3 selected on the panel on Slot B, the type-40 read
+// still named Bank 0. (Offset 322 also lies in the bytes that vary between reads,
+// kFirstVolatilePerformanceValue; and a Performance dump the editor sent is read back instead of
+// what the synth plays, kPerformanceEditBufferDumpIsApplied [HW 2026-11-04].)
+inline constexpr bool kPerformanceNamesSelectedBank = false;
 
 // Performance dumps: type 30 = Edit Buffer, 31–34 = Performance Bank 1–4, spec 0 or 0–99
 // [OFF-2X p.107]. Status: documented; Bank dumps match [OFF-FB].

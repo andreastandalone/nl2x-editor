@@ -7,16 +7,18 @@
 // Nothing is ever written without a confirmation: prepareStoreProgram() and prepareBankSend()
 // only read (the backup) and then hold a MemoryWritePlan naming exactly what will be overwritten;
 // only confirm() with that plan's token writes. Every write goes one Program dump per location, so
-// only the locations named in the plan change. The order is fixed: backup → confirmation → check
-// of the Bank selected on the synth → write. While reading Banks is not verified on hardware
+// only the locations named in the plan change. The order is fixed: backup → confirmation → write →
+// read-back. While reading Banks is not verified on hardware
 // (hardware::kBankReadingVerified, the lock), no backup can be made and every plan needs the
 // user's separate "no backup possible" consent.
 //
 // The synth stores a received Bank dump in the Bank selected on its panel, whatever the dump's
 // type byte says [OFF-2X p.78]. The writer does not select the Bank itself (no Program Change is
-// sent, which would replace a Slot's sound and depends on the P setting): the user selects it on
-// the synth, the confirmation says so, and just before writing the writer reads the Performance
-// Edit Buffer to check that it names the target Bank (hardware::kPerformanceNamesSelectedBank).
+// sent, which would replace a Slot's sound and depends on the P setting), and it cannot read which
+// Bank is selected (hardware::kPerformanceNamesSelectedBank): the confirmation tells the user, as
+// numbered steps placed first, to select it on the synth. When Bank reading is verified, the
+// written locations are read back from the target Bank afterwards; if they do not hold what was
+// sent, the task fails and says the synth probably stored them in another Bank.
 
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Library.h"
@@ -75,6 +77,9 @@ public:
     // A dump storing `value` at Program `program` of `bank` was sent (read back afterwards when
     // Bank reading is verified, through programRead).
     virtual void programWritten(int bank, int program, const Program& value) = 0;
+    // The read-back of Program `program` of `bank` did not match the dump sent there (programRead
+    // follows with what the location holds): the dump was not stored there.
+    virtual void programNotStored(int bank, int program) = 0;
     // The task ended (finished, failed or cancelled): status() says how.
     virtual void taskEnded() = 0;
 };
@@ -85,8 +90,6 @@ enum class MemoryStage : std::uint8_t {
     ReadingBackup,
     // status().plan names what will be overwritten; waiting for confirm() or cancel().
     AwaitingConfirmation,
-    // Confirmed: reading the Performance Edit Buffer to check which Bank is selected.
-    CheckingSelectedBank,
     // Sending Bank dumps, kBankWriteSpacingMs apart.
     Writing,
     // Reading the written locations back (only when Bank reading is verified).
@@ -97,7 +100,8 @@ enum class MemoryStage : std::uint8_t {
     Failed,
 };
 
-// What a confirmation is asked for. The GUI shows `question` and `details`; when
+// What a confirmation is asked for. The GUI shows `question`, then `panelSteps` first and
+// `details` after them; when
 // `needsNoBackupConsent`, it then shows `noBackupWarning` as a second, separate confirmation.
 struct MemoryWritePlan {
     // Changes every time a plan is offered: confirm() takes only the current one.
@@ -115,6 +119,9 @@ struct MemoryWritePlan {
     bool needsNoBackupConsent = false;
     // "Overwrite Program 17 in Bank 2 on the synth?"
     std::string question;
+    // What to do on the synth's panel before confirming, as numbered lines: the synth stores what
+    // it receives in the Bank selected there, which the editor can neither set nor read.
+    std::string panelSteps;
     std::string details;
     std::string noBackupWarning;
 };
@@ -132,7 +139,7 @@ struct MemoryTaskStatus {
     std::optional<std::filesystem::path> backupFile;
     // ReadBank: the file the Bank was read into, once written.
     std::optional<std::filesystem::path> bankFile;
-    // The outcome, or why the plan is offered again, for the GUI.
+    // The outcome, for the GUI.
     std::string message;
 };
 
@@ -218,9 +225,8 @@ public:
     // A task is under way or waiting for its confirmation.
     bool busy() const;
     // From confirmation to the end of the read-back: the Engine then sends no Edit Buffer dump
-    // (Morph Program dumps, Auditions, Performance edits) until the write is over. A Performance
-    // dump would set the Bank selected on the synth (its bankselect bytes are received) after the
-    // check; the others are held too, so that only the write and its own requests reach the synth.
+    // (Morph Program dumps, Auditions, Performance edits) until the write is over, so that only the
+    // write and its own requests reach the synth.
     bool holdsEditBufferDumps() const;
 
     // Called by the Engine.
@@ -228,20 +234,10 @@ public:
     // The connection was reset (Engine::connect): whatever was queued is gone.
     void abort(const std::string& reason);
     // A Bank Select or Program Change arrived from the synth: someone selected a sound on it, so the
-    // selected Bank may no longer be the one checked. Stops a write under way (the Programs not sent
-    // yet stay as they were); the plan of a write not confirmed yet is unaffected, since the Bank
-    // is checked after confirming.
+    // selected Bank may no longer be the one the user selected for the write. Stops a write under
+    // way (the Programs not sent yet stay as they were); the plan of a write not confirmed yet is
+    // unaffected, since the user selects the Bank before confirming.
     void selectionChangedOnSynth();
-    // The Engine sent a Performance dump to the Performance Edit Buffer (project recall, a
-    // Performance Audition). Unless the synth applies such dumps, it keeps it without playing it,
-    // and a read of the Performance Edit Buffer returns that dump, not the Banks the Slots play
-    // (hardware::kPerformanceEditBufferDumpIsApplied). Until a sound is selected on the synth the
-    // check of the selected Bank cannot be made: the writer asks the user to select one instead of
-    // naming a Bank the synth does not have selected.
-    void performanceDumpSent();
-    // A Program Change arrived from the synth: a sound was loaded, and the Performance Edit Buffer
-    // names what the synth plays again.
-    void soundSelectedOnSynth();
 
 private:
     struct Task;
@@ -259,13 +255,8 @@ private:
     void nextBankRead(TimeMs timeMs);
     void backupComplete(TimeMs timeMs);
     void readComplete();
-    void offerPlan(std::string message);
-    // The Performance Edit Buffer holds a dump the Engine sent, so it does not name the selected Bank.
-    bool selectedBankUnreadable() const;
-    std::string notOnStoredSlot() const;
-    static std::string sentDumpReason();
-    void checkSelectedBank(TimeMs timeMs);
-    void selectedBankChecked(std::optional<std::span<const std::uint8_t>> reply, TimeMs timeMs);
+    void offerPlan();
+    std::string panelStepsText() const;
     void startWriting(TimeMs timeMs);
     void writeDue(TimeMs timeMs);
     void verified(TimeMs timeMs);
@@ -299,6 +290,8 @@ private:
         std::vector<std::vector<std::uint8_t>> replies;
         int written = 0;
         int matches = 0;
+        // The Programs (1–99) whose read-back differs from what was sent.
+        std::vector<int> notStored;
         TimeMs nextWriteMs = 0;
         bool verifyStarted = false;
     };
@@ -310,9 +303,6 @@ private:
         std::uint8_t requestTypeOfSysExBank1;
     };
     BankReading reading;
-    bool performanceDumpsApplied;
-    // A Performance dump sent by the Engine is in the Performance Edit Buffer (performanceDumpSent).
-    bool performanceEditBufferHoldsSentDump = false;
     std::function<void()> onChange;
     MemoryWriterListener* listener = nullptr;
     std::optional<Task> task;

@@ -280,7 +280,7 @@ TEST_CASE("Librarian: a Bank with unknown locations before known ones cannot be 
     CHECK_FALSE(std::filesystem::exists(rig.folder / "Gap.syx"));
 }
 
-TEST_CASE("Librarian: Send backs up the Bank, asks, checks the selected Bank, then writes only the pending locations")
+TEST_CASE("Librarian: Send backs up the Bank, asks, then writes only the pending locations")
 {
     LibrarianRig rig("send");
     rig.readSynthBanks();
@@ -306,7 +306,7 @@ TEST_CASE("Librarian: Send backs up the Bank, asks, checks the selected Bank, th
     CHECK(plan.details.find("The other Programs of Bank 2 are not touched") != std::string::npos);
     CHECK(rig.bankDumpsReceived() == 0);
 
-    // 2. Confirmed: the selected Bank is checked, then one single Program dump per pending location.
+    // 2. Confirmed: one single Program dump per pending location.
     REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
     rig.settle();
     CHECK(rig.status().stage == MemoryStage::Finished);
@@ -375,7 +375,7 @@ TEST_CASE("Librarian: Send cancelled at the confirmation writes nothing and keep
     CHECK(rig.backups().size() == 1);
 }
 
-TEST_CASE("Librarian: Send waits while another Bank is selected on the synth")
+TEST_CASE("Librarian: a Send that went to another Bank leaves its locations pending")
 {
     LibrarianRig rig("send-wrong-bank");
     rig.readSynthBanks();
@@ -386,12 +386,15 @@ TEST_CASE("Librarian: Send waits while another Bank is selected on the synth")
     REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
     rig.settle();
 
-    REQUIRE(rig.status().stage == MemoryStage::AwaitingConfirmation);
-    CHECK(rig.status().message.find("Bank 1 is selected on the synth, not Bank 2") != std::string::npos);
-    CHECK(rig.bankDumpsReceived() == 0);
+    REQUIRE(rig.status().stage == MemoryStage::Failed);
+    CHECK(rig.status().message.find("Not stored: Program 17 in Bank 2") != std::string::npos);
+    CHECK(rig.synth.bankProgram(1, 16) == patternProgram(1));
     CHECK(rig.librarian().pendingPrograms(2) == std::vector<int> { 17 });
+    CHECK(rig.librarian().synthProgram({ 2, 17 }) == asProgram(patternProgram(216)));
 
     rig.synth.selectBank(2);
+    REQUIRE(rig.librarian().prepareSend(2, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
     REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
     rig.settle();
     CHECK(rig.status().stage == MemoryStage::Finished);

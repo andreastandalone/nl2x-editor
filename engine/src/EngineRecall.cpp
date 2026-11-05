@@ -155,8 +155,6 @@ void Engine::sendDueProjectRecall(TimeMs timeMs)
         return;
 
     connection->sendWithoutReply(recall->dumps.front(), timeMs);
-    if (parseSysEx(recall->dumps.front()).kind == SysExKind::PerformanceDump)
-        memory->performanceDumpSent();
     recall->dumps.pop_front();
     if (recall->dumps.empty())
         readWhatProjectRecallLacks(timeMs);
