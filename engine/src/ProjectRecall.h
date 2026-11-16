@@ -17,10 +17,12 @@ struct ProjectRecall {
     bool held = false;
     // Connected, but the memory writer was busy (#12): the recall starts once it is idle.
     bool waitingForMemoryWriter = false;
-    // Edit Buffer dumps (type 30, then type 0) still to send, in order.
+    // Edit Buffer dumps (type 30 when the synth applies it, then type 0) still to send, in order.
     std::deque<std::vector<std::uint8_t>> dumps;
+    // The first of `dumps` is the Performance (type 30) and has not gone out yet.
+    bool sendsPerformance = false;
     // What the project could not say and is read from the synth once the dumps are out: Slots
-    // playing a Kit or unknown, and the Performance when the project had none.
+    // playing a Kit or unknown, and the Performance when it was not sent.
     std::array<bool, 4> readSlotsAfter {};
     bool readPerformanceAfter = false;
 };

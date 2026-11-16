@@ -57,12 +57,11 @@ TEST_CASE("Memory writer, locked: storing a Program asks first and needs the no-
     CHECK(plan.needsNoBackupConsent);
     CHECK_FALSE(plan.backupFile);
     CHECK_FALSE(plan.noBackupWarning.empty());
-    // What to do on the synth's panel comes first, as numbered steps.
+    // The lit Slot, A, is on Bank 2: nothing to do on the synth.
+    CHECK(plan.bankSetting == BankSetting::AlreadyThere);
     CHECK(plan.panelSteps
-          == "On the synth:\n"
-             "1. Press a Slot other than B (Slot B holds the sound being stored).\n"
-             "2. Select Bank 2 and any Program in it.\n"
-             "3. Then click Overwrite, and do not change the Bank or Program on the synth until the write is done.");
+          == "The lit Slot, Slot A, is on Bank 2 already, where the synth stores what it receives. Do not play or "
+             "touch the synth until the write is done.");
     // Locked: nothing was even read, and no backup folder exists.
     CHECK(std::none_of(rig.toSynth.messages().begin(), rig.toSynth.messages().end(), isBankRequest));
     CHECK(rig.backups().empty());
@@ -206,49 +205,270 @@ TEST_CASE("Memory writer, verified: storing a Program backs up its Bank first an
     CHECK(rig.status().message.find("Read back: 1 of 1") != std::string::npos);
 }
 
-TEST_CASE("Memory writer: Overwrite writes at once, without asking the synth which Bank is selected")
+TEST_CASE("Memory writer: a store to a Bank the lit Slot is not on switches the lit Slot and puts it back")
 {
-    // Andrea, 2026-11-05: with Bank 3 selected on the panel on Slot B, the type-40 read of the
-    // Performance Edit Buffer still named Bank 0, so every Overwrite was refused.
-    Rig rig(kVerified, "no-bank-check");
-    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    // As on the hardware [HW 2026-11-16]: Slot B lit on Bank 1 Program 10 with an unsaved edit; the
+    // synth stores what it receives in the lit Slot's Bank, whatever the dump's type byte says.
+    Rig rig(kVerified, "switch-and-restore");
+    rig.synth.selectProgramOnPanel(Slot::B, 1, 9);
+    rig.synth.turnPanelControl(Slot::B, 74, 33);
+    rig.runFor(1000);
+    const auto slotA = rig.synth.editBuffer(Slot::A);
+    const auto slotBEdited = rig.synth.editBuffer(Slot::B);
+    REQUIRE(slotBEdited != patternProgram(109));
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 3, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
     rig.settle();
+    REQUIRE(rig.status().plan);
+    const auto plan = *rig.status().plan;
+    CHECK(plan.bankSetting == BankSetting::SwitchedByEditor);
+    CHECK(plan.panelSteps
+          == "The synth stores what it receives in the Bank of the lit Slot, Slot B, which is on Bank 1. The editor "
+             "will switch the lit Slot to Bank 3 for a moment, write, and then put it back on Bank 1 Program 10, "
+             "with its unsaved edits. Do not play or touch the synth until the write is done.");
+    // Nothing is switched before Overwrite.
+    const auto confirmedAt = rig.toSynth.messages().size();
+    CHECK(std::none_of(rig.toSynth.messages().begin(), rig.toSynth.messages().end(), isBankSelect));
+
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+
+    REQUIRE(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.synth.bankProgram(3, 4) == slotA);
+    CHECK(rig.synth.bankProgram(1, 4) == patternProgram(104));
+    // Slot B is back as it was, lit, on Bank 1 Program 10, with its edit; Slot A is untouched.
+    CHECK(rig.synth.activeSlot() == Slot::B);
+    CHECK(rig.synth.selectedBank() == 1);
+    CHECK(rig.synth.performanceEditBuffer()[328 + 1] == 9);
+    CHECK(rig.synth.editBuffer(Slot::B) == slotBEdited);
+    CHECK(rig.synth.editBuffer(Slot::A) == slotA);
+    CHECK(rig.status().message.find("Read back: 1 of 1 match what was sent.") != std::string::npos);
+    CHECK(rig.status().message.find("Slot B is back on Bank 1 Program 10, with its unsaved edits.")
+          != std::string::npos);
+
+    // On Slot B's channel (2): to Bank 3, then back to Bank 1 Program 10.
+    std::vector<Bytes> selections;
+    for (const auto& message : rig.sentSince(confirmedAt))
+        if (isBankSelect(message) || isProgramChange(message))
+            selections.push_back(message);
+    CHECK(selections
+          == std::vector<Bytes> { { 0xB1, 32, 3 }, { 0xC1, 4 }, { 0xB1, 32, 1 }, { 0xC1, 9 } });
+    // The Bank dump went out between the two.
+    REQUIRE(rig.bankDumpTimes.size() == 1);
+}
+
+TEST_CASE("Memory writer: a store to the Bank the lit Slot is on sends no Bank Select")
+{
+    Rig rig(kVerified, "already-there");
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::C, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::AlreadyThere);
     const auto sentBefore = rig.toSynth.messages().size();
     REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
     rig.settle();
 
     CHECK(rig.status().stage == MemoryStage::Finished);
-    CHECK(rig.synth.bankProgram(2, 4) == rig.synth.editBuffer(Slot::A));
-    const auto& sent = rig.toSynth.messages();
-    const auto performanceRequests = std::count_if(sent.begin() + static_cast<std::ptrdiff_t>(sentBefore), sent.end(),
-                                                   [](const auto& message) {
-                                                       return message.size() > 4 && message[0] == 0xF0
-                                                              && message[4] == hardware::kPerformanceEditBufferRequestType;
-                                                   });
-    CHECK(performanceRequests == 0);
+    CHECK(rig.synth.bankProgram(2, 4) == rig.synth.editBuffer(Slot::C));
+    const auto sent = rig.sentSince(sentBefore);
+    CHECK(std::none_of(sent.begin(), sent.end(), isBankSelect));
+    CHECK(std::none_of(sent.begin(), sent.end(), isProgramChange));
 }
 
-TEST_CASE("Memory writer: a Program the read-back does not find in the target Bank fails and says where it went")
+TEST_CASE("Memory writer: when the lit Slot's MIDI channel is off, the user sets the Bank by hand")
+{
+    Rig rig(kVerified, "channel-off");
+    rig.synth.setSlotChannel(Slot::A, std::nullopt);
+    rig.runFor(500);
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 3, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::ByHand);
+    CHECK(rig.status().plan->panelSteps
+          == "The synth stores what it receives in the Bank of the lit Slot. On the synth:\n"
+             "1. Set the lit Slot to Bank 3: select any Program in Bank 3.\n"
+             "2. Then click Overwrite. Do not play or touch the synth until the write is done.\n"
+             "\n"
+             "The editor cannot do this itself: the lit Slot, Slot A, has its MIDI channel off.");
+
+    SECTION("Overwrite without setting it writes nothing")
+    {
+        REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+        rig.settle();
+        CHECK(rig.status().stage == MemoryStage::Failed);
+        CHECK(rig.status().message.find("Nothing was written: the lit Slot, Slot A, is on Bank 2, not Bank 3. On "
+                                        "the synth, set the lit Slot to Bank 3, then try again.")
+              == 0);
+        CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 0);
+    }
+
+    SECTION("once the user has set it on the panel, Overwrite writes there")
+    {
+        rig.synth.selectProgramOnPanel(Slot::C, 3, 0);
+        rig.runFor(500);
+        const auto sentBefore = rig.toSynth.messages().size();
+        REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+        rig.settle();
+        CHECK(rig.status().stage == MemoryStage::Finished);
+        CHECK(rig.synth.bankProgram(3, 4) == rig.synth.editBuffer(Slot::B));
+        const auto sent = rig.sentSince(sentBefore);
+        CHECK(std::none_of(sent.begin(), sent.end(), isBankSelect));
+    }
+}
+
+TEST_CASE("Memory writer: the lit Slot is set by hand when a Program Change on its channel reaches another Slot "
+          "or selects a Performance")
+{
+    Rig rig(kVerified, "channel-shared");
+    SECTION("shared channel")
+    {
+        rig.synth.setSlotChannel(Slot::C, 0);
+        rig.runFor(500);
+        REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 3, 5, rig.backupFolder, kNow, rig.now)
+                == MemoryRefusal::None);
+        rig.settle();
+        REQUIRE(rig.status().plan);
+        CHECK(rig.status().plan->bankSetting == BankSetting::ByHand);
+        CHECK(rig.status().plan->panelSteps.find("The editor cannot do this itself: a Program Change on the lit "
+                                                 "Slot's MIDI channel (1) would also change Slot C.")
+              != std::string::npos);
+    }
+    SECTION("Global Channel")
+    {
+        rig.synth.setSlotChannel(Slot::A, hardware::kFactoryGlobalChannel);
+        rig.runFor(500);
+        REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 3, 5, rig.backupFolder, kNow, rig.now)
+                == MemoryRefusal::None);
+        rig.settle();
+        REQUIRE(rig.status().plan);
+        CHECK(rig.status().plan->bankSetting == BankSetting::ByHand);
+        CHECK(rig.status().plan->panelSteps.find("is on MIDI channel 16, the Global Channel") != std::string::npos);
+    }
+    SECTION("Percussion Kit")
+    {
+        rig.synth.playPercussionKit(Slot::A, {});
+        rig.engine.readSlot(Slot::A, rig.now);
+        rig.runFor(500);
+        REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 3, 5, rig.backupFolder, kNow, rig.now)
+                == MemoryRefusal::None);
+        rig.settle();
+        REQUIRE(rig.status().plan);
+        CHECK(rig.status().plan->bankSetting == BankSetting::ByHand);
+        CHECK(rig.status().plan->panelSteps.find("plays a Percussion Kit") != std::string::npos);
+    }
+    rig.memory().cancel();
+    CHECK(std::none_of(rig.toSynth.messages().begin(), rig.toSynth.messages().end(), isBankSelect));
+}
+
+TEST_CASE("Memory writer: when the synth does not switch the lit Slot, nothing is written and it is put back")
+{
+    Rig rig(kVerified, "switch-ignored");
+    // P off: the synth ignores Bank Select and Program Change.
+    rig.synth.setProgramChangeOn(false);
+    rig.synth.turnPanelControl(Slot::A, 74, 21);
+    rig.runFor(500);
+    const auto slotA = rig.synth.editBuffer(Slot::A);
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 3, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan->bankSetting == BankSetting::SwitchedByEditor);
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+
+    CHECK(rig.status().stage == MemoryStage::Failed);
+    CHECK(rig.status().message.find("Nothing was written: the lit Slot, Slot A, did not switch to Bank 3.") == 0);
+    CHECK(rig.synth.receivedDumpCount(SimulatedNordLead2X::DumpDestination::Bank) == 0);
+    CHECK(rig.synth.editBuffer(Slot::A) == slotA);
+    CHECK(rig.synth.selectedBank() == 2);
+}
+
+TEST_CASE("Memory writer, locked: the lit Slot is switched and put back without reading Banks")
+{
+    Rig rig(kNotVerified, "switch-locked");
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 0, 7, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan->bankSetting == BankSetting::SwitchedByEditor);
+    REQUIRE(rig.confirm(NoBackupConsent::Given) == MemoryConfirmResult::Accepted);
+    rig.settle();
+
+    CHECK(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.status().message.find("Slot A is back on Bank 2 Program 1, with its unsaved edits.") != std::string::npos);
+    CHECK(rig.synth.bankProgram(0, 6) == rig.synth.editBuffer(Slot::B));
+    CHECK(rig.synth.selectedBank() == 2);
+    CHECK(rig.synth.editBuffer(Slot::A) == patternProgram(100));
+    CHECK(std::none_of(rig.toSynth.messages().begin(), rig.toSynth.messages().end(), isBankRequest));
+}
+
+TEST_CASE("Memory writer: cancelled while the lit Slot is switched, it is put back first")
+{
+    Rig rig(kNotVerified, "switch-cancelled");
+    REQUIRE(rig.memory().prepareBankSend(bankFile(99), 1, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.confirm(NoBackupConsent::Given) == MemoryConfirmResult::Accepted);
+    rig.runWhile([&] { return rig.bankDumpTimes.size() < 3; });
+    const auto slotA = patternProgram(100);
+
+    rig.memory().cancel();
+    CHECK(rig.memory().busy());
+    rig.settle();
+    CHECK(rig.status().stage == MemoryStage::Idle);
+    CHECK(rig.status().message.find("Stopped after 3 of 99 Programs were written to Bank 1") == 0);
+    CHECK(rig.status().message.find("The editor put Slot A back on Bank 2 Program 1, with its unsaved edits.")
+          != std::string::npos);
+    CHECK(rig.synth.selectedBank() == 2);
+    CHECK(rig.synth.editBuffer(Slot::A) == slotA);
+    CHECK(rig.bankDumpTimes.size() == 3);
+}
+
+TEST_CASE("Memory writer: after a Performance Audition the lit Slot's Bank is set by hand, and a write that went "
+          "elsewhere fails and says so")
 {
     Rig rig(kVerified, "wrong-bank");
+    rig.auditionPerformance();
     const auto slotA = rig.synth.editBuffer(Slot::A);
     rig.synth.selectBank(1);
 
     REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
     rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::ByHand);
+    CHECK(rig.status().plan->panelSteps.find("1. Press a Slot button other than A, so that another Slot is lit") != std::string::npos);
+    CHECK(rig.status().plan->panelSteps.find("The editor cannot do this itself: it sent the synth a Performance")
+          != std::string::npos);
     REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
     rig.settle();
 
-    // The synth stored it in the Bank selected on its panel; the read-back of Bank 2 says so.
+    // The synth stored it in the lit Slot's Bank; the read-back of Bank 2 says so.
     REQUIRE(rig.status().stage == MemoryStage::Failed);
     CHECK(rig.synth.bankProgram(1, 4) == slotA);
     CHECK(rig.synth.bankProgram(2, 4) == patternProgram(204));
     const auto& message = rig.status().message;
     CHECK(message.find("Not stored: Program 5 in Bank 2 does not hold what was sent (read back: 0 of 1 match).")
           != std::string::npos);
-    CHECK(message.find("probably stored it in the Bank selected on its panel instead") != std::string::npos);
+    CHECK(message.find("probably stored it in the Bank of the lit Slot instead") != std::string::npos);
     REQUIRE(rig.backups().size() == 1);
     CHECK(message.find("Backup: " + rig.backups().front().string()) != std::string::npos);
+}
+
+TEST_CASE("Memory writer: a Performance the synth kept from an earlier session is not taken for the lit Slot")
+{
+    // A dump sent before this engine started: the synth reports it on type 40 [HW 2026-11-04]. It
+    // claims Slot A is on Bank 3, the target, with a Program Slot A no longer plays.
+    Rig rig(kVerified, "stale-performance");
+    auto kept = rig.synth.performanceEditBuffer();
+    kept[332] = 3;
+    kept[5] = static_cast<std::int8_t>(kept[5] + 1);
+    rig.synth.receive(performanceEditBufferDump(hardware::kFactoryGlobalChannel, kept), rig.now);
+    REQUIRE(rig.engine.performanceEditBufferReadTrusted());
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::B, 3, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::ByHand);
+    CHECK(rig.status().plan->panelSteps.find("does not match Slot A's sound, so it may be out of date")
+          != std::string::npos);
+    rig.memory().cancel();
 }
 
 TEST_CASE("Memory writer: reading a Bank gives a Program Bank file that round-trips")

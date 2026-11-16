@@ -29,8 +29,8 @@ constexpr int kProgressWidth = 180;
 // What happens after a Store's location is chosen. Reading a Bank takes about 0.1 s per Program.
 constexpr const char* kBackupFirst = "First the whole Bank is read from the synth into a backup, which takes about "
                                      "10 seconds (the progress shows at the bottom of the Librarian); then the "
-                                     "editor says what to select on the synth, and you confirm before anything is "
-                                     "written.";
+                                     "editor says what will happen on the synth, and you confirm before anything "
+                                     "is written.";
 
 // The most locations a send confirmation lists one by one.
 constexpr std::size_t kMostListed = 12;
@@ -86,10 +86,17 @@ juce::String stageText(const nl2x::MemoryTaskStatus& status)
         return {};
     case nl2x::MemoryStage::ReadingBackup:
         return "Backing up Bank " + juce::String(status.bank) + progress + ". Nothing is written yet.";
+    case nl2x::MemoryStage::ReadingLitSlot:
+        return "Asking the synth which Bank the lit Slot is on.";
     case nl2x::MemoryStage::AwaitingConfirmation:
         return "Waiting for your confirmation. Nothing is written yet.";
+    case nl2x::MemoryStage::SwitchingBank:
+        return "Switching the lit Slot to Bank " + juce::String(status.bank) + " for the write. Do not play or touch "
+                                                                               "the synth.";
     case nl2x::MemoryStage::Writing:
-        return "Writing to Bank " + juce::String(status.bank) + progress + ". Do not change the Bank on the synth.";
+        return "Writing to Bank " + juce::String(status.bank) + progress + ". Do not play or touch the synth.";
+    case nl2x::MemoryStage::RestoringSlot:
+        return "Putting the lit Slot back on its own Bank and Program.";
     case nl2x::MemoryStage::Verifying:
         return "Reading back what was written" + progress + ".";
     case nl2x::MemoryStage::ReadingBank:
@@ -999,7 +1006,8 @@ void LibrarianView::askWhereToStore(const nl2x::LibraryEntry& entry)
 void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
 {
     askedToken = plan.token;
-    // What to do on the synth's panel first: without it the write goes to another Bank.
+    // What happens on the synth, or what to do on its panel first: the lit Slot's Bank is where the
+    // write goes.
     juce::String details = utf8(plan.panelSteps) + "\n\n";
     // What each location will hold and what it holds now, while the list stays readable.
     if (plan.operation == nl2x::MemoryOperation::SendPrograms && plan.programs.size() <= kMostListed) {

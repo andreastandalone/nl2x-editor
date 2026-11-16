@@ -101,8 +101,10 @@ public:
     // How many Performance dumps to the Edit Buffer arrived.
     int receivedPerformanceDumpCount() const { return receivedPerformanceDumps; }
     // The Performance Edit Buffer as a type 40 request reads it: the last Performance dump
-    // received (stored, not applied), or else the Slots and settings the synth plays. Selecting a
-    // Program or a Performance drops the received dump.
+    // received (stored, not applied), or else the Slots and settings the synth plays: each Slot's
+    // Edit Buffer, the lit Slot (322) and each Slot's Bank and Program (328–335), as on the hardware
+    // [HW 2026-11-16]. Selecting a Performance drops the received dump; selecting a Program does
+    // not (unknown on the hardware, so the worse case).
     Performance performanceEditBuffer() const;
 
     // Every dump that arrived (and was not lost to a misbehaviour), by destination as its type byte
@@ -129,13 +131,14 @@ public:
     // Every location starts with a distinct test Program (byte 0 = Bank, byte 1 = location).
     const Program& bankProgram(int shownBank, int location) const;
     void setBankProgram(int shownBank, int location, const Program& program);
-    // The Bank selected on the synth's panel: Bank dumps are stored there [OFF-2X p.78]. It is the
-    // active Slot's Bank, kept in the Performance Edit Buffer (offset 332 + Slot). On the real synth
-    // a type-40 read does not follow the panel (kPerformanceNamesSelectedBank in
-    // HardwareAssumptions.h), so the editor never relies on it. It is the only notion of the selected
-    // Bank: loading a Program into the active Slot (panel, or Bank Select + Program Change on its
-    // channel) or loading a Performance changes it too. A dump arriving while a ROM Bank is selected
-    // is not stored. selectBank() changes only the number, not the Slot's sound.
+    // The Bank of the active (lit) Slot: Program Bank dumps are stored there whatever their type
+    // byte says (kFirstProgramBankDumpType, [HW 2026-11-16]). It is kept in the Performance Edit
+    // Buffer (offset 332 + Slot), which a type-40 read reports (kPerformanceNamesSelectedBank). It is
+    // the only notion of the selected Bank: loading a Program into the active Slot (panel, or Bank
+    // Select + Program Change on its channel) or loading a Performance changes it too; Bank Select +
+    // Program Change on another Slot's channel changes that Slot only and does not make it active.
+    // A dump arriving while a ROM Bank is selected is not stored. selectBank() changes only the
+    // number, not the Slot's sound.
     void selectBank(int shownBank);
     int selectedBank() const;
 

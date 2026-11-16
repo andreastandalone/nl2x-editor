@@ -1,6 +1,6 @@
 // The Engine's project recall (#8), kept apart from Engine.cpp. Project recall only ever sends
-// Edit Buffer dumps (type 30 for the Performance, type 0 for Programs): never a Bank dump, and
-// never a CC.
+// Edit Buffer dumps (type 0 for Programs, and type 30 for the Performance only when the synth
+// applies it): never a Bank dump, and never a CC.
 
 #include "nl2x/Engine.h"
 
@@ -108,16 +108,22 @@ void Engine::startProjectRecall(TimeMs timeMs)
     performanceBuffer->dropUnsentEdits();
     programDumps->dropAllUnsentEdits();
 
-    if (const auto& performance = performanceBuffer->performance()) {
+    // The Performance only when the synth applies it: otherwise it would not change what the synth
+    // plays, and the synth would return it to type-40 reads instead of its own (the lit Slot and the
+    // Slots' Banks, which the memory writer reads before writing). Then the synth's own Performance
+    // is read once the Program dumps are out: its Slot Channels are the ones CCs must go on.
+    const bool sendPerformance = switches.performanceEditBufferDumpIsApplied && performanceBuffer->performance();
+    if (sendPerformance) {
         // Built as a Performance edit is (PerformanceEditBuffer::takeDueDump): each Slot playing a
         // Program carries its Edit Buffer; a Kit Slot keeps the bytes read (its Kit reference).
-        auto sent = *performance;
+        auto sent = *performanceBuffer->performance();
         for (auto slot : kAllSlots) {
             const auto& state = slots[slotIndex(slot)];
             if (state.content == SlotContent::Program && state.program)
                 sent.setProgram(slot, *state.program);
         }
         recall->dumps.push_back(performanceEditBufferDump(*foundGlobalChannel, sent.bytes()));
+        recall->sendsPerformance = true;
     } else {
         recall->readPerformanceAfter = true;
     }
@@ -125,8 +131,7 @@ void Engine::startProjectRecall(TimeMs timeMs)
     for (auto slot : kAllSlots) {
         const auto& state = slots[slotIndex(slot)];
         const bool playsProgram = state.content == SlotContent::Program && state.program;
-        if (playsProgram
-            && (hardware::kProjectRecallSendsSlotDumpsAfterPerformance || ! performanceBuffer->performance()))
+        if (playsProgram && (hardware::kProjectRecallSendsSlotDumpsAfterPerformance || ! sendPerformance))
             recall->dumps.push_back(programEditBufferDump(*foundGlobalChannel, slot, state.program->bytes()));
         // A Kit (kept as a reference only) or an unknown Slot holds nothing of the project to lose.
         recall->readSlotsAfter[slotIndex(slot)] = ! playsProgram;
@@ -155,6 +160,11 @@ void Engine::sendDueProjectRecall(TimeMs timeMs)
         return;
 
     connection->sendWithoutReply(recall->dumps.front(), timeMs);
+    if (recall->sendsPerformance) {
+        // The first dump is the Performance.
+        performanceDumpSent = true;
+        recall->sendsPerformance = false;
+    }
     recall->dumps.pop_front();
     if (recall->dumps.empty())
         readWhatProjectRecallLacks(timeMs);

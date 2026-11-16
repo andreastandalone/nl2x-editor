@@ -86,10 +86,10 @@ std::size_t countIf(const std::vector<Bytes>& messages, auto predicate)
     return static_cast<std::size_t>(std::count_if(messages.begin(), messages.end(), predicate));
 }
 
-// The synth's Edit Buffers equal the project's: every Slot playing a Program, and the Performance
-// Edit Buffer's settings (Split Point stands for them; the synth stores them but does not apply
-// them, HardwareAssumptions.h).
-void requireSynthHoldsProject(const EditorAndSynth& rig, const Bytes& project)
+// The synth's Edit Buffers equal the project's: every Slot playing a Program, and, when the
+// Performance was sent (only while the synth applies Performance dumps), the Performance Edit
+// Buffer's settings (Split Point stands for them).
+void requireSynthHoldsProject(const EditorAndSynth& rig, const Bytes& project, bool performanceSent = false)
 {
     const auto sounds = decodeProjectState(project);
     REQUIRE(sounds);
@@ -99,7 +99,21 @@ void requireSynthHoldsProject(const EditorAndSynth& rig, const Bytes& project)
             CHECK(rig.synth.editBuffer(slot) == saved.program->bytes());
     }
     REQUIRE(sounds->performance);
-    CHECK(rig.synth.performanceEditBuffer()[kSplitPointOffset] == 72);
+    if (performanceSent)
+        CHECK(rig.synth.performanceEditBuffer()[kSplitPointOffset] == 72);
+    else
+        CHECK(rig.synth.receivedPerformanceDumpCount() == 0);
+}
+
+// The engine's model holds the project's Slots; its Performance is the synth's, read after the
+// recall, unless the project's was sent.
+void requireModelHoldsProjectSlots(const EditorAndSynth& rig, const Bytes& project)
+{
+    const auto model = decodeProjectState(rig.engine.projectState());
+    REQUIRE(model);
+    CHECK(model->slots == decodeProjectState(project)->slots);
+    REQUIRE(rig.engine.performance());
+    CHECK(rig.engine.performance()->bytes() == rig.synth.performanceEditBuffer());
 }
 
 } // namespace
@@ -154,27 +168,50 @@ TEST_CASE("Loading a project while connected sends it to the Edit Buffers only")
     const std::vector<SimulatedNordLead2X::ReceivedDump> dumps(
         rig.synth.receivedDumps().begin() + static_cast<std::ptrdiff_t>(dumpsBefore), rig.synth.receivedDumps().end());
     CHECK(rig.synth.receivedDumpCount(DumpDestination::Bank) == 0);
-    // The Performance first, then one Program dump per Slot.
-    REQUIRE(dumps.size() == 5);
-    CHECK(dumps[0].kind == SysExKind::PerformanceDump);
-    CHECK(dumps[0].type == hardware::kPerformanceEditBufferDumpType);
-    for (std::size_t i = 1; i < dumps.size(); ++i) {
+    // One Program dump per Slot, and no Performance: the synth would keep it unapplied and report
+    // it to type-40 reads instead of the lit Slot and its Bank.
+    REQUIRE(dumps.size() == 4);
+    for (std::size_t i = 0; i < dumps.size(); ++i) {
         CHECK(dumps[i].kind == SysExKind::ProgramDump);
         CHECK(dumps[i].destination == DumpDestination::EditBuffer);
-        CHECK(dumps[i].spec == i - 1);
+        CHECK(dumps[i].spec == i);
     }
     requireSynthHoldsProject(rig, project);
+    CHECK(rig.engine.performanceEditBufferReadTrusted());
 
     const auto sent = sentSince(rig, sentBefore);
     // No CC (the DAW parameters' restored values never reach the synth), and nothing read back
-    // over the project's sounds.
+    // over the project's sounds; the synth's own Performance is read once.
     CHECK(countIf(sent, isControlChange) == 0);
-    CHECK(countIf(sent, isPerformanceRequest) == 0);
+    CHECK(countIf(sent, isPerformanceRequest) == 1);
     for (auto slot : kAllSlots)
         CHECK(countIf(sent, [slot](const Bytes& m) { return isSlotRequest(m, slot); }) == 0);
-    // The model is the project's state.
-    CHECK(rig.engine.projectState() == project);
+    requireModelHoldsProjectSlots(rig, project);
     CHECK(rig.engine.performanceStatus() == PerformanceStatus::Read);
+}
+
+TEST_CASE("While the synth applies Performance dumps (#31), project recall sends the Performance first")
+{
+    const auto project = savedProject();
+    EditorAndSynth rig(nl2x::test::performanceEditsApplied());
+    rig.connect();
+    const auto sentBefore = messagesSent(rig);
+    const auto dumpsBefore = rig.synth.receivedDumps().size();
+
+    CHECK(rig.engine.loadProjectState(project, true, rig.now) == ProjectLoadResult::Sending);
+    rig.runFor(kRecallTimeMs);
+
+    const std::vector<SimulatedNordLead2X::ReceivedDump> dumps(
+        rig.synth.receivedDumps().begin() + static_cast<std::ptrdiff_t>(dumpsBefore), rig.synth.receivedDumps().end());
+    REQUIRE(dumps.size() == 5);
+    CHECK(dumps[0].kind == SysExKind::PerformanceDump);
+    CHECK(dumps[0].type == hardware::kPerformanceEditBufferDumpType);
+    for (std::size_t i = 1; i < dumps.size(); ++i)
+        CHECK(dumps[i].spec == i - 1);
+    requireSynthHoldsProject(rig, project, true);
+    CHECK_FALSE(rig.engine.performanceEditBufferReadTrusted());
+    CHECK(countIf(sentSince(rig, sentBefore), isPerformanceRequest) == 0);
+    CHECK(rig.engine.projectState() == project);
 }
 
 TEST_CASE("Project dumps are paced like every other dump")
@@ -187,7 +224,7 @@ TEST_CASE("Project dumps are paced like every other dump")
     rig.runFor(kRecallTimeMs);
     const std::vector<TimeMs> times(rig.sendTimes.begin() + static_cast<std::ptrdiff_t>(timesBefore),
                                     rig.sendTimes.end());
-    REQUIRE(times.size() == 5);
+    REQUIRE(times.size() == 5); // four Program dumps, then the Performance request
     for (std::size_t i = 1; i < times.size(); ++i)
         CHECK(times[i] - times[i - 1] >= hardware::kRequestSpacingMs);
 }
@@ -209,17 +246,18 @@ TEST_CASE("A project loaded before connecting is sent instead of reading the Slo
     CHECK(rig.engine.globalChannel() == GlobalChannel { 6 });
     CHECK(rig.engine.connectionStatus() == ConnectionStatus::Connected);
     CHECK(rig.synth.receivedDumpCount(DumpDestination::Bank) == 0);
-    CHECK(rig.synth.receivedDumpCount(DumpDestination::EditBuffer) == 5);
+    CHECK(rig.synth.receivedDumpCount(DumpDestination::EditBuffer) == 4);
     requireSynthHoldsProject(rig, project);
 
     const auto& sent = rig.toSynth.messages();
-    // Only the probe asked for a Slot (A, on each candidate channel); B–D and the Performance
-    // were never read, and Slot A's answer did not replace the project's Slot A.
+    // Only the probe asked for a Slot (A, on each candidate channel); B–D were never read, and
+    // Slot A's answer did not replace the project's Slot A. The Performance is read once the
+    // Program dumps are out.
     for (auto slot : { Slot::B, Slot::C, Slot::D })
         CHECK(countIf(sent, [slot](const Bytes& m) { return isSlotRequest(m, slot); }) == 0);
-    CHECK(countIf(sent, isPerformanceRequest) == 0);
+    CHECK(countIf(sent, isPerformanceRequest) == 1);
     CHECK(countIf(sent, isControlChange) == 0);
-    CHECK(rig.engine.projectState() == project);
+    requireModelHoldsProjectSlots(rig, project);
 }
 
 TEST_CASE("A project whose recall was cut short by a new connection is sent again")
@@ -235,7 +273,7 @@ TEST_CASE("A project whose recall was cut short by a new connection is sent agai
 
     CHECK(rig.synth.receivedDumpCount(DumpDestination::Bank) == 0);
     requireSynthHoldsProject(rig, project);
-    CHECK(rig.engine.projectState() == project);
+    requireModelHoldsProjectSlots(rig, project);
 }
 
 TEST_CASE("Kit Slots are not sent and are read once the project's sounds are out")
@@ -385,7 +423,7 @@ TEST_CASE("Loading a project empties the undo history and is not itself undoable
     rig.engine.undo(rig.now);
     rig.runFor(500);
     CHECK(messagesSent(rig) == sentBefore);
-    CHECK(rig.engine.projectState() == project);
+    requireModelHoldsProjectSlots(rig, project);
 }
 
 TEST_CASE("A project loaded while the memory writer is busy is sent once it is idle")
@@ -411,8 +449,8 @@ TEST_CASE("A project loaded while the memory writer is busy is sent once it is i
 
     rig.engine.memoryWriter().cancel();
     rig.runFor(kRecallTimeMs);
-    CHECK(rig.synth.receivedDumps().size() == dumpsBefore + 5);
+    CHECK(rig.synth.receivedDumps().size() == dumpsBefore + 4);
     CHECK(rig.synth.receivedDumpCount(DumpDestination::Bank) == 0);
     requireSynthHoldsProject(rig, project);
-    CHECK(rig.engine.projectState() == project);
+    requireModelHoldsProjectSlots(rig, project);
 }

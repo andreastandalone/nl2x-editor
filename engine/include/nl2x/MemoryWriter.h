@@ -12,16 +12,29 @@
 // (hardware::kBankReadingVerified, the lock), no backup can be made and every plan needs the
 // user's separate "no backup possible" consent.
 //
-// The synth stores a received Bank dump in the Bank selected on its panel, whatever the dump's
-// type byte says [OFF-2X p.78]. The writer does not select the Bank itself (no Program Change is
-// sent, which would replace a Slot's sound and depends on the P setting), and it cannot read which
-// Bank is selected (hardware::kPerformanceNamesSelectedBank): the confirmation tells the user, as
-// numbered steps placed first, to select it on the synth. When Bank reading is verified, the
-// written locations are read back from the target Bank afterwards; if they do not hold what was
-// sent, the task fails and says the synth probably stored them in another Bank.
+// The synth stores a received Bank dump in the Bank of the lit Slot (the active Slot, whose button
+// is lit on the panel), whatever the dump's type byte says (hardware::kFirstProgramBankDumpType).
+// So before the plan is offered, and again after Overwrite, the writer reads the Performance Edit
+// Buffer (type 40), which names the lit Slot and each Slot's Bank and Program
+// (hardware::kPerformanceNamesSelectedBank). Then:
+// - the lit Slot is on the target Bank already: it writes;
+// - otherwise, when it can (BankSetting::SwitchedByEditor): it reads the lit Slot's Edit Buffer,
+//   sends Bank Select and Program Change on the lit Slot's channel so that the lit Slot shows the
+//   target Bank, checks that with another type-40 read, writes, then selects the lit Slot's own
+//   Bank and Program again and sends its Edit Buffer back (unsaved edits included);
+// - when it cannot (the lit Slot's channel is off, shared or the Global Channel, the lit Slot plays
+//   a Percussion Kit, or the type-40 read is not to be trusted because the editor sent the synth a
+//   Performance dump), the confirmation asks the user, as numbered steps placed first, to set the
+//   lit Slot to the target Bank on the synth (BankSetting::ByHand). After Overwrite the writer
+//   then checks the lit Slot's Bank when it can, and writes nothing if it is not the target Bank.
+// When Bank reading is verified, the written locations are read back from the target Bank
+// afterwards; if they do not hold what was sent, the task fails and says the synth probably stored
+// them in another Bank.
 
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Library.h"
+#include "nl2x/MidiOutput.h"
+#include "nl2x/Performance.h"
 #include "nl2x/Program.h"
 #include "nl2x/Slot.h"
 #include "nl2x/TimeMs.h"
@@ -88,16 +101,35 @@ enum class MemoryStage : std::uint8_t {
     Idle,
     // Reading the target Bank from the synth into the backup file; nothing written yet.
     ReadingBackup,
+    // Reading the Performance Edit Buffer to learn which Slot is lit and which Bank it is on: before
+    // the plan is offered, and again after Overwrite.
+    ReadingLitSlot,
     // status().plan names what will be overwritten; waiting for confirm() or cancel().
     AwaitingConfirmation,
+    // Saving the lit Slot's Edit Buffer, then switching the lit Slot to the target Bank (Bank Select
+    // and Program Change on its channel) and checking that it shows it.
+    SwitchingBank,
     // Sending Bank dumps, kBankWriteSpacingMs apart.
     Writing,
-    // Reading the written locations back (only when Bank reading is verified).
+    // Putting the lit Slot back: its own Bank and Program, then its saved Edit Buffer.
+    RestoringSlot,
+    // Reading the written locations back (only when Bank reading is verified), then, after a switch,
+    // the lit Slot's Edit Buffer and Bank, to check that it is back as it was.
     Verifying,
     // ReadBank, ReadBanks: requesting the Bank's Programs one by one.
     ReadingBank,
     Finished,
     Failed,
+};
+
+// How the target Bank comes to be the lit Slot's Bank, where the synth stores what it receives.
+enum class BankSetting : std::uint8_t {
+    // The lit Slot is on the target Bank already.
+    AlreadyThere,
+    // The editor switches the lit Slot to the target Bank for the write and puts it back afterwards.
+    SwitchedByEditor,
+    // The user sets the lit Slot to the target Bank on the synth before confirming.
+    ByHand,
 };
 
 // What a confirmation is asked for. The GUI shows `question`, then `panelSteps` first and
@@ -119,8 +151,9 @@ struct MemoryWritePlan {
     bool needsNoBackupConsent = false;
     // "Overwrite Program 17 in Bank 2 on the synth?"
     std::string question;
-    // What to do on the synth's panel before confirming, as numbered lines: the synth stores what
-    // it receives in the Bank selected there, which the editor can neither set nor read.
+    BankSetting bankSetting = BankSetting::ByHand;
+    // What happens on the synth, shown first: with BankSetting::ByHand, what to do on its panel
+    // before confirming, as numbered lines; otherwise what the editor will do with the lit Slot.
     std::string panelSteps;
     std::string details;
     std::string noBackupWarning;
@@ -183,8 +216,9 @@ class MemoryWriter {
 public:
     // How Banks are read comes from `switches` (bankReadingVerified, bankRequestTypeOfSysExBank1):
     // the constants of HardwareAssumptions.h in the shell, other values in tests of the lock.
-    MemoryWriter(const Engine& engine, SynthConnection& connection, const hardware::Switches& switches,
-                 std::function<void()> changed);
+    // Bank Select and Program Change for the lit Slot go straight to `output`.
+    MemoryWriter(const Engine& engine, SynthConnection& connection, MidiOutput& output,
+                 const hardware::Switches& switches, std::function<void()> changed);
 
     bool bankReadingVerified() const { return reading.verified; }
 
@@ -225,8 +259,9 @@ public:
     // A task is under way or waiting for its confirmation.
     bool busy() const;
     // From confirmation to the end of the read-back: the Engine then sends no Edit Buffer dump
-    // (Morph Program dumps, Auditions, Performance edits) until the write is over, so that only the
-    // write and its own requests reach the synth.
+    // (Morph Program dumps, Auditions, Performance edits, project recall) until the write is over,
+    // so that only the write and its own requests reach the synth, and the lit Slot's Edit Buffer
+    // is not changed while it is switched to another Bank.
     bool holdsEditBufferDumps() const;
 
     // Called by the Engine.
@@ -234,9 +269,10 @@ public:
     // The connection was reset (Engine::connect): whatever was queued is gone.
     void abort(const std::string& reason);
     // A Bank Select or Program Change arrived from the synth: someone selected a sound on it, so the
-    // selected Bank may no longer be the one the user selected for the write. Stops a write under
-    // way (the Programs not sent yet stay as they were); the plan of a write not confirmed yet is
-    // unaffected, since the user selects the Bank before confirming.
+    // lit Slot's Bank may no longer be the target Bank. Stops a write under way (the Programs not
+    // sent yet stay as they were; a switched lit Slot is not put back, so as not to undo what the
+    // user selected); the plan of a write not confirmed yet is unaffected, since the lit Slot is
+    // read again after Overwrite.
     void selectionChangedOnSynth();
 
 private:
@@ -255,11 +291,47 @@ private:
     void nextBankRead(TimeMs timeMs);
     void backupComplete(TimeMs timeMs);
     void readComplete();
+
+    // The lit Slot as a type-40 read names it: which Slot, and the Bank (0–9) and Program number
+    // (0–98 = Program 1–99, 99–108 = Kit P0–P9) it was loaded from.
+    struct LitSlot {
+        Slot slot = Slot::A;
+        int bank = 0;
+        int programNumber = 0;
+    };
+    // How the target Bank can be set, as decided from a type-40 read.
+    struct BankDecision {
+        BankSetting setting = BankSetting::ByHand;
+        // Empty when the read is missing or not to be trusted.
+        std::optional<LitSlot> lit;
+        // SwitchedByEditor: the lit Slot's channel.
+        MidiChannel channel = 0;
+        // ByHand: why the editor cannot switch the lit Slot itself.
+        std::string reason;
+        // The read was checked against the lit Slot's Edit Buffer (not a Performance the synth kept).
+        bool checked = false;
+    };
+    using PerformanceRead = std::function<void(const std::optional<Performance>&, TimeMs)>;
+    void readPerformance(TimeMs timeMs, PerformanceRead then);
+    void readLitSlot(TimeMs timeMs);
+    BankDecision decide(const std::optional<Performance>& performance) const;
+    void litSlotRead(const std::optional<Performance>& performance, TimeMs timeMs);
     void offerPlan();
     std::string panelStepsText() const;
+    void startSwitching(TimeMs timeMs);
+    void sendSelection(int bank, int programNumber);
+    void switchChecked(const std::optional<Performance>& performance, TimeMs timeMs);
+    void startRestoring(std::optional<std::string> failure, TimeMs timeMs);
+    void stepDue(TimeMs timeMs);
     void startWriting(TimeMs timeMs);
     void writeDue(TimeMs timeMs);
+    void startVerifying(TimeMs timeMs);
     void verified(TimeMs timeMs);
+    void checkRestoredSlot(TimeMs timeMs);
+    void finishWrite(const std::string& slotNote);
+    std::string litSlotName() const;
+    std::string litSlotOriginText() const;
+    std::string notPutBackText() const;
     void finish(std::string message);
     void fail(std::string message);
     std::string locationsText() const;
@@ -294,10 +366,29 @@ private:
         std::vector<int> notStored;
         TimeMs nextWriteMs = 0;
         bool verifyStarted = false;
+        // Overwrite was clicked: from then on until the end, Edit Buffer dumps are held.
+        bool confirmed = false;
+        // The latest decision about the target Bank (before the plan, then after Overwrite).
+        BankDecision decision;
+        // SwitchedByEditor: the lit Slot as it was, and its Edit Buffer, saved before the switch.
+        std::optional<LitSlot> lit;
+        MidiChannel litChannel = 0;
+        std::optional<Program> savedEditBuffer;
+        // Bank Select and Program Change went out to switch the lit Slot; and to put it back.
+        bool switched = false;
+        bool restored = false;
+        // What is still to be sent or read to switch or restore the lit Slot, and when.
+        enum class Step : std::uint8_t { None, SendSwitch, CheckSwitch, SendRestore, SendEditBuffer };
+        Step step = Step::None;
+        TimeMs stepDueMs = 0;
+        // Set when the task ends once the lit Slot is back: the failure message, or a cancellation.
+        std::optional<std::string> endAfterRestore;
+        bool cancelledAfterRestore = false;
     };
 
     const Engine& engine;
     SynthConnection& connection;
+    MidiOutput& output;
     struct BankReading {
         bool verified;
         std::uint8_t requestTypeOfSysExBank1;

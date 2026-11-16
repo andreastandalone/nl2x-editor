@@ -70,9 +70,9 @@ std::vector<std::uint8_t> programEditBufferDump(GlobalChannel globalChannel, Slo
                                                 std::span<const std::int8_t> program);
 std::vector<std::uint8_t> performanceEditBufferDump(GlobalChannel globalChannel,
                                                     std::span<const std::int8_t> performance);
-// Stored by the synth at `location` in the Bank selected on the synth [OFF-2X p.78]; `type` must
-// be a valid Bank dump type, and the editor makes it name that same Bank (whether the synth
-// heeds the type byte is open, HardwareAssumptions.h).
+// Stored by the synth at `location` in the Bank of the lit (active) Slot; `type` must be a valid
+// Bank dump type, and the editor makes it name the target Bank, although the synth ignores it
+// (kFirstProgramBankDumpType in HardwareAssumptions.h).
 std::vector<std::uint8_t> bankProgramDump(GlobalChannel globalChannel, std::uint8_t type, std::uint8_t location,
                                           std::span<const std::int8_t> program);
 

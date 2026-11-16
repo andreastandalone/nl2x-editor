@@ -97,6 +97,13 @@ public:
     // Whether Performance edits are accepted at all: hardware::kPerformanceEditBufferDumpIsApplied
     // (#31). The GUI shows the Performance settings read-only while it is false.
     bool performanceSettingsEditable() const { return switches.performanceEditBufferDumpIsApplied; }
+    // Whether a type-40 read of the Performance Edit Buffer tells what the synth plays: which Slot
+    // is lit, and each Slot's Bank and Program (hardware::kPerformanceNamesSelectedBank). False once
+    // this engine has sent the synth a Performance dump (type 30: a Performance Audition, or a
+    // Performance edit when the synth applies them), because the synth keeps such a dump and
+    // returns it on type 40 [HW 2026-11-04]; whether a later selection on the panel replaces it is
+    // not known, so it stays false while the engine lives.
+    bool performanceEditBufferReadTrusted() const { return ! performanceDumpSent; }
 
     // Pins a Slot's channel regardless of the Performance (a service setting the shell keeps);
     // empty releases it.
@@ -200,14 +207,17 @@ public:
     // (ProjectState.h).
     std::vector<std::uint8_t> projectState() const;
     // Project load (or a DAW preset): the blob's sounds become the Synth model's. With
-    // `sendToSynth` they go to the synth's Edit Buffers only, never to a Bank: one Performance dump
-    // (type 30, if the project has a Performance) then one Program dump (type 0) per Slot playing
-    // a Program, paced like every other dump; Kit Slots are not sent (a Performance holds Kits by
-    // reference only). Connected: at once, dropping reads still pending. Not connected: held, and
-    // sent right after the Global Channel is found instead of reading the Slots. While the memory
-    // writer is busy: held until it is idle. The undo history of every Edit Buffer is forgotten;
-    // the load itself is never recorded as an edit. Afterwards only
-    // what the project does not hold (Kit or unknown Slots, a missing Performance) is read. Without
+    // `sendToSynth` they go to the synth's Edit Buffers only, never to a Bank: one Program dump
+    // (type 0) per Slot playing a Program, paced like every other dump; Kit Slots are not sent (a
+    // Performance holds Kits by reference only). The project's Performance is sent (type 30, first)
+    // only when the synth applies such a dump (hardware::kPerformanceEditBufferDumpIsApplied);
+    // otherwise it is not sent, since the synth would keep it unapplied and return it to every
+    // type-40 read (performanceEditBufferReadTrusted), and the synth's own Performance is read once
+    // the Program dumps are out. Connected: at once, dropping reads still pending. Not connected:
+    // held, and sent right after the Global Channel is found instead of reading the Slots. While
+    // the memory writer is busy: held until it is idle. The undo history of every Edit Buffer is
+    // forgotten; the load itself is never recorded as an edit. Afterwards only what the project
+    // does not hold or did not send (Kit or unknown Slots, the Performance) is read. Without
     // `sendToSynth` nothing is sent and the synth is read (at once when connected), so that its
     // sounds replace the project's. A rejected blob changes and sends nothing. Never sends a CC.
     ProjectLoadResult loadProjectState(std::span<const std::uint8_t> state, bool sendToSynth, TimeMs timeMs);
@@ -283,6 +293,8 @@ private:
     std::optional<GlobalChannel> foundGlobalChannel;
     std::optional<GlobalChannel> manualChannel;
     bool suspended = false;
+    // A Performance dump (type 30) went to the synth (performanceEditBufferReadTrusted).
+    bool performanceDumpSent = false;
     ConnectionStatus status = ConnectionStatus::NotConnected;
     // Slot reads queued on the known Global Channel and not yet finished.
     int pendingSlotReads = 0;

@@ -1,11 +1,14 @@
 #include "nl2x/MemoryWriter.h"
 
+#include "PerformanceEditBuffer.h"
 #include "SynthConnection.h"
 
 #include "nl2x/Engine.h"
+#include "nl2x/SlotChannels.h"
 #include "nl2x/SysEx.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <numeric>
 #include <utility>
@@ -17,6 +20,8 @@ namespace {
 
 constexpr SynthConnection::Owner kMemoryWriterOwner = 2;
 constexpr int kProgramsPerBank = hardware::kProgramsPerRamBank;
+constexpr std::uint8_t kControlChange = 0xB0;
+constexpr std::uint8_t kProgramChange = 0xC0;
 
 // A reply to a Bank location request: a Program dump, matched by size and never by header
 // (research §3), whose data decodes without loss.
@@ -25,9 +30,22 @@ bool isProgramDumpReply(std::span<const std::uint8_t> message)
     return message.size() == kProgramDumpSize && parseProgramDump(message).has_value();
 }
 
+// A reply to a Slot Edit Buffer request: a Program or a Kit, matched by size (HardwareAssumptions.h).
+bool isSlotEditBufferReply(std::span<const std::uint8_t> message)
+{
+    if (hardware::classifySlotEditBufferReply(message.size()) == hardware::SlotEditBufferReply::NotAReply)
+        return false;
+    return parseSysEx(message).values.has_value();
+}
+
 std::string bankText(int bank)
 {
     return "Bank " + std::to_string(bank);
+}
+
+std::string slotText(Slot slot)
+{
+    return std::string("Slot ") + slotLetter(slot);
 }
 
 std::string twoDigits(int value)
@@ -79,6 +97,17 @@ std::string listed(const std::vector<int>& numbers)
     return list;
 }
 
+// "Slot C", "Slots C and D"
+std::string slotsText(const std::vector<Slot>& slots)
+{
+    std::string text = slots.size() == 1 ? "Slot " : "Slots ";
+    for (std::size_t i = 0; i < slots.size(); ++i)
+        text += std::string(i == 0 ? "" : i + 1 == slots.size() ? " and " : ", ") + slotLetter(slots[i]);
+    return text;
+}
+
+constexpr const char* kCannotSwitch = "The editor cannot do this itself: ";
+
 } // namespace
 
 std::string memoryRefusalText(MemoryRefusal refusal)
@@ -121,10 +150,11 @@ std::string memoryRefusalText(MemoryRefusal refusal)
     return {};
 }
 
-MemoryWriter::MemoryWriter(const Engine& owner, SynthConnection& synthConnection, const hardware::Switches& switches,
-                           std::function<void()> changedCallback)
+MemoryWriter::MemoryWriter(const Engine& owner, SynthConnection& synthConnection, MidiOutput& midiOutput,
+                           const hardware::Switches& switches, std::function<void()> changedCallback)
     : engine(owner),
       connection(synthConnection),
+      output(midiOutput),
       reading { switches.bankReadingVerified, switches.bankRequestTypeOfSysExBank1 },
       onChange(std::move(changedCallback))
 {
@@ -144,7 +174,7 @@ bool MemoryWriter::busy() const
 
 bool MemoryWriter::holdsEditBufferDumps() const
 {
-    return current.stage == MemoryStage::Writing || current.stage == MemoryStage::Verifying;
+    return task && task->confirmed && busy();
 }
 
 MemoryRefusal MemoryWriter::startRefusal(int bank) const
@@ -244,7 +274,7 @@ MemoryRefusal MemoryWriter::startWrite(MemoryOperation operation, int bank, std:
         changed();
         readLocation(0, timeMs);
     } else {
-        offerPlan();
+        readLitSlot(timeMs);
     }
     return MemoryRefusal::None;
 }
@@ -410,7 +440,7 @@ void MemoryWriter::nextBankRead(TimeMs timeMs)
            + " from the synth.");
 }
 
-void MemoryWriter::backupComplete(TimeMs)
+void MemoryWriter::backupComplete(TimeMs timeMs)
 {
     // Written now, before any confirmation is asked for, so it exists whatever happens next.
     const auto path = uniqueLibraryPath(task->backupFolder, backupName(task->bank, task->time));
@@ -419,7 +449,7 @@ void MemoryWriter::backupComplete(TimeMs)
         return;
     }
     current.backupFile = path;
-    offerPlan();
+    readLitSlot(timeMs);
 }
 
 void MemoryWriter::readComplete()
@@ -459,6 +489,170 @@ std::string MemoryWriter::locationsText() const
     return "Programs " + listed(programs) + in;
 }
 
+// ---------------------------------------------------------------------------------------------
+// The lit Slot: which Bank the synth will store into, and switching it for the write.
+
+void MemoryWriter::readPerformance(TimeMs timeMs, PerformanceRead then)
+{
+    const auto channel = engine.globalChannel();
+    if (! channel) {
+        fail("The connection to the synth was lost." + notPutBackText());
+        return;
+    }
+    connection.enqueue(
+        performanceEditBufferRequest(*channel), PerformanceEditBuffer::isReply,
+        [this, then = std::move(then)](auto reply, TimeMs doneMs) {
+            if (! task)
+                return;
+            std::optional<Performance> performance;
+            if (reply)
+                if (const auto dump = parsePerformanceDump(*reply))
+                    performance = dump->performance;
+            then(performance, doneMs);
+        },
+        timeMs, kMemoryWriterOwner);
+}
+
+void MemoryWriter::readLitSlot(TimeMs timeMs)
+{
+    current.stage = MemoryStage::ReadingLitSlot;
+    current.done = 0;
+    current.total = 0;
+    changed();
+    readPerformance(timeMs, [this](const auto& performance, TimeMs doneMs) { litSlotRead(performance, doneMs); });
+}
+
+MemoryWriter::BankDecision MemoryWriter::decide(const std::optional<Performance>& performance) const
+{
+    BankDecision decision;
+    const auto byHand = [&decision](std::string reason) {
+        decision.setting = BankSetting::ByHand;
+        decision.reason = kCannotSwitch + std::move(reason);
+        return decision;
+    };
+    if (! engine.performanceEditBufferReadTrusted())
+        return byHand("it sent the synth a Performance (a Performance Audition), and the synth reports that "
+                      "Performance instead of telling which Bank the lit Slot is on.");
+    if (! performance)
+        return byHand("the synth did not tell which Bank the lit Slot is on.");
+
+    const auto selected = performance->setting(PerformanceSetting::SelectedSlot);
+    if (selected < 0 || selected >= static_cast<int>(kAllSlots.size()))
+        return byHand("the synth did not tell which Slot is lit.");
+    const auto slot = kAllSlots[static_cast<std::size_t>(selected)];
+    const LitSlot lit { slot, performance->setting(PerformanceSetting::ProgramBank, slot),
+                        performance->setting(PerformanceSetting::ProgramNumber, slot) };
+    const int lastNumber = hardware::kProgramChangeOfPercussionKitP0 + hardware::kPercussionKitsPerBank - 1;
+    if (lit.bank < 0 || lit.bank >= hardware::kProgramBankCount || lit.programNumber < 0
+        || lit.programNumber > lastNumber)
+        return byHand("the synth names a Bank or Program for the lit Slot that the editor does not know.");
+    decision.lit = lit;
+
+    const auto name = "the lit Slot, " + slotText(slot) + ", ";
+    if (lit.programNumber >= hardware::kProgramChangeOfPercussionKitP0
+        || engine.slotState(slot).content == SlotContent::PercussionKit)
+        return byHand(name + "plays a Percussion Kit, which the editor cannot put back exactly afterwards.");
+    if (lit.bank == task->bank) {
+        decision.setting = BankSetting::AlreadyThere;
+        return decision;
+    }
+
+    // The channel the lit Slot hears a Program Change on, and who else hears it there.
+    SlotChannelArray channels;
+    SlotLayerArray layer {};
+    for (auto each : kAllSlots) {
+        const auto index = slotIndex(each);
+        channels[index] = engine.slotChannelOverride(each)
+                              ? engine.slotChannelOverride(each)
+                              : hardware::slotChannelFromPerformance(
+                                    performance->bytes()[performanceSettingOffset(PerformanceSetting::SlotChannel, each)]);
+        layer[index] = hardware::kProgramChangeReachesEverySlotReceivingOnItsChannel
+                       && performance->setting(PerformanceSetting::Layer, each) != 0;
+    }
+    const auto channel = channels[slotIndex(slot)];
+    if (! channel)
+        return byHand(name + "has its MIDI channel off.");
+    if (channel == engine.globalChannel())
+        return byHand(name + "is on MIDI channel " + std::to_string(*channel + 1)
+                      + ", the Global Channel, where a Program Change selects a Performance.");
+    std::vector<Slot> others;
+    for (auto reached : slotsReceivingOn(*channel, channels, layer))
+        if (reached != slot)
+            others.push_back(reached);
+    if (! others.empty())
+        return byHand("a Program Change on the lit Slot's MIDI channel (" + std::to_string(*channel + 1)
+                      + ") would also change " + slotsText(others) + ".");
+    decision.setting = BankSetting::SwitchedByEditor;
+    decision.channel = *channel;
+    return decision;
+}
+
+void MemoryWriter::litSlotRead(const std::optional<Performance>& performance, TimeMs timeMs)
+{
+    auto decision = decide(performance);
+    const auto decided = [this](BankDecision made, TimeMs doneMs) {
+        task->decision = std::move(made);
+        if (! task->confirmed) {
+            offerPlan();
+            return;
+        }
+        const auto& now = task->decision;
+        switch (now.setting) {
+        case BankSetting::AlreadyThere:
+            startWriting(doneMs);
+            return;
+        case BankSetting::SwitchedByEditor:
+            startSwitching(doneMs);
+            return;
+        case BankSetting::ByHand:
+            // A read checked against the lit Slot says the user did not set the target Bank: nothing
+            // is written. Without such a read the write goes ahead and the read-back tells.
+            if (now.checked && now.lit && now.lit->bank != task->bank) {
+                fail("Nothing was written: the lit Slot, " + slotText(now.lit->slot) + ", is on "
+                     + bankText(now.lit->bank) + ", not " + bankText(task->bank) + ". On the synth, set the lit Slot to "
+                     + bankText(task->bank) + ", then try again.");
+                return;
+            }
+            startWriting(doneMs);
+            return;
+        }
+    };
+
+    // A Performance the synth kept from an earlier dump (kPerformanceEditBufferDumpIsApplied) would
+    // name a Slot and Bank of its own: the Performance's copy of the lit Slot's Program must equal
+    // the lit Slot's Edit Buffer [HW 2026-11-16: they are equal when nothing was sent].
+    const bool checkable = decision.lit && decision.lit->programNumber < hardware::kProgramChangeOfPercussionKitP0
+                           && engine.slotState(decision.lit->slot).content != SlotContent::PercussionKit;
+    const auto channel = engine.globalChannel();
+    if (! checkable || ! channel) {
+        decided(std::move(decision), timeMs);
+        return;
+    }
+    const auto slot = decision.lit->slot;
+    const auto copy = performance->program(slot);
+    connection.enqueue(
+        slotEditBufferRequest(*channel, slot), isSlotEditBufferReply,
+        [this, decision, copy, decided](auto reply, TimeMs doneMs) mutable {
+            if (! task)
+                return;
+            std::optional<Program> editBuffer;
+            if (reply)
+                if (const auto dump = parseProgramDump(*reply))
+                    editBuffer = dump->program;
+            if (editBuffer && *editBuffer == copy) {
+                decision.checked = true;
+                task->savedEditBuffer = editBuffer;
+            } else {
+                const auto slotName = slotText(decision.lit->slot);
+                decision = {};
+                decision.reason = std::string(kCannotSwitch) + "what the synth reports about the lit Slot does not "
+                                  "match " + slotName + "'s sound, so it may be out of date.";
+            }
+            decided(std::move(decision), doneMs);
+        },
+        timeMs, kMemoryWriterOwner);
+}
+
 void MemoryWriter::offerPlan()
 {
     MemoryWritePlan plan;
@@ -471,6 +665,7 @@ void MemoryWriter::offerPlan()
         plan.programs.push_back(location + 1);
     plan.backupFile = current.backupFile;
     plan.needsNoBackupConsent = ! current.backupFile;
+    plan.bankSetting = task->decision.setting;
 
     const auto bank = bankText(task->bank);
     const auto locations = locationsText();
@@ -480,9 +675,8 @@ void MemoryWriter::offerPlan()
     const auto count = task->locations.size();
     const auto spacing = ", one every " + std::to_string(hardware::kBankWriteSpacingMs) + " ms.";
     if (task->operation == MemoryOperation::StoreProgram) {
-        plan.details = (task->slot ? std::string("Slot ") + slotLetter(*task->slot) + "'s Program"
-                                   : inQuotes(task->sourceName))
-                       + " replaces " + locations + ".";
+        plan.details = (task->slot ? slotText(*task->slot) + "'s Program" : inQuotes(task->sourceName)) + " replaces "
+                       + locations + ".";
     } else if (task->operation == MemoryOperation::SendPrograms) {
         plan.details = (count == 1 ? std::string("1 Program") : std::to_string(count) + " Programs") + " of "
                        + task->sourceName + (count == 1 ? " replaces " : " replace ") + locations
@@ -495,10 +689,8 @@ void MemoryWriter::offerPlan()
             plan.details += " Its " + std::to_string(task->skippedKits)
                             + " Percussion Kits are not sent: storing Kits in a Bank is not supported yet.";
     }
-    plan.details += "\n\nThe synth stores what it receives in the Bank selected on its panel, and the editor "
-                    "cannot see which Bank that is.";
     if (reading.verified)
-        plan.details += " Afterwards it reads " + locations + " back to check that the write arrived there.";
+        plan.details += " Afterwards the editor reads " + locations + " back to check that the write arrived there.";
     if (current.backupFile)
         plan.details += "\n\nA backup of " + bank + " was saved to " + current.backupFile->string() + ".";
     else
@@ -520,18 +712,34 @@ void MemoryWriter::offerPlan()
 
 std::string MemoryWriter::panelStepsText() const
 {
+    const auto& decision = task->decision;
+    const auto bank = bankText(task->bank);
+    constexpr const char* kHandsOff = "Do not play or touch the synth until the write is done.";
+    if (decision.setting == BankSetting::AlreadyThere)
+        return "The lit Slot, " + slotText(decision.lit->slot) + ", is on " + bank + " already, where the synth "
+               "stores what it receives. " + kHandsOff;
+    if (decision.setting == BankSetting::SwitchedByEditor) {
+        const auto& lit = *decision.lit;
+        return "The synth stores what it receives in the Bank of the lit Slot, " + slotText(lit.slot) + ", which is on "
+               + bankText(lit.bank) + ". The editor will switch the lit Slot to " + bank
+               + " for a moment, write, and then put it back on " + bankText(lit.bank) + " Program "
+               + std::to_string(lit.programNumber + 1) + ", with its unsaved edits. " + kHandsOff;
+    }
+
     std::vector<std::string> steps;
     // Selecting a Program on the Slot being stored would replace the sound about to be stored.
-    if (task->slot) {
+    if (task->slot && (! decision.lit || decision.lit->slot == *task->slot)) {
         const auto letter = std::string(1, slotLetter(*task->slot));
-        steps.push_back("Press a Slot other than " + letter + " (Slot " + letter + " holds the sound being stored).");
+        steps.push_back("Press a Slot button other than " + letter + ", so that another Slot is lit (Slot " + letter
+                        + " holds the sound being stored).");
     }
-    steps.push_back("Select " + bankText(task->bank) + " and any Program in it.");
-    steps.push_back("Then click Overwrite, and do not change the Bank or Program on the synth until the write is "
-                    "done.");
-    std::string text = "On the synth:";
+    steps.push_back("Set the lit Slot to " + bank + ": select any Program in " + bank + ".");
+    steps.push_back(std::string("Then click Overwrite. ") + kHandsOff);
+    std::string text = "The synth stores what it receives in the Bank of the lit Slot. On the synth:";
     for (std::size_t i = 0; i < steps.size(); ++i)
         text += "\n" + std::to_string(i + 1) + ". " + steps[i];
+    if (! decision.reason.empty())
+        text += "\n\n" + decision.reason;
     return text;
 }
 
@@ -547,14 +755,153 @@ MemoryConfirmResult MemoryWriter::confirm(std::uint64_t token, NoBackupConsent c
         // The Program as the Slot holds it now, edits made while the question was open included.
         const auto& program = engine.slotState(*task->slot).program;
         if (! program) {
-            fail(std::string("Slot ") + slotLetter(*task->slot)
-                 + " no longer plays a Program. Nothing was written to the synth.");
+            fail(slotText(*task->slot) + " no longer plays a Program. Nothing was written to the synth.");
             return MemoryConfirmResult::Accepted;
         }
         task->programs = { *program };
     }
-    startWriting(timeMs);
+    task->confirmed = true;
+    // The lit Slot again: the user may have changed it, or set the Bank by hand, since the question.
+    task->savedEditBuffer.reset();
+    readLitSlot(timeMs);
     return MemoryConfirmResult::Accepted;
+}
+
+void MemoryWriter::startSwitching(TimeMs timeMs)
+{
+    task->lit = task->decision.lit;
+    task->litChannel = task->decision.channel;
+    current.stage = MemoryStage::SwitchingBank;
+    current.done = 0;
+    current.total = 0;
+    task->step = Task::Step::SendSwitch;
+    task->stepDueMs = timeMs;
+    changed();
+    stepDue(timeMs);
+}
+
+void MemoryWriter::sendSelection(int bank, int programNumber)
+{
+    // Bank Select first: it takes effect with the next Program Change (HardwareAssumptions.h).
+    const auto channel = task->litChannel;
+    const std::array<std::uint8_t, 3> bankSelect { static_cast<std::uint8_t>(kControlChange | channel),
+                                                   hardware::kBankSelectController,
+                                                   static_cast<std::uint8_t>(bank + hardware::kBankSelectOfProgramBank0) };
+    const std::array<std::uint8_t, 2> programChange {
+        static_cast<std::uint8_t>(kProgramChange | channel),
+        static_cast<std::uint8_t>(programNumber + hardware::kProgramChangeOfProgram1)
+    };
+    output.send(bankSelect);
+    output.send(programChange);
+}
+
+void MemoryWriter::stepDue(TimeMs timeMs)
+{
+    // Like every other message: not while another tool talks to the synth, nor while a reply is due.
+    if (task->step == Task::Step::None || timeMs < task->stepDueMs || engine.requestsSuspended()
+        || ! connection.isIdle(timeMs))
+        return;
+    const auto& lit = *task->lit;
+    switch (task->step) {
+    case Task::Step::None:
+        return;
+    case Task::Step::SendSwitch:
+        // Any Program of the target Bank will do: the first one written.
+        sendSelection(task->bank, task->locations.front());
+        task->switched = true;
+        task->step = Task::Step::CheckSwitch;
+        task->stepDueMs = timeMs + hardware::kSelectionSettleMs;
+        changed();
+        return;
+    case Task::Step::CheckSwitch:
+        task->step = Task::Step::None;
+        readPerformance(timeMs, [this](const auto& performance, TimeMs doneMs) { switchChecked(performance, doneMs); });
+        return;
+    case Task::Step::SendRestore:
+        sendSelection(lit.bank, lit.programNumber);
+        task->step = Task::Step::SendEditBuffer;
+        task->stepDueMs = timeMs + hardware::kSelectionSettleMs;
+        changed();
+        return;
+    case Task::Step::SendEditBuffer: {
+        const auto channel = engine.globalChannel();
+        if (! channel) {
+            fail("The connection to the synth was lost." + notPutBackText());
+            return;
+        }
+        // The unsaved edits come back with it (verified [HW 2026-11-16]).
+        connection.sendWithoutReply(programEditBufferDump(*channel, lit.slot, task->savedEditBuffer->bytes()), timeMs);
+        task->restored = true;
+        task->step = Task::Step::None;
+        const auto back = " The editor put " + slotText(lit.slot) + " back on " + litSlotOriginText()
+                          + ", with its unsaved edits.";
+        if (task->endAfterRestore) {
+            auto message = *task->endAfterRestore + back;
+            if (! task->cancelledAfterRestore) {
+                fail(std::move(message));
+                return;
+            }
+            if (current.backupFile)
+                message += " Backup: " + current.backupFile->string() + ".";
+            task.reset();
+            current.stage = MemoryStage::Idle;
+            current.plan.reset();
+            current.message = std::move(message);
+            ended();
+            return;
+        }
+        startVerifying(timeMs);
+        return;
+    }
+    }
+}
+
+void MemoryWriter::switchChecked(const std::optional<Performance>& performance, TimeMs timeMs)
+{
+    const auto slot = task->lit->slot;
+    const bool there = performance
+                       && performance->setting(PerformanceSetting::SelectedSlot) == static_cast<int>(slotIndex(slot))
+                       && performance->setting(PerformanceSetting::ProgramBank, slot) == task->bank;
+    if (there) {
+        startWriting(timeMs);
+        return;
+    }
+    const auto bank = bankText(task->bank);
+    startRestoring("Nothing was written: the lit Slot, " + slotText(slot) + ", did not switch to " + bank
+                       + ". Check that the synth receives Program Changes (the P setting, Shift + PROG/CTRL), or set "
+                         "the lit Slot to "
+                       + bank + " on the synth and try again.",
+                   timeMs);
+}
+
+void MemoryWriter::startRestoring(std::optional<std::string> failure, TimeMs timeMs)
+{
+    task->endAfterRestore = std::move(failure);
+    current.stage = MemoryStage::RestoringSlot;
+    current.done = 0;
+    current.total = 0;
+    task->step = Task::Step::SendRestore;
+    // The last dump written has had its time to be stored; advanceTime() sends the rest.
+    task->stepDueMs = std::max(timeMs, task->nextWriteMs);
+    changed();
+}
+
+std::string MemoryWriter::litSlotName() const
+{
+    return slotText(task->lit->slot);
+}
+
+std::string MemoryWriter::litSlotOriginText() const
+{
+    return bankText(task->lit->bank) + " Program " + std::to_string(task->lit->programNumber + 1);
+}
+
+std::string MemoryWriter::notPutBackText() const
+{
+    if (! task || ! task->switched || task->restored)
+        return {};
+    return " The lit Slot, " + litSlotName() + ", was not put back: on the synth it may still be on "
+           + bankText(task->bank) + " instead of " + litSlotOriginText() + ", and its unsaved edits may be lost.";
 }
 
 void MemoryWriter::startWriting(TimeMs timeMs)
@@ -576,14 +923,14 @@ void MemoryWriter::writeDue(TimeMs timeMs)
     const auto channel = engine.globalChannel();
     if (! channel) {
         fail("The connection to the synth was lost after " + std::to_string(task->written) + " of "
-             + std::to_string(task->locations.size()) + " Programs were written.");
+             + std::to_string(task->locations.size()) + " Programs were written." + notPutBackText());
         return;
     }
 
     const auto index = static_cast<std::size_t>(task->written);
     const auto location = static_cast<std::uint8_t>(task->locations[index]);
-    // The type byte names the manual's SysEx Bank; the synth ignores it and stores into the Bank
-    // selected on its panel [OFF-2X p.78], which the user was asked to select.
+    // The type byte names the manual's SysEx Bank; the synth ignores it and stores into the lit
+    // Slot's Bank (kFirstProgramBankDumpType), which is the target Bank by now.
     const auto type = static_cast<std::uint8_t>(hardware::kFirstProgramBankDumpType
                                                 + hardware::sysExBankOfShownBank(task->bank) - 1);
     connection.sendWithoutReply(bankProgramDump(*channel, type, location, task->programs[index].bytes()), timeMs);
@@ -596,40 +943,100 @@ void MemoryWriter::writeDue(TimeMs timeMs)
 
     if (task->written < static_cast<int>(task->locations.size()))
         return;
-    if (reading.verified) {
-        current.stage = MemoryStage::Verifying;
-        current.done = 0;
-        changed();
-    } else {
-        verified(timeMs);
-    }
+    if (task->switched)
+        startRestoring(std::nullopt, timeMs);
+    else
+        startVerifying(timeMs);
 }
 
-void MemoryWriter::verified(TimeMs)
+void MemoryWriter::startVerifying(TimeMs timeMs)
+{
+    if (! reading.verified) {
+        verified(timeMs);
+        return;
+    }
+    current.stage = MemoryStage::Verifying;
+    current.done = 0;
+    changed();
+}
+
+void MemoryWriter::verified(TimeMs timeMs)
 {
     const auto count = std::to_string(task->locations.size());
     if (! task->notStored.empty()) {
-        // The usual cause: another Bank was selected on the panel, and the dumps went there.
+        // The usual cause: the lit Slot was on another Bank, and the dumps went there.
         const auto bank = bankText(task->bank);
         const bool one = task->notStored.size() == 1;
         const auto where = (one ? "Program " : "Programs ") + listed(task->notStored) + " in " + bank;
         fail("Not stored: " + where + (one ? " does not hold" : " do not hold") + " what was sent (read back: "
              + std::to_string(task->matches) + " of " + count + " match). The synth probably stored "
-             + (one ? "it" : "them") + " in the Bank selected on its panel instead, at the same Program "
+             + (one ? "it" : "them") + " in the Bank of the lit Slot instead, at the same Program "
              + (one ? "number" : "numbers") + ", replacing what was there; only " + bank
-             + " was backed up. Select " + bank + " and any Program in it on the synth, then try again.");
+             + " was backed up. On the synth, set the lit Slot to " + bank + ", then try again.");
         return;
     }
+    if (task->switched)
+        checkRestoredSlot(timeMs);
+    else
+        finishWrite({});
+}
+
+void MemoryWriter::checkRestoredSlot(TimeMs timeMs)
+{
+    // The lit Slot's Edit Buffer, then its Bank and Program, as they were before the switch. (The
+    // written locations are read back already, or not at all while Bank reading is locked.)
+    current.stage = MemoryStage::Verifying;
+    task->verifyStarted = true;
+    changed();
+    const auto channel = engine.globalChannel();
+    if (! channel) {
+        fail("The connection to the synth was lost.");
+        return;
+    }
+    const auto slot = task->lit->slot;
+    const auto notBack = " But " + litSlotName() + " did not come back exactly as it was: check it on the synth (it "
+                                                   "should be on "
+                         + litSlotOriginText() + ").";
+    connection.enqueue(
+        slotEditBufferRequest(*channel, slot), isSlotEditBufferReply,
+        [this, slot, notBack](auto reply, TimeMs doneMs) {
+            if (! task)
+                return;
+            std::optional<Program> editBuffer;
+            if (reply)
+                if (const auto dump = parseProgramDump(*reply))
+                    editBuffer = dump->program;
+            if (editBuffer != task->savedEditBuffer) {
+                finishWrite(notBack);
+                return;
+            }
+            readPerformance(doneMs, [this, slot, notBack](const auto& performance, TimeMs) {
+                const auto& lit = *task->lit;
+                const bool back = performance
+                                  && performance->setting(PerformanceSetting::SelectedSlot)
+                                         == static_cast<int>(slotIndex(slot))
+                                  && performance->setting(PerformanceSetting::ProgramBank, slot) == lit.bank
+                                  && performance->setting(PerformanceSetting::ProgramNumber, slot) == lit.programNumber;
+                finishWrite(back ? " " + litSlotName() + " is back on " + litSlotOriginText() + ", with its unsaved edits."
+                                 : notBack);
+            });
+        },
+        timeMs, kMemoryWriterOwner);
+}
+
+void MemoryWriter::finishWrite(const std::string& slotNote)
+{
+    const auto count = std::to_string(task->locations.size());
     std::string message;
     if (task->operation == MemoryOperation::StoreProgram)
-        message = "Stored "
-                  + (task->slot ? std::string("Slot ") + slotLetter(*task->slot) + "'s Program" : inQuotes(task->sourceName))
-                  + " as " + locationsText() + ".";
+        message = "Stored " + (task->slot ? slotText(*task->slot) + "'s Program" : inQuotes(task->sourceName)) + " as "
+                  + locationsText() + ".";
     else
         message = "Sent " + count + (task->locations.size() == 1 ? " Program to " : " Programs to ") + locationsText()
                   + ".";
     if (reading.verified)
         message += " Read back: " + std::to_string(task->matches) + " of " + count + " match what was sent.";
+    message += slotNote;
     if (current.backupFile)
         message += " Backup: " + current.backupFile->string() + ".";
     else
@@ -643,6 +1050,8 @@ void MemoryWriter::advanceTime(TimeMs timeMs)
         return;
     if (current.stage == MemoryStage::Writing) {
         writeDue(timeMs);
+    } else if (current.stage == MemoryStage::SwitchingBank || current.stage == MemoryStage::RestoringSlot) {
+        stepDue(timeMs);
     } else if (current.stage == MemoryStage::Verifying && ! task->verifyStarted && timeMs >= task->nextWriteMs) {
         // The last dump has had its time to be stored before it is read back.
         task->verifyStarted = true;
@@ -655,12 +1064,21 @@ void MemoryWriter::cancel()
 {
     if (! busy())
         return;
+    // Already on its way back: the lit Slot is put back first.
+    if (current.stage == MemoryStage::RestoringSlot)
+        return;
     connection.cancel(kMemoryWriterOwner);
     const bool partlyWritten = task && task->written > 0 && current.stage == MemoryStage::Writing;
     std::string message = partlyWritten ? "Stopped after " + std::to_string(task->written) + " of "
                                               + std::to_string(task->locations.size()) + " Programs were written to "
                                               + bankText(task->bank) + "; the others are unchanged."
                                         : "Cancelled. Nothing was written to the synth.";
+    if (task && task->switched && ! task->restored) {
+        // The lit Slot goes back to its Bank first; the task ends then.
+        task->cancelledAfterRestore = true;
+        startRestoring(std::move(message), task->nextWriteMs);
+        return;
+    }
     if (current.backupFile)
         message += " Backup: " + current.backupFile->string() + ".";
     task.reset();
@@ -676,10 +1094,11 @@ void MemoryWriter::abort(const std::string& reason)
         return;
     connection.cancel(kMemoryWriterOwner);
     const bool partlyWritten = task && task->written > 0 && current.stage == MemoryStage::Writing;
-    fail(reason + (partlyWritten ? " " + std::to_string(task->written) + " of "
-                                       + std::to_string(task->locations.size())
-                                       + " Programs had been written."
-                                 : " Nothing was written to the synth."));
+    fail(reason
+         + (partlyWritten ? " " + std::to_string(task->written) + " of " + std::to_string(task->locations.size())
+                                + " Programs had been written."
+                          : " Nothing was written to the synth.")
+         + notPutBackText());
 }
 
 void MemoryWriter::selectionChangedOnSynth()

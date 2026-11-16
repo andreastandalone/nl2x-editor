@@ -8,6 +8,10 @@ A DAW plugin that edits and manages the sounds of a Clavia Nord Lead 2X synthesi
 One of the four parts A, B, C and D of the synth, each playing its own Program or Percussion Kit, together or separately.
 _Avoid_: Bank (when meaning A–D), part, layer, channel
 
+**Lit Slot**:
+The Slot whose button is lit on the synth's panel (the manual's active Slot): panel edits go to it, and the synth stores a Program it receives for a Bank in the lit Slot's Bank, whatever Bank the message names. MIDI can change a Slot's Bank and Program but cannot light another Slot, so to write into another Bank the editor switches the lit Slot to that Bank for a moment and puts it back.
+_Avoid_: active Slot (in the user interface), selected Slot, current Slot
+
 **Program**:
 A single sound: the complete set of sound parameters played by one Slot.
 _Avoid_: Patch, preset, sound
