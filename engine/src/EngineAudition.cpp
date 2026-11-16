@@ -128,6 +128,8 @@ void Engine::sendDueAudition(TimeMs timeMs)
 
     if (! audition.slot) {
         connection->sendWithoutReply(performanceEditBufferDump(*foundGlobalChannel, audition.values), timeMs);
+        // The synth keeps it and returns it on type 40 instead of what it plays.
+        performanceDumpSent = true;
         // What the synth now plays: Kit references and settings it does not receive stay its own.
         for (auto slot : kAllSlots)
             readSlot(slot, timeMs);

@@ -18,7 +18,9 @@
 // are changed ("to send") by putting Library Programs there and copying one location to another.
 // --bank <0–3> shows another Bank; --edit <1–99> makes the Library edit that location of it.
 // --dialog store paints, instead of the editor, the confirmation of a Store of Slot A to Bank 3,
-// Program 1; --dialog failed the error after that Store was written with Bank 0 selected.
+// Program 1, with the lit Slot A on Bank 0 (the editor switches it); --dialog manual the same
+// confirmation with Slot A's MIDI channel off (set the Bank by hand); --dialog failed the error
+// after that Store when the synth ignores the Program Change that should switch the lit Slot.
 
 #include "LibraryPanel.h"
 #include "NordLookAndFeel.h"
@@ -65,7 +67,7 @@ struct Options {
     int bank = 1;
     // A location of the shown Bank whose sound the Library's edit area edits (0: none).
     int edit = 0;
-    // "store" or "failed": a memory writer dialog instead of the editor.
+    // "store", "manual" or "failed": a memory writer dialog instead of the editor.
     juce::String dialog;
     juce::File work;
 };
@@ -386,8 +388,11 @@ int render(const Options& options)
         processor.editorBeingDeleted(editor.get());
         editor.reset();
         auto& memory = processor.synthMemory();
+        link.synth.selectBank(0);
         if (options.dialog == "failed")
-            link.synth.selectBank(0);
+            link.synth.setProgramChangeOn(false);
+        if (options.dialog == "manual")
+            link.synth.setSlotChannel(nl2x::Slot::A, std::nullopt);
         const auto backups = std::filesystem::path(options.work.getChildFile("Backups").getFullPathName().toStdString());
         memory.prepareStoreProgram(nl2x::Slot::A, 3, 1, backups, {}, NL2XEditorProcessor::engineTimeMs());
         pump(30000, [&] { return memory.status().stage == nl2x::MemoryStage::AwaitingConfirmation; });
@@ -445,7 +450,7 @@ int main(int argc, char* argv[])
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|librarian] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
                      "                          [--edge-cases] [--open-library] [--favourites] [--width <px>]\n"
-                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--dialog store|failed]\n"
+                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--dialog store|manual|failed]\n"
                      "                          [--work <dir>]\n";
         return 2;
     }

@@ -69,7 +69,8 @@ Engine::Engine(MidiOutput& midiOutput, hardware::Switches hardwareSwitches)
       programDumps(std::make_unique<ProgramDumpThrottle>()),
       switches(hardwareSwitches),
       check(std::make_unique<ConnectionCheck>(*connection, midiOutput, [this] { changed(); })),
-      memory(std::make_unique<MemoryWriter>(*this, *connection, hardwareSwitches, [this] { changed(); })),
+      memory(std::make_unique<MemoryWriter>(*this, *connection, midiOutput, hardwareSwitches,
+                                            [this] { changed(); })),
       librarianPart(std::make_unique<Librarian>(*this, *memory, [this] { changed(); })),
       history(std::make_unique<EditHistory>())
 {
@@ -101,8 +102,10 @@ void Engine::advanceTime(TimeMs timeMs)
     // Edits wait until no request is in flight, so a dump never interrupts a reply, and while the
     // synth's memory is written: a Performance dump carries the Slots' Banks (bankselect).
     if (foundGlobalChannel && connection->isIdle(timeMs) && ! memory->holdsEditBufferDumps())
-        if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots))
+        if (const auto dump = performanceBuffer->takeDueDump(timeMs, *foundGlobalChannel, slots)) {
             connection->sendWithoutReply(*dump, timeMs);
+            performanceDumpSent = true;
+        }
     sendDueAudition(timeMs);
     sendDueProjectRecall(timeMs);
     sendDueProgramDumps(timeMs);

@@ -62,6 +62,17 @@ inline bool isBankDump(std::span<const std::uint8_t> message)
     return parsed.kind == SysExKind::ProgramDump && parsed.type != hardware::kProgramEditBufferDumpType;
 }
 
+// Bank Select (CC32) on any channel, and Program Change.
+inline bool isBankSelect(std::span<const std::uint8_t> message)
+{
+    return message.size() == 3 && (message[0] & 0xF0) == 0xB0 && message[1] == hardware::kBankSelectController;
+}
+
+inline bool isProgramChange(std::span<const std::uint8_t> message)
+{
+    return message.size() == 2 && (message[0] & 0xF0) == 0xC0;
+}
+
 inline bool isBankRequest(std::span<const std::uint8_t> message)
 {
     const auto parsed = parseSysEx(message);
@@ -146,6 +157,23 @@ struct Rig {
     {
         REQUIRE(status().plan);
         return memory().confirm(status().plan->token, consent, now);
+    }
+
+    // A Performance Audition: the synth keeps the dump and reports it on type 40 from then on, so
+    // the engine no longer trusts what a type-40 read says about the lit Slot.
+    void auditionPerformance()
+    {
+        REQUIRE(engine.performance());
+        REQUIRE(engine.auditionPerformance(*engine.performance(), now) == AuditionResult::Sent);
+        runFor(2000);
+        REQUIRE_FALSE(engine.performanceEditBufferReadTrusted());
+    }
+
+    // Messages sent to the synth from index `from` on.
+    std::vector<Bytes> sentSince(std::size_t from) const
+    {
+        const auto& all = toSynth.messages();
+        return { all.begin() + static_cast<std::ptrdiff_t>(from), all.end() };
     }
 
     std::vector<std::filesystem::path> backups() const

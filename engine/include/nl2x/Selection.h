@@ -70,7 +70,7 @@ enum class SelectionResult : std::uint8_t {
     // Nothing sent: the Global Channel is not known yet (not connected).
     RefusedNoGlobalChannel,
     // Nothing sent: the synth's memory is being read or written (MemoryWriter.h). A Program Change
-    // would change the Bank selected on the synth, where Bank dumps are stored [OFF-2X p.78].
+    // can change the lit Slot's Bank, where Bank dumps are stored (MemoryWriter.h).
     RefusedMemoryBusy,
 };
 

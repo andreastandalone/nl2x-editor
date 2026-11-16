@@ -71,7 +71,9 @@ inline constexpr std::uint8_t kFactoryGlobalChannel = 15;
 
 // Program dump into a Slot's Edit Buffer: type 0, spec 0–3 = Slot A–D [OFF-2X p.105].
 // Status: verified [HW 2026-10-29, step 7]: the synth applies it at once, audibly, even during a
-// held note (the display does not change); a Morph Amount sent this way is heard too.
+// held note (the display does not change); a Morph Amount sent this way is heard too. A Slot's
+// Edit Buffer read with type 14 and sent back this way after a Program Change read back equal
+// [HW 2026-11-16]: the memory writer puts the lit Slot's unsaved edits back so.
 inline constexpr std::uint8_t kProgramEditBufferDumpType = 0;
 
 // Program dump into a Bank location: types 1–10 = "Bank 1–10", spec 0–98 = Program 1–99
@@ -79,9 +81,12 @@ inline constexpr std::uint8_t kProgramEditBufferDumpType = 0;
 // stored in the Bank currently selected on the synth [OFF-2X p.78]; the factory files carry type
 // bytes 2, 3, 4, 2 for Banks 0–3 [OFF-FB, checked HW 2026-11-02]. So the type byte is never a
 // storage location (CODING_STANDARDS.md).
-// Status: storing verified [HW 2026-11-02, step 11]: a type-4 dump to spec 98 was stored at
-// Program 99 of the selected Bank (shown as 3). Open: every write so far had the type byte naming
-// the selected Bank, so whether the type or the panel decides is not known.
+// Status: verified [HW 2026-11-16]: the panel decides, the type byte is ignored. The Program is
+// stored in the Bank of the active Slot (the lit Slot button), at spec + 1. With Slot B active on
+// B 3.50, dumps typed Bank 3 and Bank 0 (type 1), spec 1, both landed in Bank 3 Program 2; with
+// Slot B active on 2.10, a dump typed Bank 3 landed in Bank 2 Program 2. (Storing itself:
+// [HW 2026-11-02, step 11].) The memory writer therefore makes the lit Slot show the target Bank
+// before writing (MemoryWriter.h).
 inline constexpr std::uint8_t kFirstProgramBankDumpType = 1;
 inline constexpr std::uint8_t kLastProgramBankDumpType = 10;
 
@@ -218,16 +223,23 @@ constexpr int sysExBankOfShownBank(int shownBank)
 }
 
 // Whether a type-40 read of the Performance Edit Buffer names the Bank a received Bank dump is
-// stored in ("the Bank currently selected", [OFF-2X p.78]): the active Slot's (offset 322,
-// selected_channel) bankselect (offset 332 + Slot) [OFF-2X p.112]. It does not, so the editor
-// cannot read which Bank is selected on the panel. The memory writer relies on the user selecting
-// the target Bank, as the confirmation asks first, and reads the written locations back from the
-// target Bank to catch a write that went elsewhere. Nothing reads this constant; it records why.
-// Status: refuted [HW 2026-11-05]: with Bank 3 selected on the panel on Slot B, the type-40 read
-// still named Bank 0. (Offset 322 also lies in the bytes that vary between reads,
-// kFirstVolatilePerformanceValue; and a Performance dump the editor sent is read back instead of
-// what the synth plays, kPerformanceEditBufferDumpIsApplied [HW 2026-11-04].)
-inline constexpr bool kPerformanceNamesSelectedBank = false;
+// stored in: the active Slot (offset 322, selected_channel, 0–3 = A–D) and its bankselect
+// (offset 332 + Slot), with each Slot's pgmselect (328 + Slot) [OFF-2X p.112]. It does, and the
+// memory writer relies on it: it reads them before writing, switches the lit Slot to the target
+// Bank when it is elsewhere, and puts it back afterwards (MemoryWriter.h).
+// Caveat: once the editor has sent a type-30 Performance dump, the synth keeps that dump and
+// returns it on type 40 instead (kPerformanceEditBufferDumpIsApplied), so these values are the
+// dump's, not what the synth plays; whether a later selection on the panel replaces it is not
+// known. The engine then stops trusting the read (Engine::performanceEditBufferReadTrusted), and
+// the memory writer also checks every read against the lit Slot's Edit Buffer: the Performance's
+// copy of that Slot's Program must equal it, as it did on the hardware.
+// Status: verified [HW 2026-11-16]: a type-40 read taken while the editor had sent no type-30 dump
+// (app closed) gave 322 = 1 (Slot B, lit), pgmselect A = 1, B = 49, C = 0, D = 6 (Programs 2, 50,
+// 1, 7) and bankselect A = 0, B = 3, C = 0, D = 0, all as on the panel, and its four Programs
+// equal to the four Slot Edit Buffers. The earlier refutation [HW 2026-11-05: Bank 0 named while
+// Bank 3 was selected on Slot B] came from the editor's own type-30 dump sent at project recall,
+// which the editor no longer sends (kProjectRecallSendsSlotDumpsAfterPerformance).
+inline constexpr bool kPerformanceNamesSelectedBank = true;
 
 // Performance dumps: type 30 = Edit Buffer, 31–34 = Performance Bank 1–4, spec 0 or 0–99
 // [OFF-2X p.107]. Status: documented; Bank dumps match [OFF-FB].
@@ -235,7 +247,8 @@ inline constexpr std::uint8_t kPerformanceEditBufferDumpType = 30;
 inline constexpr std::uint8_t kFirstPerformanceBankDumpType = 31;
 
 // Whether the synth *applies* a Performance dump received into its Edit Buffer (type 30).
-// It stores it: a type 40 read-back equals the dump sent. But it does not apply it: with Keyboard
+// It stores it: a type 40 read-back equals the dump sent (so later type-40 reads report the dump,
+// not what the synth plays: kPerformanceNamesSelectedBank). But it does not apply it: with Keyboard
 // Split 1 in the Edit Buffer the split LED stayed off and the keyboard was not split, and leaving
 // and re-entering Performance mode reloaded the stored Performance instead. So editing
 // Performance settings by type 30 dumps (#5) does not change what the synth plays. While false the
@@ -260,9 +273,12 @@ inline constexpr std::uint8_t kFirstPerformanceBankRequestType = 41;
 // Performance (type 41); the rest is stable. Counting F0 as byte 1 they hold decoded values
 // 320–323 (counting from 0, 321–323): Local On/Off, Keyboard Octave Shift, selected_channel (the
 // active Slot, 322) and Arp MIDI Out, three of them marked "not received" [OFF-2X p.112]. Two
-// Performances must be compared without these values; and the active Slot read from a dump may
-// be stale (kPerformanceNamesSelectedBank). Status: verified [HW 2026-11-02]; which of the four
-// values really vary is not known.
+// Performances must be compared without these values. Status: verified [HW 2026-11-02]; which of
+// the four values really vary is not known.
+// Value 322 lies in this range, yet a type-40 read of the Performance Edit Buffer named the lit
+// Slot correctly in it [HW 2026-11-16, kPerformanceNamesSelectedBank]: whatever varies between two
+// type-41 reads of a stored Performance, the Edit Buffer's 322 is the lit Slot. The memory writer
+// reads 322 from type 40 only, and reads it again after switching to check it.
 inline constexpr std::size_t kFirstVolatilePerformanceValue = 320;
 inline constexpr std::size_t kLastVolatilePerformanceValue = 323;
 
@@ -484,10 +500,12 @@ inline constexpr int kProgramDumpIntervalMs = 100;
 // A Performance holds full copies of the four Programs [OFF-2X p.31–33], so a Performance dump to
 // the Performance Edit Buffer (type 30) should by itself put the project's Programs into the
 // Slots. But the synth stores a type-30 dump without applying it
-// (kPerformanceEditBufferDumpIsApplied, [HW 2026-10-29, step 8]). So project recall also sends
-// each Slot playing a Program its own Program dump (type 0) after the Performance dump, which the
-// synth does apply (step 7): the Slots' sounds come back; the Performance settings do not (#5
-// follow-up). Status: verified necessary [HW 2026-10-29].
+// (kPerformanceEditBufferDumpIsApplied, [HW 2026-10-29, step 8]). So project recall sends each
+// Slot playing a Program its own Program dump (type 0), which the synth does apply (step 7): the
+// Slots' sounds come back; the Performance settings do not (#5 follow-up). While the synth does
+// not apply a type-30 dump, recall does not send the Performance at all: the synth would keep it
+// and report it to type-40 reads instead of the lit Slot and its Bank [HW 2026-11-16,
+// kPerformanceNamesSelectedBank]. Status: verified necessary [HW 2026-10-29].
 inline constexpr bool kProjectRecallSendsSlotDumpsAfterPerformance = true;
 
 // ---------------------------------------------------------------------------------------------
@@ -499,7 +517,10 @@ inline constexpr bool kProjectRecallSendsSlotDumpsAfterPerformance = true;
 // cannot tell whether P is on: with P off a selection simply changes nothing.
 // Status: transmission seen [HW 2026-10-29, step 5]: selecting Programs on the panel sent
 // CC32 (B0 20 00) then Program Change on Slot A's channel, and the editor re-read the Slot and the
-// Performance as #10 intends. Reception not tested.
+// Performance as #10 intends. Reception verified [HW 2026-11-16]: B1 20 02, C1 09 (Slot B's
+// channel) put the lit Slot B on Program 2.10; B0 20 03, C0 00 on Slot A's channel, while Slot B
+// was lit, loaded Bank 3 Program 1 into Slot A but did not make Slot A the lit Slot (the display
+// stayed on B 2.10). So MIDI can change a Slot's Bank and Program, but not which Slot is lit.
 inline constexpr std::uint8_t kBankSelectController = 32;
 
 // Whether CC32 is governed by the P setting (Program Change) rather than by C (Control Change).
@@ -509,14 +530,16 @@ inline constexpr std::uint8_t kBankSelectController = 32;
 inline constexpr bool kBankSelectFollowsProgramChangeSetting = true;
 
 // The CC32 value for a Program Bank: the Bank as the synth shows it, 0–9 [OFF-2X p.13 shows
-// Banks 0–9; the value mapping is not printed]. Status: [INF].
+// Banks 0–9; the value mapping is not printed]. Status: verified for Banks 2 and 3 [HW 2026-11-16]:
+// CC32 = 2 then Program Change 9 showed 2.10, and CC32 = 3 loaded Bank 3.
 inline constexpr int kBankSelectOfProgramBank0 = 0;
 inline constexpr int kProgramBankCount = 10;
 inline constexpr int kProgramsPerProgramBank = 99;
 
 // The Program Change number of Program 1 of a Bank; Programs 1–99 = 0–98. Consistent with the
 // Bank dump spec 0–98 [OFF-2X p.105] and the Performance's pgmselect 0–98 [OFF-2X p.112].
-// Status: [INF].
+// Status: verified [HW 2026-11-16]: Program Change 9 showed Program 10, Program Change 0 Program 1,
+// and pgmselect 49 was Program 50.
 inline constexpr int kProgramChangeOfProgram1 = 0;
 
 // Percussion Kits P0–P9 sit "above" Program 99 in Banks 0–3 [OFF-2X p.13, 28], and their Bank

@@ -550,7 +550,8 @@ void SimulatedNordLead2X::handleProgramChange(MidiChannel channel, std::uint8_t 
 
 void SimulatedNordLead2X::loadStoredProgram(Slot slot, int shownBank, int location)
 {
-    receivedPerformance.reset();
+    // A Performance dump received earlier is kept: whether selecting a Program replaces it is not
+    // known [HW 2026-11-16], so the simulated synth takes the worse case.
     auto& state = slots[slotIndex(slot)];
     const int kit = location + hardware::kProgramChangeOfProgram1 - hardware::kProgramChangeOfPercussionKitP0;
     if (kit >= 0) {

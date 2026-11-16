@@ -375,10 +375,43 @@ TEST_CASE("Librarian: Send cancelled at the confirmation writes nothing and keep
     CHECK(rig.backups().size() == 1);
 }
 
+TEST_CASE("Librarian: a Send of several locations switches the lit Slot once and puts it back once")
+{
+    LibrarianRig rig("send-switch-once");
+    rig.readSynthBanks();
+    auto& librarian = rig.librarian();
+    for (int program : { 3, 17, 40 })
+        REQUIRE(librarian.put({ 1, program }, programEntry("sound", 4000 + program)) == LibrarianRefusal::None);
+    REQUIRE(librarian.prepareSend(1, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::SwitchedByEditor);
+    const auto confirmedAt = rig.toSynth.messages().size();
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+
+    REQUIRE(rig.status().stage == MemoryStage::Finished);
+    for (int program : { 3, 17, 40 })
+        CHECK(rig.synth.bankProgram(1, program - 1) == patternProgram(4000 + program));
+    CHECK(librarian.pendingPrograms(1).empty());
+    // Slot A, lit, was on Bank 2: one switch to Bank 1, three dumps, one switch back.
+    std::vector<Bytes> selections;
+    for (const auto& message : rig.sentSince(confirmedAt))
+        if (isBankSelect(message) || isProgramChange(message))
+            selections.push_back(message);
+    CHECK(selections == std::vector<Bytes> { { 0xB0, 32, 1 }, { 0xC0, 2 }, { 0xB0, 32, 2 }, { 0xC0, 0 } });
+    CHECK(rig.bankDumpsReceived() == 3);
+    CHECK(rig.synth.selectedBank() == 2);
+    CHECK(rig.synth.editBuffer(Slot::A) == patternProgram(100));
+}
+
 TEST_CASE("Librarian: a Send that went to another Bank leaves its locations pending")
 {
     LibrarianRig rig("send-wrong-bank");
     rig.readSynthBanks();
+    // The synth reports the auditioned Performance on type 40 from now on: the lit Slot's Bank is
+    // set by hand, and here it is not.
+    rig.auditionPerformance();
     rig.synth.selectBank(1);
     REQUIRE(rig.librarian().put({ 2, 17 }, programEntry("lead", 1)) == LibrarianRefusal::None);
     REQUIRE(rig.librarian().prepareSend(2, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
