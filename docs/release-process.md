@@ -1,18 +1,39 @@
 # Release process
 
-Steps for Andrea to publish a version, for example v0.1.0. The workflow never publishes by itself: it creates a draft release.
+Steps for Andrea to publish a version, for example the beta 0.1.0-beta.1 or the final 0.1.0. The workflow never publishes by itself: it creates a draft release.
 
-1. **Hardware session.** Do [hardware-discovery-plan.md](hardware-discovery-plan.md) first and apply its results to `engine/include/nl2x/HardwareAssumptions.h`.
-2. **Hardware checklist.** Run [hardware-checklist.md](hardware-checklist.md) on the Nord Lead 2X in Ableton Live and Cubase. Every item must pass, or the exception must be an issue you accept for this version.
-3. **Bump the version.** The version lives in one place: `project(NL2XEditor VERSION 0.0.1 ...)` in the top-level `CMakeLists.txt`. Change it to the release version (for v0.1.0: `0.1.0`), commit and merge to `main`. The tag name must match (`v` + that version). Update the README "Status" line if it still says the release is in preparation.
-4. **Optional dry run.** In GitHub, Actions > Release > Run workflow on `main`. It builds, tests and packages, and only uploads the zip as a workflow artifact; no release is created.
-5. **Tag and push the tag.** From an up-to-date `main`:
+## The version
+
+The version lives in one place, the top-level `CMakeLists.txt`:
+
+```cmake
+project(NL2XEditor VERSION 0.1.0 LANGUAGES C CXX)
+set(NL2X_VERSION_LABEL "beta.1")
+```
+
+- `VERSION` is numeric (major.minor.patch) because macOS and the Audio Unit need a numeric bundle version; it goes into every bundle's `Info.plist` (CFBundleShortVersionString and CFBundleVersion) and the AU version.
+- `NL2X_VERSION_LABEL` marks a pre-release (`beta.1`, `beta.2`, `rc.1`); it is empty (`""`) for a final release. The full version, `0.1.0-beta.1`, is what the About window and the standalone app show, what the zip is named after and what the tag must be: `v0.1.0-beta.1`.
+- So every beta of 0.1.0 carries bundle version 0.1.0; only the label tells them apart. The final release sets the label to `""` and keeps `VERSION 0.1.0`.
+- Release notes for a version go in `docs/release-notes/<full version>.md` (for example `docs/release-notes/0.1.0-beta.1.md`): the workflow uses them as the draft's text and puts them in the zip as `RELEASE-NOTES.md`. Without that file it generates notes from the merged pull requests.
+
+## Steps
+
+1. **Hardware checklist.** Run the [beta acceptance run](hardware-checklist.md#beta-acceptance-run-010-beta1) (for a beta) or the whole [hardware checklist](hardware-checklist.md) (for a final release) on the Nord Lead 2X in Ableton Live and Cubase. Every item must pass, or the exception must be an issue you accept for this version. The run can use the dry run's zip (step 3).
+2. **Set the version** in `CMakeLists.txt` as above, write the release notes and update the README's "Status" line. Commit and merge to `main`.
+3. **Optional dry run.** In GitHub, Actions > Release > Run workflow on `main`. It builds, tests, signs ad hoc, checks and packages exactly as a tag does, and only uploads the zip (named `...-dry-run-<commit>`) as a workflow artifact; no release is created.
+4. **Tag and push the tag.** From an up-to-date `main`:
    ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.1.0-beta.1
+   git push origin v0.1.0-beta.1
    ```
-6. **Wait for the workflow** (Actions > Release, about 20-30 minutes). It builds the Universal Release, runs the tests, checks the architectures, runs pluginval and auval, packages `NL2X-Editor-0.1.0-macOS-universal.zip` and creates a **draft** release with the zip attached.
-7. **Review the draft** under Releases: edit the notes (generated from the merged pull requests), download the zip on a clean Mac and check it installs as the README says.
-8. **Publish** the draft. To abandon a bad release, delete the draft and the tag (`git push --delete origin v0.1.0`, `git tag -d v0.1.0`) and tag again after the fix.
-
-The release workflow refuses a tag that does not match `project(NL2XEditor VERSION …)` in `CMakeLists.txt`, so bump the version first.
+5. **Wait for the workflow** (Actions > Release, about 20–30 minutes). It:
+   - refuses the tag unless it equals `v` + the full version in `CMakeLists.txt`;
+   - builds the Universal (arm64 + x86_64) Release of the VST3, the AU and the standalone app from a clean compile, and runs the tests;
+   - checks that each binary holds both architectures;
+   - signs each bundle ad hoc (no Developer ID, no notarization) and verifies the signature, so that macOS shows its "could not verify" block with Open Anyway rather than calling the download "damaged";
+   - checks that each bundle carries the numeric version;
+   - runs pluginval on the VST3 and auval on the AU;
+   - packages `NL2X-Editor-0.1.0-beta.1-macOS-universal.zip`: a folder with the three bundles, `README.md`, `LICENSE`, `RELEASE-NOTES.md` and `INSTALL.txt`;
+   - creates a **draft** release named "NL2X Editor 0.1.0-beta.1" for the tag, with the zip attached and the release notes as its text, marked **pre-release** when the version has a label.
+6. **Review the draft** under Releases: read the text, download the zip on a Mac where the build has never run and check it installs and opens as the README says.
+7. **Publish** the draft. To abandon a bad release, delete the draft and the tag (`git push --delete origin v0.1.0-beta.1`, `git tag -d v0.1.0-beta.1`) and tag again after the fix, or move on to the next label (`beta.2`).
