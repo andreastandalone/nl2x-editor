@@ -1,6 +1,6 @@
 # Agent wiki
 
-Historical notes kept by the coordinating agent so the next session inherits what was learned. Every claim is dated; claims about code cite a commit. The code rules themselves are in [CODING_STANDARDS.md](../../../CODING_STANDARDS.md).
+Historical notes kept by the coordinating agent so the next session inherits what was learned. Every claim is dated; claims about code cite a commit. The code rules themselves are in [CODING_STANDARDS.md](../../../CODING_STANDARDS.md). Build, test and render commands, the current limits and the hardware assumptions still to verify are in [docs/development.md](../../development.md); the README is for users only (Andrea, 2026-11-17: short, no lists of what the editor lacks).
 
 ## Decisions
 

@@ -3,7 +3,7 @@ name: Release
 # A tag v* builds, checks and packages the Universal build and creates a DRAFT GitHub release
 # (marked as a pre-release when the version has a label such as "beta.1"). Nothing is published:
 # Andrea reviews and publishes the draft by hand (docs/release-process.md).
-# A manual run (workflow_dispatch) is a dry run: it only uploads the zip as a workflow artifact.
+# A manual run (workflow_dispatch) is a dry run: it only uploads the zips as a workflow artifact.
 on:
   push:
     tags: ['v*']
@@ -44,7 +44,6 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "BUILT_VERSION=$built_version" >> "$GITHUB_ENV"
           echo "PRERELEASE=${label:+true}" >> "$GITHUB_ENV"
-          echo "ZIP=NL2X-Editor-$version-macOS-universal.zip" >> "$GITHUB_ENV"
 
       - name: Cache FetchContent downloads and pluginval
         uses: actions/cache@v4
@@ -81,7 +80,7 @@ jobs:
       # signature; a downloaded, quarantined bundle in that state is reported as "damaged" on Apple
       # Silicon, with no Open Anyway. An ad-hoc signature of the whole bundle (no Developer ID, no
       # notarization) makes macOS show its usual "could not verify" block, which the README's
-      # Open Anyway steps clear. Signed before the checks so that they test what is shipped.
+      # "Opening it the first time" steps clear. Signed before the checks so that they test what is shipped.
       - name: Sign the bundles ad hoc
         run: |
           for bundle in \
@@ -116,53 +115,43 @@ jobs:
           killall -9 AudioComponentRegistrar || true
           auval -v aumu Nl2x CrSm
 
+      # One zip per format, with a stable name (no version), so that the README can link each
+      # file of a release directly: releases/download/<tag>/NL2X-Editor-VST3.zip and so on.
+      # Each zip unpacks into a folder holding the bundle, INSTALL.txt and LICENSE.
       - name: Package
         run: |
-          stage="dist/NL2X-Editor-$VERSION"
-          mkdir -p "$stage"
-          cp -R "$ARTEFACTS/VST3/NL2X Editor.vst3" "$stage/"
-          cp -R "$ARTEFACTS/AU/NL2X Editor.component" "$stage/"
-          cp -R "$ARTEFACTS/Standalone/NL2X Editor.app" "$stage/"
-          cp README.md LICENSE "$stage/"
-          notes="docs/release-notes/$BUILT_VERSION.md"
-          if [[ -f "$notes" ]]; then
-            cp "$notes" "$stage/RELEASE-NOTES.md"
-          fi
-          cat > "$stage/INSTALL.txt" <<'TXT'
-          NL2X Editor: installation
+          package() {
+            local format="$1" bundle="$2" destination="$3" open_it="$4"
+            local folder="NL2X Editor $format"
+            local stage="dist/$format/$folder"
+            mkdir -p "$stage"
+            cp -R "$ARTEFACTS/$bundle" "$stage/"
+            cp LICENSE "$stage/"
+            cat > "$stage/INSTALL.txt" <<TXT
+          NL2X Editor $VERSION ($format)
 
-          1. Copy "NL2X Editor.vst3" to       /Library/Audio/Plug-Ins/VST3/
-          2. Copy "NL2X Editor.component" to  /Library/Audio/Plug-Ins/Components/
-          3. Copy "NL2X Editor.app" to        /Applications/
-             (In the Finder: Go > Go to Folder... and type the path. macOS asks for your
-             password. For your user account only, use ~/Library/Audio/Plug-Ins/... instead.)
-          4. Restart your DAW so that it rescans its plugins.
+          1. Copy "${bundle##*/}" to $destination
+             (Finder: Go > Go to Folder..., type the path, enter your password when asked.)
+          2. $open_it The first time, macOS blocks it: click Done, then open
+             System Settings > Privacy & Security and click Open Anyway.
 
-          This build is not notarized, so macOS blocks it the first time. To open it anyway:
-          try to open it once, then System Settings > Privacy & Security > Open Anyway (within
-          about an hour). Or, in Terminal, for each file you copied:
-            sudo xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/NL2X Editor.vst3"
-          On macOS 14 or earlier you can also Control-click (right-click) the app and choose
-          Open; macOS 15 and later only offer System Settings.
-
-          This is a beta: Percussion Kits and Performances cannot be edited yet. Back up your
-          Banks before writing to the synth (the editor also backs up every Bank it writes to
-          ~/Documents/Nord Lead 2X/Backups/).
-
-          MIDI setup, the synth settings (Shift + PROG/CTRL: P on, C on, A off) and DAW notes
-          are in README.md; what is new and what is known not to work is in RELEASE-NOTES.md.
+          Setup and help: https://github.com/andreastandalone/nl2x-editor
 
           Nord, Nord Lead and Clavia are trademarks of Clavia DMI AB. NL2X Editor is not
           affiliated with or endorsed by Clavia DMI AB.
           TXT
-          (cd dist && ditto -c -k --keepParent "NL2X-Editor-$VERSION" "../$ZIP")
-          unzip -l "$ZIP"
+            (cd "dist/$format" && ditto -c -k --keepParent "$folder" "../../NL2X-Editor-$format.zip")
+            unzip -l "NL2X-Editor-$format.zip"
+          }
+          package VST3 "VST3/NL2X Editor.vst3" "/Library/Audio/Plug-Ins/VST3/" "Restart your DAW and load the plugin."
+          package AU "AU/NL2X Editor.component" "/Library/Audio/Plug-Ins/Components/" "Restart your DAW and load the plugin."
+          package App "Standalone/NL2X Editor.app" "/Applications/" "Open the app."
 
-      - name: Upload the zip as a workflow artifact
+      - name: Upload the zips as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ZIP }}
-          path: ${{ env.ZIP }}
+          name: NL2X-Editor-${{ env.VERSION }}
+          path: NL2X-Editor-*.zip
           if-no-files-found: error
 
       - name: Create the draft GitHub release
@@ -180,4 +169,4 @@ jobs:
           if [[ "$PRERELEASE" == "true" ]]; then
             args+=(--prerelease)
           fi
-          gh release create "$GITHUB_REF_NAME" "$ZIP" "${args[@]}"
+          gh release create "$GITHUB_REF_NAME" NL2X-Editor-VST3.zip NL2X-Editor-AU.zip NL2X-Editor-App.zip "${args[@]}"

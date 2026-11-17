@@ -13,13 +13,13 @@ The hardware discovery session ([hardware-discovery-plan.md](hardware-discovery-
 
 **Out of scope for the beta:** Percussion Kit editing and Kit Banks in the Librarian, Performance editing (the Performance view is read-only), Performance Bank writes. Do not fail the run on them; only check that the editor says so instead of misbehaving (items B4 and B5).
 
-**Build:** the zip from the draft release (or the dry run's workflow artifact), not a local build. **Before you start:** in the Librarian, "Save Bank as .syx..." for Banks 0–3 into a folder outside the Library (your own backup). Use **Bank 3** as the test Bank. Synth: Shift + PROG/CTRL **P on, C on, A off**; Slots A–D on MIDI channels 1–4; Global Channel 16; Performance mode off; Programs (not Kits) on all Slots.
+**Build:** the three zips from the draft release (or the dry run's workflow artifact), not a local build. **Before you start:** in the Librarian, "Save Bank as .syx..." for Banks 0–3 into a folder outside the Library (your own backup). Use **Bank 3** as the test Bank. Synth: Shift + PROG/CTRL **P on, C on, A off**; Slots A–D on MIDI channels 1–4; Global Channel 16; Performance mode off; Programs (not Kits) on all Slots.
 
 A plain box is done once; `Live [ ]  Cubase [ ]` is done in each DAW.
 
 **Install and open (10 min)**
 
-- [ ] B1. Download the zip with a browser, unzip it, copy the three bundles as the README says (VST3 and AU to `/Library/Audio/Plug-Ins/...`, app to `/Applications`). macOS blocks the first open; the README's **Open Anyway** steps (or the `xattr` commands) let the app open. It does not say the app "is damaged".
+- [ ] B1. Download the three zips (VST3, AU, App) with a browser, unzip them, copy the bundles as the README says (VST3 and AU to `/Library/Audio/Plug-Ins/...`, app to `/Applications`). macOS blocks the first open; the README's **Open Anyway** steps (or the `xattr` commands in the [user guide](user-guide.md)) let the app open. It does not say the app "is damaged".
 - [ ] B2. About (click the name in the header bar): version **0.1.0-beta.1**, the beta note about Kits and Performances, AGPLv3 and no warranty, the source link opens the GitHub page, credits, and "Nord, Nord Lead and Clavia are trademarks of Clavia DMI AB ... not affiliated". Finder > Get Info on each bundle shows version 0.1.0.
 - [ ] B3. Standalone app: choose the MIDI ports in Settings; the Connection check runs by itself with every line OK and the indicator reads "Connected, Global Channel 16". Quit and reopen: the ports are remembered. Quit the app before the DAW tests.
 
@@ -58,7 +58,7 @@ Starting state for every section unless stated otherwise: synth connected with b
 
 ## 1. Setup and connection
 
-- [ ] Install the release zip as in the README on a Mac where the build has never run. Opening it the first time is blocked by macOS; **Open Anyway** (System Settings > Privacy & Security) lets it open. Expected: the plugin loads afterwards.
+- [ ] Install the release zips as in the README on a Mac where the build has never run. Opening it the first time is blocked by macOS; **Open Anyway** (System Settings > Privacy & Security) lets it open. Expected: the plugin loads afterwards.
 - [ ] Standalone app: it opens, the settings list the Fireface MIDI ports. Choose them. Quit and reopen: the ports are remembered.
 - Load NL2X Editor (VST3) on a MIDI track, choose the Fireface ports in its settings.
   - Live [ ]  Cubase [ ]  Turn and automate "A: Filter Cutoff": the synth follows.
