@@ -99,6 +99,9 @@ void Engine::advanceTime(TimeMs timeMs)
     rereadAfterSelection(timeMs);
     connection->advanceTime(timeMs);
     memory->advanceTime(timeMs);
+    // A Slot on a location just written plays the new sound (#63).
+    for (const auto& reload : memory->takeSlotReloads())
+        auditionProgram(reload.slot, reload.program, timeMs);
     // Edits wait until no request is in flight, so a dump never interrupts a reply, and while the
     // synth's memory is written: a Performance dump carries the Slots' Banks (bankselect).
     if (foundGlobalChannel && connection->isIdle(timeMs) && ! memory->holdsEditBufferDumps())

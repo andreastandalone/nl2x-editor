@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LibraryPanel.h"
+#include "MemoryTaskWindow.h"
 #include "PluginProcessor.h"
 
 #include "nl2x/Librarian.h"
@@ -34,8 +35,10 @@
 // - "Send Bank N to synth…" writes the pending locations, "Save Bank as .syx…" writes the
 //   Composed Bank into the Library folder; a single Library Program or the Slot being edited is
 //   stored with askWhereToStore() and askWhereToStoreSlot().
-// Every write is a MemoryWriter plan: confirmed here in an AlertWindow (and, without a backup, in a
-// second one), with progress and Cancel below the grid.
+// Every write is a MemoryWriter plan, followed in one MemoryTaskWindow from the start of the task
+// to its outcome: the backup being read, the confirmation (and, without a backup, the "no backup
+// possible" consent), the write, then what happened, until the user closes it. Reading the Banks
+// shows its progress and Cancel below the grid.
 class LibrarianView final : public juce::Component, private juce::Timer {
 public:
     LibrarianView(NL2XEditorProcessor& owner, LibraryPanel& library, std::function<nl2x::Slot()> selectedSlot);
@@ -96,8 +99,17 @@ private:
     // The Bank/Program dialog; `store` gets the chosen location.
     void askForLocation(const juce::String& title, const juce::String& message,
                         std::function<void(nl2x::BankLocation)> store);
-    void askForConfirmation(const nl2x::MemoryWritePlan& plan);
-    void askForNoBackupConsent(const nl2x::MemoryWritePlan& plan);
+    // The task window: opened when a write starts (`title` names it until its outcome), then
+    // following the memory writer's status on every refresh.
+    void openTaskWindow(const juce::String& title);
+    void updateTaskWindow(const nl2x::MemoryTaskStatus& status, bool busy);
+    enum class TaskPhase : std::uint8_t { Working, Confirming, NoBackupConsent, Outcome };
+    void showTaskPage(const MemoryTaskPage& page, TaskPhase phase);
+    void taskButtonClicked(int index);
+    void closeTaskWindow();
+    // A send's locations, one line each with what it will hold and what it holds now, while the
+    // list stays readable; empty otherwise.
+    juce::String locationsList(const nl2x::MemoryWritePlan& plan) const;
     void confirm(std::uint64_t token, nl2x::NoBackupConsent consent);
 
     NL2XEditorProcessor& processor;
@@ -128,6 +140,14 @@ private:
     bool wasBusy = false;
     // The plan whose question is shown (or was answered), so that each plan is asked once.
     std::uint64_t askedToken = 0;
+    std::unique_ptr<MemoryTaskWindow> taskWindow;
+    // A window just closed, deleted on the next timer tick (it may be closed from its own button).
+    std::unique_ptr<MemoryTaskWindow> closedTaskWindow;
+    TaskPhase taskPhase = TaskPhase::Working;
+    juce::String taskTitle;
+    // Overwrite was clicked in the task window.
+    bool taskConfirmed = false;
+    std::optional<nl2x::MemoryWritePlan> taskPlan;
     juce::String message;
     int lastStoreProgram = 1;
     std::unique_ptr<juce::FileChooser> chooser;

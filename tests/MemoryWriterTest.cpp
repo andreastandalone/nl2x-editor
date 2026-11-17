@@ -275,6 +275,84 @@ TEST_CASE("Memory writer: a store to the Bank the lit Slot is on sends no Bank S
     CHECK(std::none_of(sent.begin(), sent.end(), isProgramChange));
 }
 
+TEST_CASE("Memory writer: a Slot on the location just written plays the new sound")
+{
+    // Found on the hardware [HW 2026-11-17, #63]: a Slot on Bank N Program P kept the old sound
+    // after a store to N.P until it was selected again. Here the lit Slot B is on it.
+    Rig rig(kVerified, "reload-lit");
+    rig.synth.selectProgramOnPanel(Slot::B, 2, 4);
+    rig.runFor(1000);
+    const auto slotA = rig.synth.editBuffer(Slot::A);
+    const auto slotC = rig.synth.editBuffer(Slot::C);
+    REQUIRE(rig.synth.editBuffer(Slot::B) != slotA);
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::AlreadyThere);
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+    rig.runFor(1000);
+
+    REQUIRE(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.synth.bankProgram(2, 4) == slotA);
+    CHECK(rig.synth.editBuffer(Slot::B) == slotA);
+    CHECK(rig.synth.editBuffer(Slot::C) == slotC);
+    CHECK(rig.status().message.find("Slot B was on a location just written, and now plays the new sound.")
+          != std::string::npos);
+}
+
+TEST_CASE("Memory writer: after a switch, a Slot on a written location plays the new sound and the lit Slot comes "
+          "back with its edits")
+{
+    Rig rig(kVerified, "reload-switched");
+    rig.synth.selectProgramOnPanel(Slot::D, 3, 4);
+    rig.synth.selectProgramOnPanel(Slot::B, 1, 9);
+    rig.synth.turnPanelControl(Slot::B, 74, 33);
+    rig.runFor(1000);
+    const auto slotA = rig.synth.editBuffer(Slot::A);
+    const auto slotBEdited = rig.synth.editBuffer(Slot::B);
+    REQUIRE(rig.synth.editBuffer(Slot::D) != slotA);
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 3, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.status().plan);
+    CHECK(rig.status().plan->bankSetting == BankSetting::SwitchedByEditor);
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+    rig.runFor(1000);
+
+    REQUIRE(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.synth.editBuffer(Slot::D) == slotA);
+    CHECK(rig.synth.editBuffer(Slot::B) == slotBEdited);
+    CHECK(rig.synth.activeSlot() == Slot::B);
+    CHECK(rig.status().message.find("Slot D was on a location just written, and now plays the new sound.")
+          != std::string::npos);
+}
+
+TEST_CASE("Memory writer: a Slot playing the stored sound already is not sent it again")
+{
+    // Slot A, lit on Bank 2 Program 5 with an edit, is stored where it is: no dump follows the write.
+    Rig rig(kVerified, "reload-same");
+    rig.synth.selectProgramOnPanel(Slot::A, 2, 4);
+    rig.synth.turnPanelControl(Slot::A, 74, 40);
+    rig.runFor(1000);
+    const auto slotA = rig.synth.editBuffer(Slot::A);
+
+    REQUIRE(rig.memory().prepareStoreProgram(Slot::A, 2, 5, rig.backupFolder, kNow, rig.now) == MemoryRefusal::None);
+    rig.settle();
+    REQUIRE(rig.confirm(NoBackupConsent::NotGiven) == MemoryConfirmResult::Accepted);
+    rig.settle();
+    const auto endedAt = rig.toSynth.messages().size();
+    rig.runFor(1000);
+
+    REQUIRE(rig.status().stage == MemoryStage::Finished);
+    CHECK(rig.synth.bankProgram(2, 4) == slotA);
+    CHECK(rig.synth.editBuffer(Slot::A) == slotA);
+    CHECK(rig.sentSince(endedAt).empty());
+    CHECK(rig.status().message.find("now plays") == std::string::npos);
+}
+
 TEST_CASE("Memory writer: when the lit Slot's MIDI channel is off, the user sets the Bank by hand")
 {
     Rig rig(kVerified, "channel-off");

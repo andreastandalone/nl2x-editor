@@ -17,14 +17,15 @@
 // the Slots' sounds at Programs 1–4 (so the Library's names and tags show), and a few locations
 // are changed ("to send") by putting Library Programs there and copying one location to another.
 // --bank <0–3> shows another Bank; --edit <1–99> makes the Library edit that location of it.
-// --dialog store paints, instead of the editor, the confirmation of a Store of Slot A to Bank 3,
-// Program 1, with the lit Slot A on Bank 0 (the editor switches it); --dialog manual the same
-// confirmation with Slot A's MIDI channel off (set the Bank by hand); --dialog failed the error
-// after that Store when the synth ignores the Program Change that should switch the lit Slot.
+// --dialog paints, instead of the editor, the Librarian's task window of a Store of Slot A to
+// Bank 3, Program 1, with the lit Slot A on Bank 0, in one of its phases: reading (the backup
+// being read), store (the confirmation; the editor switches the lit Slot), manual (the same with
+// Slot A's MIDI channel off: set the Bank by hand), writing (after Overwrite), done (the outcome),
+// failed (the outcome when the synth ignores the Program Change that should switch the lit Slot).
 
 #include "LibraryPanel.h"
+#include "MemoryTaskWindow.h"
 #include "NordLookAndFeel.h"
-#include "SelectableAlert.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
@@ -67,7 +68,8 @@ struct Options {
     int bank = 1;
     // A location of the shown Bank whose sound the Library's edit area edits (0: none).
     int edit = 0;
-    // "store", "manual" or "failed": a memory writer dialog instead of the editor.
+    // A phase of the memory task window instead of the editor: "reading", "store", "manual",
+    // "writing", "done" or "failed".
     juce::String dialog;
     juce::File work;
 };
@@ -383,11 +385,14 @@ int render(const Options& options)
     NordLookAndFeel lookAndFeel;
     juce::Component owner;
     owner.setLookAndFeel(&lookAndFeel);
-    std::unique_ptr<SelectableAlertWindow> dialog;
+    std::unique_ptr<MemoryTaskWindow> dialog;
     if (options.dialog.isNotEmpty()) {
         processor.editorBeingDeleted(editor.get());
         editor.reset();
         auto& memory = processor.synthMemory();
+        const auto& status = memory.status();
+        const auto verified = memory.bankReadingVerified();
+        const juce::String title = "Store Slot A as Program 1 of Bank 3";
         link.synth.selectBank(0);
         if (options.dialog == "failed")
             link.synth.setProgramChangeOn(false);
@@ -395,29 +400,34 @@ int render(const Options& options)
             link.synth.setSlotChannel(nl2x::Slot::A, std::nullopt);
         const auto backups = std::filesystem::path(options.work.getChildFile("Backups").getFullPathName().toStdString());
         memory.prepareStoreProgram(nl2x::Slot::A, 3, 1, backups, {}, NL2XEditorProcessor::engineTimeMs());
-        pump(30000, [&] { return memory.status().stage == nl2x::MemoryStage::AwaitingConfirmation; });
-        const auto plan = memory.status().plan;
-        if (! plan) {
-            std::cerr << "No plan: " << memory.status().message << "\n";
-            return 1;
-        }
-        if (options.dialog == "failed") {
-            memory.confirm(plan->token, nl2x::NoBackupConsent::Given, NL2XEditorProcessor::engineTimeMs());
-            pump(30000, [&] { return ! memory.busy(); });
-            dialog = std::make_unique<SelectableAlertWindow>(
-                "Writing to the synth failed",
-                juce::String::fromUTF8(memory.status().message.c_str()).replace(" Backup: ", "\n\nBackup: "),
-                &owner);
-            dialog->addButton("OK", 0);
+        MemoryTaskPage page;
+        if (options.dialog == "reading") {
+            pump(30000, [&] { return status.stage != nl2x::MemoryStage::ReadingBackup || status.done >= 40; });
+            page = memoryTaskPages::working(status, false, verified, title);
         } else {
-            dialog = std::make_unique<SelectableAlertWindow>(
-                juce::String::fromUTF8(plan->question.c_str()),
-                juce::String::fromUTF8((plan->panelSteps + "\n\n" + plan->details).c_str()),
-                &owner);
-            dialog->addButton("Overwrite", 1);
-            dialog->addButton("Cancel", 0);
-            memory.cancel();
+            pump(30000, [&] { return status.stage == nl2x::MemoryStage::AwaitingConfirmation; });
+            const auto plan = status.plan;
+            if (! plan) {
+                std::cerr << "No plan: " << status.message << "\n";
+                return 1;
+            }
+            if (options.dialog == "store" || options.dialog == "manual") {
+                page = memoryTaskPages::confirmation(*plan, {});
+            } else {
+                memory.confirm(plan->token, nl2x::NoBackupConsent::Given, NL2XEditorProcessor::engineTimeMs());
+                if (options.dialog == "writing") {
+                    pump(30000, [&] { return status.stage == nl2x::MemoryStage::Writing || ! memory.busy(); });
+                    page = memoryTaskPages::working(status, true, verified, title);
+                } else {
+                    pump(30000, [&] { return ! memory.busy(); });
+                    page = memoryTaskPages::outcome(status);
+                }
+            }
         }
+        memory.cancel();
+        pump(5000, [&] { return ! memory.busy(); });
+        dialog = std::make_unique<MemoryTaskWindow>(&owner);
+        dialog->show(page, {});
     }
     juce::Component& shown = dialog != nullptr ? static_cast<juce::Component&>(*dialog) : *editor;
 
@@ -450,8 +460,9 @@ int main(int argc, char* argv[])
         std::cerr << "Usage: nl2x_render_editor --out <file.png> [--view A|B|C|D|performance|librarian] [--morph]\n"
                      "                          [--settings] [--about] [--check] [--kit A|B|C|D] [--offline]\n"
                      "                          [--edge-cases] [--open-library] [--favourites] [--width <px>]\n"
-                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--dialog store|manual|failed]\n"
-                     "                          [--work <dir>]\n";
+                     "                          [--scale <n>] [--bank <0-3>] [--edit <1-99>] [--dialog <phase>]\n"
+                     "                          [--work <dir>]\n"
+                     "  <phase>: reading|store|manual|writing|done|failed\n";
         return 2;
     }
     const juce::ScopedJuceInitialiser_GUI juce;

@@ -30,6 +30,10 @@
 // When Bank reading is verified, the written locations are read back from the target Bank
 // afterwards; if they do not hold what was sent, the task fails and says the synth probably stored
 // them in another Bank.
+// A Slot that sits on a location just written keeps playing the old sound until it is selected
+// again [HW 2026-11-17, #63]. So after a successful write, each Slot that the type-40 read after
+// Overwrite names on a written location (and that does not play that sound already) is handed to
+// the Engine through takeSlotReloads(), which auditions the written Program into it.
 
 #include "nl2x/HardwareAssumptions.h"
 #include "nl2x/Library.h"
@@ -46,6 +50,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace nl2x {
@@ -264,6 +269,14 @@ public:
     // is not changed while it is switched to another Bank.
     bool holdsEditBufferDumps() const;
 
+    // A Slot on a location that a finished write changed, and the Program written there.
+    struct SlotReload {
+        Slot slot = Slot::A;
+        Program program;
+    };
+    // The Slots to give the sound just written to their location, once: the Engine auditions them.
+    std::vector<SlotReload> takeSlotReloads() { return std::exchange(slotReloads, {}); }
+
     // Called by the Engine.
     void advanceTime(TimeMs timeMs);
     // The connection was reset (Engine::connect): whatever was queued is gone.
@@ -329,6 +342,8 @@ private:
     void verified(TimeMs timeMs);
     void checkRestoredSlot(TimeMs timeMs);
     void finishWrite(const std::string& slotNote);
+    // Fills slotReloads; returns what to tell the user about them.
+    std::string reloadSlotsOnWrittenLocations();
     std::string litSlotName() const;
     std::string litSlotOriginText() const;
     std::string notPutBackText() const;
@@ -370,6 +385,9 @@ private:
         bool confirmed = false;
         // The latest decision about the target Bank (before the plan, then after Overwrite).
         BankDecision decision;
+        // The type-40 read after Overwrite, when it was trusted (the decision names the lit Slot):
+        // where each Slot is, for the Slots to reload after the write.
+        std::optional<Performance> slotsAfterOverwrite;
         // SwitchedByEditor: the lit Slot as it was, and its Edit Buffer, saved before the switch.
         std::optional<LitSlot> lit;
         MidiChannel litChannel = 0;
@@ -398,6 +416,7 @@ private:
     MemoryWriterListener* listener = nullptr;
     std::optional<Task> task;
     MemoryTaskStatus current;
+    std::vector<SlotReload> slotReloads;
     std::uint64_t lastToken = 0;
 };
 

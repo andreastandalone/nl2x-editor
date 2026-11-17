@@ -28,6 +28,7 @@ target_sources(NL2XEditor PRIVATE
     LedSwitch.cpp
     LibrarianView.cpp
     LibraryPanel.cpp
+    MemoryTaskWindow.cpp
     MidiPortSelector.cpp
     MidiPorts.cpp
     NordLookAndFeel.cpp
