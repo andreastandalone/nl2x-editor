@@ -1,6 +1,6 @@
 # NL2X Editor
 
-A free, open-source VST3/AU plugin for macOS that edits a Clavia Nord Lead 2X over MIDI. See [README.md](README.md) for what it does and [GLOSSARY.md](GLOSSARY.md) for the project's vocabulary.
+A free, open-source VST3/AU plugin for macOS that edits a Clavia Nord Lead 2X over MIDI. See [README.md](README.md) for what it does, [docs/development.md](docs/development.md) for building, testing, rendering the editor and the current limits, and [GLOSSARY.md](GLOSSARY.md) for the project's vocabulary.
 
 - Code, comments, documentation and the plugin's user interface are in English, using the terms of the official Nord Lead 2X manual.
 - Never commit third-party material (Clavia manuals, factory banks, the commercial AURA Plugins editor, reference screenshots); `.gitignore` excludes it. See [ADR 0002](docs/adr/0002-open-source-agplv3.md).

@@ -44,7 +44,7 @@ tools/             developer scripts (pluginval, fixtures generation) and render
 ## GUI
 
 - Every colour, font and size comes from `plugin/NordLookAndFeel.h` (`NordPalette`, `NordFonts`, `NordMetrics`); no component hard-codes one. The look follows [docs/design/visual-style.md](docs/design/visual-style.md).
-- The GUI is not unit-tested: check changes by eye with `nl2x_render_editor` (README, "Building").
+- The GUI is not unit-tested: check changes by eye with `nl2x_render_editor` ([docs/development.md](docs/development.md), "Rendering the editor").
 
 ## Third-party material
 

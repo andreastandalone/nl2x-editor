@@ -1,4 +1,4 @@
-// nl2x_render_editor: paints the plugin's editor into a PNG, offscreen (README, "Building").
+// nl2x_render_editor: paints the plugin's editor into a PNG, offscreen (docs/development.md, "Rendering the editor").
 //
 // It builds the real processor and editor on a SynthLink to the simulated Nord Lead 2X
 // (tests/sim), so the editor shows Slots and a Performance read the way the plugin reads them.
