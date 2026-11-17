@@ -23,6 +23,29 @@ int heightOfText(const juce::String& text, const juce::Font& font, int width)
 
 } // namespace
 
+void setUpSelectableMessage(juce::TextEditor& editor, const juce::String& message, const juce::Font& font,
+                            juce::Colour colour, int width, int mostHeight)
+{
+    editor.setMultiLine(true, true);
+    editor.setReadOnly(true);
+    editor.setCaretVisible(false);
+    editor.setScrollbarsShown(true);
+    editor.setPopupMenuEnabled(true);
+    editor.setEscapeAndReturnKeysConsumed(false);
+    editor.setColour(juce::TextEditor::textColourId, colour);
+    editor.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+    editor.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    editor.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+    editor.setColour(juce::TextEditor::shadowColourId, juce::Colours::transparentBlack);
+    editor.setIndents(0, 0);
+    editor.setBorder({});
+    editor.setFont(font);
+    editor.setText(message, false);
+    // A little slack below the last line, so that no scroll bar appears for a message that fits.
+    const auto height = heightOfText(message, font, width - 2) + static_cast<int>(font.getHeight());
+    editor.setSize(width, juce::jmin(height, mostHeight));
+}
+
 SelectableAlertWindow::SelectableAlertWindow(const juce::String& title, const juce::String& message,
                                              juce::Component* associatedComponent)
     : juce::AlertWindow(title, {}, juce::MessageBoxIconType::NoIcon, associatedComponent)
@@ -31,26 +54,8 @@ SelectableAlertWindow::SelectableAlertWindow(const juce::String& title, const ju
     if (associatedComponent != nullptr)
         setLookAndFeel(&associatedComponent->getLookAndFeel());
 
-    const juce::Font font(NordFonts::body());
-    messageText.setMultiLine(true, true);
-    messageText.setReadOnly(true);
-    messageText.setCaretVisible(false);
-    messageText.setScrollbarsShown(true);
-    messageText.setPopupMenuEnabled(true);
-    // Return and Escape go on to the window's buttons.
-    messageText.setEscapeAndReturnKeysConsumed(false);
-    messageText.setColour(juce::TextEditor::textColourId, findColour(juce::AlertWindow::textColourId));
-    messageText.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-    messageText.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-    messageText.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-    messageText.setColour(juce::TextEditor::shadowColourId, juce::Colours::transparentBlack);
-    messageText.setIndents(0, 0);
-    messageText.setBorder({});
-    messageText.setFont(font);
-    messageText.setText(message, false);
-    // A little slack below the last line, so that no scroll bar appears for a message that fits.
-    const auto height = heightOfText(message, font, kMessageWidth - 2) + static_cast<int>(font.getHeight());
-    messageText.setSize(kMessageWidth, juce::jmin(height, kMostMessageHeight));
+    setUpSelectableMessage(messageText, message, NordFonts::body(), findColour(juce::AlertWindow::textColourId),
+                           kMessageWidth, kMostMessageHeight);
     addCustomComponent(&messageText);
 }
 

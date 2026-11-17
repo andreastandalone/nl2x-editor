@@ -19,6 +19,12 @@ private:
     juce::TextEditor messageText;
 };
 
+// Makes `editor` a read-only, selectable message in `font` and `colour`, sized to show `message`
+// at `width` without a scroll bar (at most `mostHeight` high; taller messages scroll). Return and
+// Escape go on to the window's buttons. Used by SelectableAlertWindow and MemoryTaskWindow.
+void setUpSelectableMessage(juce::TextEditor& editor, const juce::String& message, const juce::Font& font,
+                            juce::Colour colour, int width, int mostHeight);
+
 // Shows a SelectableAlertWindow with `buttons`, asynchronously, as juce::AlertWindow::showAsync
 // does with MessageBoxOptions: the first button answers 1 and takes Return, the last answers 0 and
 // takes Escape (a single button answers 0 and takes both), a middle one answers 2. `onResult` is

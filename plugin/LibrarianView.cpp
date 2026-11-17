@@ -26,11 +26,10 @@ constexpr int kToolRowHeight = 30;
 constexpr int kButtonRowHeight = 28;
 constexpr int kStatusHeight = 26;
 constexpr int kProgressWidth = 180;
-// What happens after a Store's location is chosen. Reading a Bank takes about 0.1 s per Program.
-constexpr const char* kBackupFirst = "First the whole Bank is read from the synth into a backup, which takes about "
-                                     "10 seconds (the progress shows at the bottom of the Librarian); then the "
-                                     "editor says what will happen on the synth, and you confirm before anything "
-                                     "is written.";
+// What happens after a Store's location is chosen.
+constexpr const char* kBackupFirst = "Next, a window shows the whole Bank being read from the synth into a "
+                                     "backup, then what will happen on the synth; nothing is written before you "
+                                     "confirm there.";
 
 // The most locations a send confirmation lists one by one.
 constexpr std::size_t kMostListed = 12;
@@ -74,35 +73,6 @@ nl2x::WallClockTime wallClockNow()
 std::string fingerprintKey(const nl2x::SoundFingerprint& fingerprint)
 {
     return std::string(fingerprint.values.begin(), fingerprint.values.end());
-}
-
-juce::String stageText(const nl2x::MemoryTaskStatus& status)
-{
-    const auto progress = " (" + juce::String(status.done) + " of " + juce::String(status.total) + ")";
-    switch (status.stage) {
-    case nl2x::MemoryStage::Idle:
-    case nl2x::MemoryStage::Finished:
-    case nl2x::MemoryStage::Failed:
-        return {};
-    case nl2x::MemoryStage::ReadingBackup:
-        return "Backing up Bank " + juce::String(status.bank) + progress + ". Nothing is written yet.";
-    case nl2x::MemoryStage::ReadingLitSlot:
-        return "Asking the synth which Bank the lit Slot is on.";
-    case nl2x::MemoryStage::AwaitingConfirmation:
-        return "Waiting for your confirmation. Nothing is written yet.";
-    case nl2x::MemoryStage::SwitchingBank:
-        return "Switching the lit Slot to Bank " + juce::String(status.bank) + " for the write. Do not play or touch "
-                                                                               "the synth.";
-    case nl2x::MemoryStage::Writing:
-        return "Writing to Bank " + juce::String(status.bank) + progress + ". Do not play or touch the synth.";
-    case nl2x::MemoryStage::RestoringSlot:
-        return "Putting the lit Slot back on its own Bank and Program.";
-    case nl2x::MemoryStage::Verifying:
-        return "Reading back what was written" + progress + ".";
-    case nl2x::MemoryStage::ReadingBank:
-        return "Reading Bank " + juce::String(status.bank) + " from the synth" + progress + ". Nothing is written.";
-    }
-    return {};
 }
 
 std::optional<nl2x::BankLocation> draggedLocation(const juce::var& description)
@@ -584,6 +554,8 @@ juce::String LibrarianView::tooltipFor(nl2x::BankLocation location) const
 
 void LibrarianView::timerCallback()
 {
+    // Not in refresh(): a window's own button may close it and refresh.
+    closedTaskWindow.reset();
     refresh();
 }
 
@@ -604,18 +576,12 @@ void LibrarianView::refresh()
         wantsFirstRead = librarian.synthBanksStatus().stage == nl2x::SynthBanksStage::NotRead;
     }
 
-    // A task that just ended: its outcome replaces the last message.
+    // A task that just ended: its outcome replaces the last message (a write's is also in its task
+    // window, until the user closes it).
     if (wasBusy && ! busy) {
         message = utf8(status.message);
         if (status.backupFile && message.indexOf("ackup") < 0)
             message << "  Backup: " << utf8(status.backupFile->string());
-        // A write that failed (a read-back that did not match, above all) must not pass unseen
-        // in the status line.
-        const bool write = status.operation != nl2x::MemoryOperation::ReadBank
-                           && status.operation != nl2x::MemoryOperation::ReadBanks;
-        if (write && status.stage == nl2x::MemoryStage::Failed)
-            showSelectableAlert("Writing to the synth failed", message.replace(" Backup: ", "\n\nBackup: "), { "OK" },
-                                isShowing() ? this : nullptr, {});
     }
 
     wasBusy = busy;
@@ -671,7 +637,7 @@ void LibrarianView::refresh()
     juce::String statusText;
     double newProgress = -1.0;
     if (busy) {
-        statusText = stageText(status);
+        statusText = memoryTaskPages::stageText(status);
         if (status.total > 0)
             newProgress = static_cast<double>(status.done) / static_cast<double>(status.total);
     } else if (message.isNotEmpty()) {
@@ -688,8 +654,7 @@ void LibrarianView::refresh()
         repaint(progressArea);
     }
 
-    if (status.stage == nl2x::MemoryStage::AwaitingConfirmation && status.plan && status.plan->token != askedToken)
-        askForConfirmation(*status.plan);
+    updateTaskWindow(status, busy);
 }
 
 void LibrarianView::setMessage(const juce::String& text)
@@ -826,8 +791,11 @@ void LibrarianView::readBanks()
 void LibrarianView::send()
 {
     message.clear();
-    showMemoryRefusal(processor.librarian().prepareSend(bank, toPath(backupFolder()), wallClockNow(),
-                                                         NL2XEditorProcessor::engineTimeMs()));
+    const auto refusal = processor.librarian().prepareSend(bank, toPath(backupFolder()), wallClockNow(),
+                                                           NL2XEditorProcessor::engineTimeMs());
+    if (refusal == nl2x::MemoryRefusal::None)
+        openTaskWindow("Send Bank " + juce::String(bank) + " to synth");
+    showMemoryRefusal(refusal);
 }
 
 void LibrarianView::replaceWith(const nl2x::LibraryFile& file, int targetBank)
@@ -977,9 +945,12 @@ void LibrarianView::askWhereToStoreSlot(nl2x::Slot slot)
                        + "'s Program be stored? " + kBackupFirst,
                    [this, slot](nl2x::BankLocation location) {
                        message.clear();
-                       showMemoryRefusal(processor.synthMemory().prepareStoreProgram(
+                       const auto refusal = processor.synthMemory().prepareStoreProgram(
                            slot, location.bank, location.program, toPath(backupFolder()), wallClockNow(),
-                           NL2XEditorProcessor::engineTimeMs()));
+                           NL2XEditorProcessor::engineTimeMs());
+                       if (refusal == nl2x::MemoryRefusal::None)
+                           openTaskWindow("Store " + slotName(slot) + " as " + locationName(location));
+                       showMemoryRefusal(refusal);
                    });
 }
 
@@ -990,74 +961,141 @@ void LibrarianView::askWhereToStore(const nl2x::LibraryEntry& entry)
     askForLocation("Store " + name,
                    "Where should \"" + name
                        + "\" be stored? " + kBackupFirst,
-                   [this, description](nl2x::BankLocation location) {
+                   [this, description, name](nl2x::BankLocation location) {
                        const auto* found = libraryPanel.draggedEntry(description);
                        if (found == nullptr) {
                            setMessage("The Library was read again meanwhile: choose the sound again.");
                            return;
                        }
                        message.clear();
-                       showMemoryRefusal(processor.librarian().prepareStore(*found, location, toPath(backupFolder()),
-                                                                            wallClockNow(),
-                                                                            NL2XEditorProcessor::engineTimeMs()));
+                       const auto refusal = processor.librarian().prepareStore(
+                           *found, location, toPath(backupFolder()), wallClockNow(), NL2XEditorProcessor::engineTimeMs());
+                       if (refusal == nl2x::MemoryRefusal::None)
+                           openTaskWindow("Store \"" + name + "\" as " + locationName(location));
+                       showMemoryRefusal(refusal);
                    });
 }
 
-void LibrarianView::askForConfirmation(const nl2x::MemoryWritePlan& plan)
+void LibrarianView::openTaskWindow(const juce::String& title)
 {
-    askedToken = plan.token;
-    // What happens on the synth, or what to do on its panel first: the lit Slot's Bank is where the
-    // write goes.
-    juce::String details = utf8(plan.panelSteps) + "\n\n";
-    // What each location will hold and what it holds now, while the list stays readable.
-    if (plan.operation == nl2x::MemoryOperation::SendPrograms && plan.programs.size() <= kMostListed) {
-        const auto nameOf = [](const LocationText& text) {
-            return ! text.known ? juce::String("unknown") : text.name.isEmpty() ? juce::String("unnamed") : text.name;
-        };
-        for (const auto program : plan.programs) {
-            const nl2x::BankLocation location { plan.bank, program };
-            details << "Program " << program << ": " << nameOf(describe(location)) << "  (replaces "
-                    << nameOf(describeSynth(location)) << ")\n";
-        }
-        details << "\n";
-    }
-    details << utf8(plan.details);
+    if (taskWindow != nullptr)
+        closeTaskWindow();
+    taskTitle = title;
+    taskConfirmed = false;
+    taskPlan.reset();
+    taskWindow = std::make_unique<MemoryTaskWindow>(isShowing() ? this : nullptr);
+    showTaskPage(memoryTaskPages::working(processor.synthMemory().status(), false,
+                                          processor.synthMemory().bankReadingVerified(), taskTitle),
+                 TaskPhase::Working);
+    taskWindow->open();
+}
 
-    showSelectableAlert(utf8(plan.question), details, { "Overwrite", "Cancel" },
-                        isShowing() ? this : nullptr,
-                        [safe = juce::Component::SafePointer<LibrarianView>(this), plan](int result) {
-        if (safe == nullptr)
+void LibrarianView::updateTaskWindow(const nl2x::MemoryTaskStatus& status, bool busy)
+{
+    if (taskWindow == nullptr) {
+        // A write started some other way still gets its window.
+        if (! busy || ! memoryTaskPages::isWrite(status.operation))
             return;
-        if (result != 1) {
-            safe->processor.synthMemory().cancel();
-            return;
+        openTaskWindow((status.operation == nl2x::MemoryOperation::StoreProgram ? "Store to Bank " : "Send to Bank ")
+                       + juce::String(status.bank));
+    }
+    // The outcome stays until the user closes it.
+    if (taskPhase == TaskPhase::Outcome)
+        return;
+    if (! busy) {
+        showTaskPage(memoryTaskPages::outcome(status), TaskPhase::Outcome);
+        return;
+    }
+    if (status.stage == nl2x::MemoryStage::AwaitingConfirmation) {
+        if (status.plan && status.plan->token != askedToken) {
+            askedToken = status.plan->token;
+            taskPlan = *status.plan;
+            showTaskPage(memoryTaskPages::confirmation(*taskPlan, locationsList(*taskPlan)), TaskPhase::Confirming);
         }
-        if (plan.needsNoBackupConsent)
-            safe->askForNoBackupConsent(plan);
-        else
-            safe->confirm(plan.token, nl2x::NoBackupConsent::NotGiven);
+        return;
+    }
+    showTaskPage(memoryTaskPages::working(status, taskConfirmed, processor.synthMemory().bankReadingVerified(),
+                                          taskTitle),
+                 TaskPhase::Working);
+}
+
+void LibrarianView::showTaskPage(const MemoryTaskPage& page, TaskPhase phase)
+{
+    taskPhase = phase;
+    taskWindow->show(page, [safe = juce::Component::SafePointer<LibrarianView>(this)](int index) {
+        if (safe != nullptr)
+            safe->taskButtonClicked(index);
     });
 }
 
-void LibrarianView::askForNoBackupConsent(const nl2x::MemoryWritePlan& plan)
+void LibrarianView::taskButtonClicked(int index)
 {
-    showSelectableAlert("No backup possible", utf8(plan.noBackupWarning),
-                        { "Write without a backup", "Cancel" }, isShowing() ? this : nullptr,
-                        [safe = juce::Component::SafePointer<LibrarianView>(this), plan](int result) {
-        if (safe == nullptr)
-            return;
-        if (result == 1)
-            safe->confirm(plan.token, nl2x::NoBackupConsent::Given);
-        else
-            safe->processor.synthMemory().cancel();
-    });
+    auto& memory = processor.synthMemory();
+    const bool first = index == 0;
+    switch (taskPhase) {
+    case TaskPhase::Working:
+        memory.cancel();
+        // Before Overwrite nothing was written: the window goes. After it, the window says what
+        // was written before the write stopped.
+        if (! taskConfirmed)
+            closeTaskWindow();
+        refresh();
+        return;
+    case TaskPhase::Confirming:
+    case TaskPhase::NoBackupConsent:
+        if (first && taskPlan && taskPhase == TaskPhase::Confirming && taskPlan->needsNoBackupConsent) {
+            showTaskPage(memoryTaskPages::noBackup(*taskPlan), TaskPhase::NoBackupConsent);
+        } else if (first && taskPlan) {
+            confirm(taskPlan->token, taskPhase == TaskPhase::NoBackupConsent ? nl2x::NoBackupConsent::Given
+                                                                             : nl2x::NoBackupConsent::NotGiven);
+        } else {
+            memory.cancel();
+            closeTaskWindow();
+            refresh();
+        }
+        return;
+    case TaskPhase::Outcome:
+        closeTaskWindow();
+        refresh();
+        return;
+    }
+}
+
+void LibrarianView::closeTaskWindow()
+{
+    if (taskWindow == nullptr)
+        return;
+    taskWindow->close();
+    closedTaskWindow = std::move(taskWindow);
+}
+
+juce::String LibrarianView::locationsList(const nl2x::MemoryWritePlan& plan) const
+{
+    juce::String list;
+    if (plan.operation != nl2x::MemoryOperation::SendPrograms || plan.programs.size() > kMostListed)
+        return list;
+    const auto nameOf = [](const LocationText& text) {
+        return ! text.known ? juce::String("unknown") : text.name.isEmpty() ? juce::String("unnamed") : text.name;
+    };
+    for (const auto program : plan.programs) {
+        const nl2x::BankLocation location { plan.bank, program };
+        list << "Program " << program << ": " << nameOf(describe(location)) << "  (replaces "
+             << nameOf(describeSynth(location)) << ")\n";
+    }
+    return list;
 }
 
 void LibrarianView::confirm(std::uint64_t token, nl2x::NoBackupConsent consent)
 {
-    const auto result = processor.synthMemory().confirm(token, consent, NL2XEditorProcessor::engineTimeMs());
-    if (result == nl2x::MemoryConfirmResult::RefusedNoSuchPlan)
-        setMessage("That question is no longer current: nothing was written.");
-    else
+    taskConfirmed = true;
+    auto& memory = processor.synthMemory();
+    const auto result = memory.confirm(token, consent, NL2XEditorProcessor::engineTimeMs());
+    if (result != nl2x::MemoryConfirmResult::RefusedNoSuchPlan) {
         refresh();
+        return;
+    }
+    const juce::String text = "That question is no longer current: nothing was written.";
+    if (taskWindow != nullptr)
+        showTaskPage(memoryTaskPages::outcome(memory.status(), text), TaskPhase::Outcome);
+    setMessage(text);
 }

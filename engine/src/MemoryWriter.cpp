@@ -590,12 +590,14 @@ MemoryWriter::BankDecision MemoryWriter::decide(const std::optional<Performance>
 void MemoryWriter::litSlotRead(const std::optional<Performance>& performance, TimeMs timeMs)
 {
     auto decision = decide(performance);
-    const auto decided = [this](BankDecision made, TimeMs doneMs) {
+    const auto decided = [this, performance](BankDecision made, TimeMs doneMs) {
         task->decision = std::move(made);
         if (! task->confirmed) {
             offerPlan();
             return;
         }
+        if (task->decision.lit)
+            task->slotsAfterOverwrite = performance;
         const auto& now = task->decision;
         switch (now.setting) {
         case BankSetting::AlreadyThere:
@@ -1037,11 +1039,43 @@ void MemoryWriter::finishWrite(const std::string& slotNote)
     if (reading.verified)
         message += " Read back: " + std::to_string(task->matches) + " of " + count + " match what was sent.";
     message += slotNote;
+    message += reloadSlotsOnWrittenLocations();
     if (current.backupFile)
         message += " Backup: " + current.backupFile->string() + ".";
     else
         message += " No backup was made.";
     finish(message);
+}
+
+std::string MemoryWriter::reloadSlotsOnWrittenLocations()
+{
+    if (! task->slotsAfterOverwrite)
+        return {};
+    const auto& performance = *task->slotsAfterOverwrite;
+    std::vector<std::string> names;
+    for (const auto slot : kAllSlots) {
+        if (performance.setting(PerformanceSetting::ProgramBank, slot) != task->bank)
+            continue;
+        // Program numbers 0–98 are Programs 1–99, as the locations are; Kits come after them.
+        const auto number = performance.setting(PerformanceSetting::ProgramNumber, slot);
+        const auto found = std::find(task->locations.begin(), task->locations.end(), number);
+        if (found == task->locations.end())
+            continue;
+        const auto& written = task->programs[static_cast<std::size_t>(found - task->locations.begin())];
+        const auto& state = engine.slotState(slot);
+        if (state.content != SlotContent::Program || state.program == written)
+            continue;
+        slotReloads.push_back({ slot, written });
+        names.push_back(slotText(slot));
+    }
+    if (names.empty())
+        return {};
+    std::string list;
+    for (std::size_t i = 0; i < names.size(); ++i)
+        list += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + names[i];
+    return " " + list + (names.size() == 1 ? " was" : " were")
+           + " on a location just written, and now " + (names.size() == 1 ? "plays" : "play")
+           + " the new sound.";
 }
 
 void MemoryWriter::advanceTime(TimeMs timeMs)
