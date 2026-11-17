@@ -48,6 +48,9 @@ target_sources(NL2XEditor PRIVATE
     TagChips.cpp)
 
 target_compile_definitions(NL2XEditor PUBLIC
+    # The version shown to the user, with its pre-release label ("0.1.0-beta.1"); the bundles carry
+    # the numeric PROJECT_VERSION (top-level CMakeLists.txt).
+    NL2X_VERSION_STRING="${NL2X_VERSION}"
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0)
