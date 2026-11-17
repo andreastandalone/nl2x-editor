@@ -102,7 +102,7 @@ public:
     }
 
     const juce::String getApplicationName() override { return juce::CharPointer_UTF8(JucePlugin_Name); }
-    const juce::String getApplicationVersion() override { return JucePlugin_VersionString; }
+    const juce::String getApplicationVersion() override { return NL2X_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void anotherInstanceStarted(const juce::String&) override {}
 

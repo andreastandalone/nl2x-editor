@@ -11,7 +11,18 @@ if(NL2X_BUILD_PLUGIN AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Architectures to build")
 endif()
 
-project(NL2XEditor VERSION 0.0.1 LANGUAGES C CXX)
+# The version lives here and nowhere else. VERSION is numeric because the bundles' version fields
+# (CFBundleShortVersionString, the AU version) must be; NL2X_VERSION_LABEL marks a pre-release such
+# as "beta.1" and is empty for a final release. The release tag is "v" + NL2X_VERSION, for example
+# v0.1.0-beta.1; release.yml refuses a tag that does not match (docs/release-process.md).
+project(NL2XEditor VERSION 0.1.0 LANGUAGES C CXX)
+set(NL2X_VERSION_LABEL "beta.1")
+
+if(NL2X_VERSION_LABEL)
+    set(NL2X_VERSION "${PROJECT_VERSION}-${NL2X_VERSION_LABEL}")
+else()
+    set(NL2X_VERSION "${PROJECT_VERSION}")
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

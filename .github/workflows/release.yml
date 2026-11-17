@@ -1,6 +1,8 @@
 name: Release
 
-# A tag v* builds, checks and packages the Universal build and creates a DRAFT GitHub release.
+# A tag v* builds, checks and packages the Universal build and creates a DRAFT GitHub release
+# (marked as a pre-release when the version has a label such as "beta.1"). Nothing is published:
+# Andrea reviews and publishes the draft by hand (docs/release-process.md).
 # A manual run (workflow_dispatch) is a dry run: it only uploads the zip as a workflow artifact.
 on:
   push:
@@ -20,18 +22,28 @@ jobs:
 
       - name: Work out the version
         run: |
+          # The version the binaries carry: project VERSION plus NL2X_VERSION_LABEL, as in
+          # CMakeLists.txt (for example 0.1.0 + beta.1 = 0.1.0-beta.1).
+          cmake_version="$(sed -nE 's/^project\(NL2XEditor VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          label="$(sed -nE 's/^set\(NL2X_VERSION_LABEL "([^"]*)"\).*/\1/p' CMakeLists.txt)"
+          if [[ -z "$cmake_version" ]]; then
+            echo "::error::No project VERSION found in CMakeLists.txt"
+            exit 1
+          fi
+          built_version="$cmake_version${label:+-$label}"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
-            # The tag must name the version the binaries carry (project VERSION in CMakeLists.txt).
-            cmake_version="$(sed -nE 's/^project\(NL2XEditor VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
-            if [[ "$version" != "$cmake_version" ]]; then
-              echo "::error::Tag $GITHUB_REF_NAME does not match project VERSION $cmake_version in CMakeLists.txt"
+            # The tag must name the version the binaries carry.
+            if [[ "$version" != "$built_version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match version $built_version in CMakeLists.txt"
               exit 1
             fi
           else
-            version="dry-run-$(git rev-parse --short HEAD)"
+            version="$built_version-dry-run-$(git rev-parse --short HEAD)"
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILT_VERSION=$built_version" >> "$GITHUB_ENV"
+          echo "PRERELEASE=${label:+true}" >> "$GITHUB_ENV"
           echo "ZIP=NL2X-Editor-$version-macOS-universal.zip" >> "$GITHUB_ENV"
 
       - name: Cache FetchContent downloads and pluginval
@@ -65,6 +77,35 @@ jobs:
             lipo "$binary" -verify_arch arm64 x86_64
           done
 
+      # The linker signs only each executable (ad hoc), which leaves the bundles without a sealed
+      # signature; a downloaded, quarantined bundle in that state is reported as "damaged" on Apple
+      # Silicon, with no Open Anyway. An ad-hoc signature of the whole bundle (no Developer ID, no
+      # notarization) makes macOS show its usual "could not verify" block, which the README's
+      # Open Anyway steps clear. Signed before the checks so that they test what is shipped.
+      - name: Sign the bundles ad hoc
+        run: |
+          for bundle in \
+            "$ARTEFACTS/VST3/NL2X Editor.vst3" \
+            "$ARTEFACTS/AU/NL2X Editor.component" \
+            "$ARTEFACTS/Standalone/NL2X Editor.app"; do
+            codesign --force --deep --sign - "$bundle"
+            codesign --verify --deep --strict --verbose=2 "$bundle"
+          done
+
+      - name: Check the bundle versions
+        run: |
+          for bundle in \
+            "$ARTEFACTS/VST3/NL2X Editor.vst3" \
+            "$ARTEFACTS/AU/NL2X Editor.component" \
+            "$ARTEFACTS/Standalone/NL2X Editor.app"; do
+            short="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Contents/Info.plist")"
+            echo "$bundle: $short"
+            if [[ "$short" != "${BUILT_VERSION%%-*}" ]]; then
+              echo "::error::$bundle carries version $short, expected ${BUILT_VERSION%%-*}"
+              exit 1
+            fi
+          done
+
       - name: pluginval (VST3)
         run: tools/run-pluginval.sh "$ARTEFACTS/VST3/NL2X Editor.vst3" .ci-cache/pluginval
 
@@ -83,25 +124,36 @@ jobs:
           cp -R "$ARTEFACTS/AU/NL2X Editor.component" "$stage/"
           cp -R "$ARTEFACTS/Standalone/NL2X Editor.app" "$stage/"
           cp README.md LICENSE "$stage/"
+          notes="docs/release-notes/$BUILT_VERSION.md"
+          if [[ -f "$notes" ]]; then
+            cp "$notes" "$stage/RELEASE-NOTES.md"
+          fi
           cat > "$stage/INSTALL.txt" <<'TXT'
           NL2X Editor: installation
 
-          1. Copy "NL2X Editor.vst3" to  ~/Library/Audio/Plug-Ins/VST3/
-          2. Copy "NL2X Editor.component" to  ~/Library/Audio/Plug-Ins/Components/
-          3. Copy "NL2X Editor.app" to  /Applications
+          1. Copy "NL2X Editor.vst3" to       /Library/Audio/Plug-Ins/VST3/
+          2. Copy "NL2X Editor.component" to  /Library/Audio/Plug-Ins/Components/
+          3. Copy "NL2X Editor.app" to        /Applications/
+             (In the Finder: Go > Go to Folder... and type the path. macOS asks for your
+             password. For your user account only, use ~/Library/Audio/Plug-Ins/... instead.)
           4. Restart your DAW so that it rescans its plugins.
 
           This build is not notarized, so macOS blocks it the first time. To open it anyway:
-          System Settings > Privacy & Security > Open Anyway, or in Terminal:
-            xattr -dr com.apple.quarantine "<path to the file you copied>"
+          try to open it once, then System Settings > Privacy & Security > Open Anyway (within
+          about an hour). Or, in Terminal, for each file you copied:
+            sudo xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/NL2X Editor.vst3"
           On macOS 14 or earlier you can also Control-click (right-click) the app and choose
           Open; macOS 15 and later only offer System Settings.
 
-          MIDI setup, the synth settings (Shift + PROG/CTRL: P on, C on, A off) and DAW notes
-          are in README.md.
+          This is a beta: Percussion Kits and Performances cannot be edited yet. Back up your
+          Banks before writing to the synth (the editor also backs up every Bank it writes to
+          ~/Documents/Nord Lead 2X/Backups/).
 
-          Not affiliated with or endorsed by Clavia DMI AB. Nord and Nord Lead are trademarks
-          of Clavia DMI AB.
+          MIDI setup, the synth settings (Shift + PROG/CTRL: P on, C on, A off) and DAW notes
+          are in README.md; what is new and what is known not to work is in RELEASE-NOTES.md.
+
+          Nord, Nord Lead and Clavia are trademarks of Clavia DMI AB. NL2X Editor is not
+          affiliated with or endorsed by Clavia DMI AB.
           TXT
           (cd dist && ditto -c -k --keepParent "NL2X-Editor-$VERSION" "../$ZIP")
           unzip -l "$ZIP"
@@ -118,7 +170,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$ZIP" \
-            --draft \
-            --title "NL2X Editor $VERSION" \
-            --generate-notes
+          notes="docs/release-notes/$VERSION.md"
+          args=(--draft --title "NL2X Editor $VERSION")
+          if [[ -f "$notes" ]]; then
+            args+=(--notes-file "$notes")
+          else
+            args+=(--generate-notes)
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "$ZIP" "${args[@]}"
