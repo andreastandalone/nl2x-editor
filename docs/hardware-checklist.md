@@ -1,8 +1,56 @@
-# Hardware checklist for release v0.1
+# Hardware checklist
 
 Run on Andrea's Nord Lead 2X, with the release build installed as in the README, in **Ableton Live** and in **Cubase**. The standalone app is checked once.
 
-**The hardware discovery session ([hardware-discovery-plan.md](hardware-discovery-plan.md)) comes first.** Until it is done and its results are in `engine/include/nl2x/HardwareAssumptions.h`, several expected results below are assumptions. Where an item says "note", write the observation in the margin or in an issue; a note that contradicts an assumption means the constant must be corrected before release.
+Two parts:
+
+- **[Beta acceptance run](#beta-acceptance-run-010-beta1)** (about one hour): the list to go through before publishing 0.1.0-beta.1. It is the release gate for the beta.
+- **The full checklist** (sections 1–12 below): every feature in detail, with the hardware notes still to collect. Its items are not required for the beta; they are run before 0.1.0 and whenever a feature changes.
+
+The hardware discovery session ([hardware-discovery-plan.md](hardware-discovery-plan.md)) was done on 2026-10-29, 2026-11-02 and 2026-11-16, and its results are in `engine/include/nl2x/HardwareAssumptions.h`. Where an item says "note", write the observation in the margin or in an issue; a note that contradicts an assumption means the constant must be corrected.
+
+## Beta acceptance run (0.1.0-beta.1)
+
+**Out of scope for the beta:** Percussion Kit editing and Kit Banks in the Librarian, Performance editing (the Performance view is read-only), Performance Bank writes. Do not fail the run on them; only check that the editor says so instead of misbehaving (items B4 and B5).
+
+**Build:** the zip from the draft release (or the dry run's workflow artifact), not a local build. **Before you start:** in the Librarian, "Save Bank as .syx..." for Banks 0–3 into a folder outside the Library (your own backup). Use **Bank 3** as the test Bank. Synth: Shift + PROG/CTRL **P on, C on, A off**; Slots A–D on MIDI channels 1–4; Global Channel 16; Performance mode off; Programs (not Kits) on all Slots.
+
+A plain box is done once; `Live [ ]  Cubase [ ]` is done in each DAW.
+
+**Install and open (10 min)**
+
+- [ ] B1. Download the zip with a browser, unzip it, copy the three bundles as the README says (VST3 and AU to `/Library/Audio/Plug-Ins/...`, app to `/Applications`). macOS blocks the first open; the README's **Open Anyway** steps (or the `xattr` commands) let the app open. It does not say the app "is damaged".
+- [ ] B2. About (click the name in the header bar): version **0.1.0-beta.1**, the beta note about Kits and Performances, AGPLv3 and no warranty, the source link opens the GitHub page, credits, and "Nord, Nord Lead and Clavia are trademarks of Clavia DMI AB ... not affiliated". Finder > Get Info on each bundle shows version 0.1.0.
+- [ ] B3. Standalone app: choose the MIDI ports in Settings; the Connection check runs by itself with every line OK and the indicator reads "Connected, Global Channel 16". Quit and reopen: the ports are remembered. Quit the app before the DAW tests.
+
+**In each DAW (15 min per DAW)**
+
+- Live [ ]  Cubase [ ]  B4. Load NL2X Editor (VST3) on a MIDI track; it loads without a macOS block (or after Open Anyway once). Choose the ports. Slots A–D show the synth's four Programs; the Performance view shows the Slot Channels 1–4 read-only, with its note that Performances cannot be edited yet.
+- Live [ ]  Cubase [ ]  B5. Put a Kit (P0) on Slot D from its selector: Slot D shows the Percussion Kit notice and no knobs. Put a Program back.
+- Live [ ]  Cubase [ ]  B6. Turn a knob and press a button in the plugin: the synth follows. Turn a knob and press a button on the synth: the plugin follows.
+- Live [ ]  Cubase [ ]  B7. Option-drag Filter Cutoff on Slot A: the Morph ring appears and the sound with the Mod Wheel up changes. Undo (button or Cmd+Z): the value and the synth go back.
+- Live [ ]  Cubase [ ]  B8. Record automation of "A: Filter Cutoff" and play it back with the transport: the synth follows, no jumping back or feedback.
+- Live [ ]  Cubase [ ]  B9. Select Bank 1, Program 23 for Slot A in the plugin: the synth shows 1.23 and the Slot A values change.
+- Live [ ]  Cubase [ ]  B10. Change a sound in the plugin, save the project, change the sound on the synth, close and reopen the project: the saved sound comes back on the synth and no Program Change is sent.
+- Live [ ]  Cubase [ ]  B11. A second instance on another track warns that another editor controls the synth and does not move it; remove it.
+- [ ] B12. Resize the window by its corner and pick 150 % in the size menu next to the name: proportions kept, text readable.
+
+**Library and Librarian (20 min, either DAW or the app)**
+
+- [ ] B13. Library: put a Program `.syx` and a Bank file in `~/Documents/Nord Lead 2X/`, Refresh: both appear; click a Program: it plays at once on the selected Slot and no Bank changes (Audition). Give it a tag and a star; filter by them; restart: kept.
+- [ ] B14. Kits from the Library: click a Kit entry of a Bank file with a Kit on the selected Slot: the synth plays it. "Save entry as .syx" writes a file.
+- [ ] B15. Store: light Slot B on the synth on Bank 2; in the editor store Slot A into Bank 3, Program 99. The question says the editor will switch the lit Slot to Bank 3 and back; Overwrite. Expected: "Read back: 1 of 1", Slot B back on Bank 2 with its edits, Program 99 of Bank 3 holds Slot A's sound, Program 99 of Bank 2 unchanged, a new backup in `~/Documents/Nord Lead 2X/Backups/`.
+- [ ] B16. Librarian, Bank 3: drag two Library Programs onto two locations; "Send Bank 3 to synth..." names exactly those two; after the write "Read back: 2 of 2" and the "to send" marks are gone.
+- [ ] B17. Restore: open your own Bank 3 backup with "Replace with Bank file..." and send the whole Bank: "Read back: 99 of 99". Bank 3 is as before the run.
+- [ ] B18. Unplug the synth's MIDI OUT cable, press Connection check and play a key when asked: it names the return cable. Plug it back and run the check again: every line OK.
+
+**Result**
+
+Date: ____________  Zip: ____________  macOS: ____________  Live: ____________  Cubase: ____________
+
+- [ ] Every B item passes, or each failure is an issue Andrea accepts for the beta (listed here): ____________
+
+## The full checklist
 
 How to read this: a plain checkbox is run once (standalone app or either DAW). Items with two boxes, `Live [ ]  Cubase [ ]`, are run in both DAWs. Terms follow the glossary.
 
@@ -145,7 +193,7 @@ The colours are placeholders until they are sampled from a photo of the synth (i
 - [ ] Colours and violet Morph arc readable on a dark and a light DAW theme. Notes: ____________
 - [ ] The fixed 1378 × 758 window fits and reads well in Live [ ]  Cubase [ ]  standalone [ ].
 - [ ] Text is legible at the default size; no clipped labels. Notes: ____________
-- [ ] About window shows the trademark notice ("Not affiliated with or endorsed by Clavia DMI AB. Nord and Nord Lead are trademarks of Clavia DMI AB.") and the version.
+- [ ] About window shows the trademark notice ("Nord, Nord Lead and Clavia are trademarks of Clavia DMI AB. NL2X Editor is not affiliated with or endorsed by Clavia DMI AB.") and the version.
 
 ## Result
 

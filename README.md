@@ -1,76 +1,125 @@
 # NL2X Editor
 
-An editor for the Nord Lead 2X: a free, open-source VST3/AU plugin for macOS that lets you edit every parameter of all four Slots from your DAW, automate them, and manage Programs, Performances and Banks as `.syx` files.
+An editor for the Nord Lead 2X: a free, open-source VST3/AU plugin and standalone app for macOS that lets you edit every sound parameter of the four Slots from your DAW, automate them, keep your sounds in a Library of `.syx` files and write them into the synth's Banks.
 
-**Status:** early development. Version 0.1, the first release, is in preparation: it is being checked on a real Nord Lead 2X and has not been published yet.
+**Status: public beta, version 0.1.0-beta.1.** It has been used on a real Nord Lead 2X, but not by many people yet. Percussion Kits and Performances cannot be edited yet (see [Not in this beta](#not-in-this-beta)). Back up your Banks before you write to the synth (see [Safety](#safety)). What changed and what is still open is in the [release notes](docs/release-notes/0.1.0-beta.1.md).
 
-## Planned features
+## What the beta does
 
-- All sound parameters of Slots A–D, including the Velocity/Morph amounts the synth's panel hides.
-- DAW automation and controller mapping (tested with Ableton Live and Cubase).
-- Two-way sync: turning a knob on the synth moves it in the plugin.
-- Your DAW project recalls the synth's sounds when it is reopened.
-- A Library of standard `.syx` files, each subfolder a collapsible group, with instant audition, and safe writing to the synth's memory with automatic backups.
-- Your own names, tags and favourites for Library sounds and for the sounds in the synth's Banks (the synth stores no names), kept in `library.json` in the Library folder, with filters by tag and favourites. A sound can have any number of tags: click one to change or remove it, or the end of the row to add one (Bass, Pad, Pluck, Arp… or your own). Suggested tags (from the file name, from the sounds you tagged yourself that it resembles, or Bass or Keys from its parameters) show dashed and are kept with one click; Auto-tag keeps them all at once, and Undo auto-tag takes back those you have not kept.
+- **Edits the four Slots.** Every sound parameter of the Programs on Slots A–D, from the plugin's panel, from the synth's own panel or from the DAW, including the Velocity/Morph Amounts the synth's panel hides (Option-drag a knob).
+- **Two-way.** Turn a knob on the synth and the plugin follows; move a control in the plugin and the synth follows.
+- **DAW automation.** Every parameter is a DAW parameter, named like "A: Filter Cutoff" or "B: LFO1 Rate Morph", for automation and controller mapping. Tested with Ableton Live and Cubase.
+- **Project recall.** Your DAW project remembers the four Slots' sounds and sends them to the synth when the project is opened (you can turn this off). It never stores anything in the synth's Banks.
+- **Bank and Program selectors** for each Slot, and a Performance selector.
+- **Connection check.** It finds the synth's Global Channel by itself and tells you what to change when a cable or a setting is wrong.
+- **Library.** Your `.syx` files (single Programs, Percussion Kits, Performances and whole Banks), each subfolder a collapsible group. Click a Program to hear it at once on the selected Slot (Audition) without storing it. Your own names, tags and favourites for each sound, with filters; suggested tags and Auto-tag.
+- **Librarian.** Reads the synth's four RAM Program Banks (0–3), shows them beside the Library, and lets you drag Programs into Bank locations, store a Slot or a Library Program into a location, and send a changed or whole Bank. Every write is backed up first and read back afterwards.
+- **Undo and redo** of your edits (also Cmd+Z and Cmd+Shift+Z in the plugin window).
+- **Saves** a Slot, a Performance, a Library entry or a Bank as standard `.syx` files that other tools understand.
+
+## Not in this beta
+
+- **Percussion Kits cannot be edited or managed in the Librarian.** A Slot playing a Kit shows a notice instead of its parameters. Kits that are in your Library can still be auditioned, saved as `.syx` and sent from the Library. Reading and writing the synth's Kit Banks is not understood yet ([#33](https://github.com/andreastandalone/nl2x-editor/issues/33)).
+- **Performances cannot be edited.** The Performance view shows the synth's Performance (Slot Channels, Split, Layer) read-only: the synth stores a Performance sent to it but does not play it, so edits would have no effect ([#31](https://github.com/andreastandalone/nl2x-editor/issues/31)). Performances can be selected, auditioned from the Library and saved as `.syx`; writing them into the synth's Performance Banks is not supported ([#34](https://github.com/andreastandalone/nl2x-editor/issues/34)).
+- **Banks 4–9** are the synth's ROM: they can be selected and played, not written. The Librarian shows only the RAM Banks 0–3.
+- **macOS only**, and the build is not signed by an Apple Developer ID or notarized (see [Opening it the first time](#opening-it-the-first-time)).
+- Some behaviour still rests on assumptions not yet checked on hardware; they are listed in the [release notes](docs/release-notes/0.1.0-beta.1.md#still-unverified-on-hardware).
 
 ## Requirements
 
-- macOS (Intel or Apple Silicon).
-- A Nord Lead 2X or Nord Rack 2X connected through a MIDI interface, with both MIDI In and Out cabled.
+- macOS 11 or later, on an Intel or Apple Silicon Mac.
+- A Nord Lead 2X or Nord Rack 2X connected through a MIDI interface, with **both** MIDI In and MIDI Out cabled.
+- For the plugin: a DAW that hosts VST3 or Audio Unit instruments (tested: Ableton Live and Cubase).
 
 ## Installation
 
-Once version 0.1 is published, download `NL2X-Editor-<version>-macOS-universal.zip` from the [GitHub Releases page](https://github.com/andreastandalone/nl2x-editor/releases) and unzip it. It contains:
+Download `NL2X-Editor-0.1.0-beta.1-macOS-universal.zip` from the [GitHub Releases page](https://github.com/andreastandalone/nl2x-editor/releases) and double-click it to unzip it. The folder contains:
 
-- `NL2X Editor.vst3`: copy it to `~/Library/Audio/Plug-Ins/VST3/`.
-- `NL2X Editor.component` (the Audio Unit): copy it to `~/Library/Audio/Plug-Ins/Components/`.
-- `NL2X Editor.app` (the standalone app): copy it to `/Applications`.
+| File | What it is | Copy it to |
+|---|---|---|
+| `NL2X Editor.vst3` | the VST3 plugin | `/Library/Audio/Plug-Ins/VST3/` |
+| `NL2X Editor.component` | the Audio Unit plugin | `/Library/Audio/Plug-Ins/Components/` |
+| `NL2X Editor.app` | the standalone app | `/Applications/` |
 
-(`~` is your home folder. In the Finder, choose Go > Go to Folder... and type the path.) Restart your DAW so that it rescans its plugins.
+In the Finder, choose Go > Go to Folder... and type the folder's path. macOS asks for your administrator password when you copy into `/Library` or `/Applications`. (To install for your user account only, use the same folders under your home folder instead: `~/Library/Audio/Plug-Ins/VST3/` and `~/Library/Audio/Plug-Ins/Components/`.) Install only the formats you need: Live and Cubase use the VST3, Logic uses the AU.
 
-**Opening it the first time.** The build is not signed with an Apple Developer certificate and not notarized, so macOS blocks it with a message saying it cannot check it for malicious software. This is expected for a free, open-source build; the source code is public and you can build it yourself (see Building). To open it anyway:
+Then restart your DAW so that it rescans its plugins. In Live, if the plugin does not appear, turn on Settings > Plug-Ins > Use VST3 Plug-In System Folders (and Use Audio Units).
 
-1. Try to open the app (or load the plugin in your DAW) once, so that macOS shows the message and records the block.
-2. Open System Settings > Privacy & Security, scroll down to the Security section and click **Open Anyway** next to "NL2X Editor". Confirm with your password. For a plugin, load it again in the DAW and repeat if macOS asks again.
+### Opening it the first time
 
-On macOS 14 (Sonoma) and earlier there is a shorter way for the app: Control-click (or right-click) `NL2X Editor.app` in `/Applications`, choose **Open**, then **Open** again in the dialog. macOS 15 (Sequoia) and later removed this shortcut, so use System Settings there.
+The build is free and open source, so it is not signed with a paid Apple Developer ID and not notarized by Apple. macOS therefore blocks it the first time with a message such as "Apple could not verify "NL2X Editor" is free of malware". This is expected; the source code is public and you can build it yourself (see [Building](#building)). Allow it once in one of these two ways.
 
-Alternatively, in Terminal, remove the quarantine mark macOS put on the files you downloaded. This only affects the files you name, so check the path before pressing Return:
+**System Settings (macOS 15 Sequoia and later, also works on earlier versions):**
+
+1. Try to open the app, or load the plugin in your DAW, once. macOS shows the message; click **Done** (not Move to Trash).
+2. Open System Settings > **Privacy & Security** and scroll down to the Security section. Next to "NL2X Editor was blocked to protect your Mac", click **Open Anyway** and confirm with your password or Touch ID. The button appears only for about an hour after the blocked attempt.
+3. Open the app or reload the plugin again, and click **Open Anyway** (or Open) in the last dialog.
+
+Do this for each format you use: the app, the VST3 and the AU are separate files. On macOS 14 (Sonoma) and earlier you can instead Control-click (or right-click) the app in the Finder, choose **Open** and then **Open** again; macOS 15 removed this shortcut.
+
+**Terminal (quicker for plugins):** remove the quarantine mark that macOS put on the downloaded files. It affects only the files you name, so check the path before pressing Return:
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/NL2X Editor.app"
-xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/NL2X Editor.vst3"
-xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/Components/NL2X Editor.component"
+sudo xattr -dr com.apple.quarantine "/Applications/NL2X Editor.app"
+sudo xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/NL2X Editor.vst3"
+sudo xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/Components/NL2X Editor.component"
 ```
 
-Only do this for a file you downloaded from this project's Releases page.
+(Without `sudo` for copies under your home folder.) Alternatively, run `xattr -d com.apple.quarantine` on the downloaded zip **before** you unzip it: then nothing inside it is quarantined. If macOS ever says the editor "is damaged and can't be opened", that is the same quarantine block, and the commands above fix it. Only do this for files downloaded from this project's Releases page.
 
 ## MIDI setup
 
-The plugin talks to the synth directly, in both directions, so it needs both MIDI cables:
+The editor talks to the synth directly, in both directions, so it needs both MIDI cables:
 
 - the interface's MIDI Out to the synth's MIDI In, and
 - the synth's MIDI Out to the interface's MIDI In.
 
-Choose the MIDI input and output ports inside the plugin (its settings), not in the DAW. The plugin remembers them. Only one editor at a time should control the synth: if a second instance or application is open, the plugin warns you.
+Choose the MIDI input and output ports **inside the editor** (Settings), not in the DAW; it remembers them. Only one editor at a time should control the synth: if a second plugin instance or the standalone app is already connected, the editor warns you and offers Take control.
 
-The plugin produces no audio: its single stereo output is silent. Notes still come from a normal MIDI track in your DAW sent to the synth, as you would do without the plugin. Play the synth's own sound through your audio interface as usual.
+**Channels.** The synth uses two kinds of MIDI channel, and the editor reads both from the synth:
 
-When the synth is connected, the plugin runs a Connection check and shows the result. If something is wrong (a missing cable, a setting on the synth), it says what to change.
+- **Slot Channels**: each Slot A–D receives and sends notes, Program Changes and knob movements on its own channel. Set them on the synth with **Shift + MIDI CH**, then press the Slot button and use UP/DOWN (or `oFF`). Give each Slot its own channel, for example A = 1, B = 2, C = 3, D = 4. The Performance view shows them; Slots that share a channel are flagged.
+- **Global Channel**: the channel of the synth's SysEx (its device ID) and of Performance changes. Press **Shift + MIDI CH**, then **MIDI CH** again: the display shows `G.x`. Set it to a channel that no Slot uses, for example 16, as the manual advises. The editor finds it by itself (Settings > Global Channel: Automatic); if it cannot, choose it there by hand.
+
+A Slot whose channel is `oFF`, or shared with another Slot or the Global Channel, still shows its sound, but the editor cannot select its Programs, and the Store into another Bank asks you to switch the lit Slot by hand.
+
+The plugin produces no audio: its stereo output is silent. Notes still come from a normal MIDI track in your DAW sent to the synth, as without the plugin, and you hear the synth through your audio interface as usual.
+
+When the synth is connected, the editor runs a **Connection check** and shows the result. If something is wrong (a missing cable, a setting on the synth), it says what to change. You can run it again from the header bar.
 
 ## Synth settings
 
-On the synth, press **Shift + PROG/CTRL** and set:
+On the synth, hold **Shift** and press **PROG/CTRL** repeatedly to step through its three settings, and use UP/DOWN to set each:
 
-- **P** (Program Change) on,
-- **C** (Control Change) on: the plugin edits parameters with control changes, so nothing works with C off,
-- **A** (Arp MIDI Out) off.
+- **P** (Program Change) **on**: needed by the Bank/Program selectors, the Librarian's Store and Send, and project recall.
+- **C** (Control Change) **on**: the editor edits parameters with control changes, so nothing follows with C off.
+- **A** (Arpeggio MIDI Out) **off**, so that arpeggios do not loop back.
 
-The plugin also needs the synth's **Global Channel** (shown as `G.x` when you press **Shift + MIDI CH** twice). By default the plugin finds it automatically; if it cannot, choose it by hand in the plugin's settings. **Local** is always On after power-up, which is the right setting unless you route the synth's MIDI through your DAW with Local Off.
+**Local** is On after every power-up, which is right unless you route the synth's keyboard through your DAW with Local Off.
+
+**Writing to the synth's memory.** The Nord Lead 2X has no memory-protect switch: any Program of the RAM Banks 0–3 can be overwritten by a received dump, as the editor's Store and Send do. Banks 4–9 are ROM and are never written. A Store writes into the Bank of the **lit Slot** (the one whose button is lit), whatever Bank the message names, so the editor switches the lit Slot to the target Bank for the write and puts it back afterwards, unsaved edits included. When it cannot (the lit Slot's channel is off or shared, or a Kit is on it), it shows numbered steps to do on the panel. Do not play or touch the synth while a write is running.
+
+## Safety
+
+- **Back up first.** Before the first write, open the Librarian and save each RAM Bank you care about with "Save Bank as .syx..." into your Library. The factory Banks are also on the [Nord legacy downloads page](https://www.nordkeyboards.com/legacy-products/nord-lead-2x/downloads/).
+- **Automatic backups.** Before every write the editor reads the Bank it is about to change and saves it as a `.syx` file in `~/Documents/Nord Lead 2X/Backups/`. If no backup can be made, it asks before writing anything. Backups appear in the Library under a closed "Backups" heading; to restore one, open it in the Librarian with "Replace with Bank file..." and send the Bank.
+- **Read back.** After every write the editor reads the written locations back and says how many match ("Read back: 99 of 99").
+- **Audition stores nothing.** Clicking a sound in the Library or in a Bank only plays it on a Slot; only Store and Send write to memory, and both ask first.
+- **Project recall** sends sounds to the Slots, never to the Banks.
+
+## Your files
+
+- **Library folder:** `~/Documents/Nord Lead 2X/` by default (`~` is your home folder); choose another in Settings. Put your `.syx` files there, in subfolders if you like; each subfolder becomes a group. Your names, tags and favourites are kept in `library.json` in that folder.
+- **Backups:** `~/Documents/Nord Lead 2X/Backups/`, whatever the Library folder is.
+- **Settings** (MIDI ports, Global Channel, window size): `~/Library/Application Support/NL2X Editor/NL2X Editor.settings`.
 
 ## Using it in Ableton Live and Cubase
 
-Insert NL2X Editor on a MIDI track as an instrument (in Live: drag it from Plug-Ins > VST3 or Audio Units onto a MIDI track; in Cubase: Add Instrument Track or Rack Instrument, then choose it). Open its window and choose the MIDI ports. Then set that track's MIDI output to the synth's port, or use a second MIDI track for the notes, so the notes reach the synth. The parameters appear in the DAW's automation lists with names such as "A: Filter Cutoff", and your project remembers the synth's sounds.
+Insert NL2X Editor on a MIDI track as an instrument (in Live: drag it from Plug-Ins > VST3 or Audio Units onto a MIDI track; in Cubase: Add Instrument Track or Rack Instrument, then choose it). Open its window and choose the MIDI ports in Settings. Send your notes to the synth from that track's MIDI output or from a second MIDI track. The parameters appear in the DAW's automation lists with names such as "A: Filter Cutoff", and your project remembers the synth's sounds.
+
+## Reporting problems
+
+Open an issue on [GitHub Issues](https://github.com/andreastandalone/nl2x-editor/issues) with: the editor's version (About), your macOS version and Mac (Intel or Apple Silicon), the DAW and its version (or the standalone app), the format (VST3 or AU), your MIDI interface, what you did, what you expected and what happened. For a write, the text of the task window can be selected and copied into the issue.
 
 ## Building
 
@@ -131,8 +180,8 @@ The code layout and the rules every change follows are in [CODING_STANDARDS.md](
 
 The official Nord Lead 2X manual and factory banks are not included; download them from the [Nord legacy downloads page](https://www.nordkeyboards.com/legacy-products/nord-lead-2x/downloads/).
 
-## License
+## License and trademarks
 
-[GNU AGPLv3](LICENSE).
+NL2X Editor is free software under the [GNU AGPLv3](LICENSE), with no warranty. It is built with [JUCE](https://juce.com), used under the AGPLv3.
 
-Not affiliated with or endorsed by Clavia DMI AB. Nord and Nord Lead are trademarks of Clavia DMI AB.
+Nord, Nord Lead and Clavia are trademarks of Clavia DMI AB. NL2X Editor is an independent project, not affiliated with or endorsed by Clavia DMI AB. VST is a trademark of Steinberg Media Technologies GmbH.
